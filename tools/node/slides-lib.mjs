@@ -1,10 +1,10 @@
 // Shared helpers for the slide-deck scripts (slides-check, slides-build, slides-new) and the
 // Slidev theme's Vite plugin (theme/slides/setup/vite-plugins.ts).
 //
-// Layout (docs/ARCHITECTURE.md §2):
-//   books/<slug>/slides/<deck>/slides.md         Chinese edition (zh, the default)
-//   books/<slug>/slides/<deck>/slides.en.md      English edition
-//   books/<slug>/slides/<deck>/slides.<lang>.md  any further edition language of the book
+// Layout (docs/ARCHITECTURE.md §2), the same as tools/tbook/slides.py:
+//   books/<slug>/slides/<deck>/slides.md         the book's first language (book.toml editions[0], zh by default)
+//   books/<slug>/slides/<deck>/slides.<lang>.md  every other edition language of the book (e.g. slides.en.md)
+// slides.<first language>.md is not an edition (slides.md would shadow it; the checks report it).
 // Directories whose name starts with "_" or "." are ignored.
 //
 // Adapted from chrono-company-slides scripts/lib.mjs (Apache-2.0, The Omega Institute / Chrono AI).
@@ -19,7 +19,7 @@ export const BOOKS = join(ROOT, 'books');
 export const THEME_DIR = join(ROOT, 'theme', 'slides');
 export const TEMPLATES = join(ROOT, 'templates', 'slides');
 export const LOCK_FILE = join(ROOT, 'trureturing.lock.json');
-export const DEFAULT_LANG = 'zh';
+export const PRIMARY_FILE = 'slides.md'; // the edition of the book's first language
 export const DECK_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const LANG_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]+)*$/;
 const toPosix = (p) => p.split(sep).join('/');
@@ -291,11 +291,14 @@ export const GID_RE = /^D[0-9]+\/S[0-9]+\/(?:[A-Za-z_][A-Za-z0-9_]*\/)*[A-Za-z_]
 
 // --------------------------------------------------------------------------- decks
 
-export const editionFile = (lang) => (lang === DEFAULT_LANG ? 'slides.md' : `slides.${lang}.md`);
-export function langOfFile(name) {
-  if (name === 'slides.md') return DEFAULT_LANG;
+// `book` is anything with `languages` (the book's edition languages, the first one owning slides.md).
+export const primaryLang = (book) => book.languages[0];
+export const editionFile = (book, lang) => (lang === primaryLang(book) ? PRIMARY_FILE : `slides.${lang}.md`);
+// The edition language of a deck file, or null when it is not an edition (slides.<first language>.md is not).
+export function langOfFile(book, name) {
+  if (name === PRIMARY_FILE) return primaryLang(book) ?? null;
   const m = /^slides\.([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\.md$/.exec(name);
-  return m ? m[1] : null;
+  return m && m[1] !== primaryLang(book) ? m[1] : null;
 }
 
 // The `theme:` value every deck must use: the relative path from the deck to theme/slides.
@@ -311,7 +314,7 @@ export function deckNames(book) {
 // Languages present in a deck directory, the book's own order first.
 export function deckLangs(book, deck) {
   const dir = join(book.slidesDir, deck);
-  const found = readdirSync(dir).map(langOfFile).filter(Boolean);
+  const found = [...new Set(readdirSync(dir).map((n) => langOfFile(book, n)).filter(Boolean))];
   const rank = (l) => (book.languages.includes(l) ? book.languages.indexOf(l) : book.languages.length);
   return found.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
@@ -320,7 +323,7 @@ export function deckLangs(book, deck) {
 export async function readEdition(book, deck, lang) {
   const { parseSync } = await import('@slidev/parser');
   const dir = join(book.slidesDir, deck);
-  const file = join(dir, editionFile(lang));
+  const file = join(dir, editionFile(book, lang));
   const md = readFileSync(file, 'utf8');
   const all = parseSync(md, file).slides;
   // Slidev drops slides marked hide/disabled from the presentation and the PDF.
@@ -345,11 +348,11 @@ export async function readEdition(book, deck, lang) {
 }
 
 // Publication paths, shared with tools/tbook/slides.py (keep in sync):
-//   site:  _site/<slug>/slides/<deck>/        primary language (zh)
+//   site:  _site/<slug>/slides/<deck>/        the book's first language
 //          _site/<slug>/slides/<deck>/<lang>/ every other language
 //          _site/<slug>/slides/<deck>/<slug>-<deck>-<lang>.pdf
 //   build: build/slides/<slug>/<deck>/<lang>/ and build/slides/<slug>/<deck>-<lang>.pdf
-export const sitePathOf = (deck, lang) => (lang === DEFAULT_LANG ? `${deck}/` : `${deck}/${lang}/`);
+export const sitePathOf = (book, deck, lang) => (lang === primaryLang(book) ? `${deck}/` : `${deck}/${lang}/`);
 export const pdfName = (slug, deck, lang) => `${slug}-${deck}-${lang}.pdf`;
 export const buildPdfName = (deck, lang) => `${deck}-${lang}.pdf`;
 
@@ -362,7 +365,7 @@ export function basePath(baseUrl) {
   return p.endsWith('/') ? p : p + '/';
 }
 
-export const deckBase = (base, slug, deck, lang) => `${basePath(base)}${slug}/slides/${sitePathOf(deck, lang)}`;
+export const deckBase = (base, book, deck, lang) => `${basePath(base)}${book.slug}/slides/${sitePathOf(book, deck, lang)}`;
 
 // --------------------------------------------------------------------------- slidev
 

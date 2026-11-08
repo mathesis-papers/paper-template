@@ -1,8 +1,10 @@
 """Tests for tbook.slides (run: PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_slides.py').
 
-Most tests are pure Python. Tests that compare with Slidev's own parser or scaffold a deck need Node
-and node_modules (``npm ci``) and are skipped otherwise; the end-to-end ``cli new`` test also needs
-the trureturing checkout ($TRURETURING_DIR or ../trureturing) for ``./tbook check --offline``.
+Most tests are pure Python. Tests that compare with Slidev's own parser, run tools/node/slides-*.mjs or
+scaffold a deck need Node and node_modules (``npm ci``) and are skipped otherwise; the end-to-end
+``cli new`` test also needs the trureturing checkout ($TRURETURING_DIR or ../trureturing) for
+``./tbook check --offline``. Tests on books/example-monograph skip when a books repository has removed
+it; the others use scratch books and a fake lock.
 """
 
 from __future__ import annotations
@@ -23,11 +25,60 @@ from tbook import config, lean, paths, slides
 ROOT = paths.ROOT
 EXAMPLE = paths.BOOKS / "example-monograph"
 DECK = EXAMPLE / "slides" / "overview"
+HAVE_EXAMPLE = (DECK / "slides.md").is_file()
+needs_example = unittest.skipUnless(HAVE_EXAMPLE, "books/example-monograph (with its overview deck) is not in this repository")
 NODE = shutil.which("node")
 HAVE_NODE = bool(NODE) and (ROOT / "node_modules" / "@slidev" / "parser").is_dir()
+HAVE_UNO = HAVE_NODE and (ROOT / "node_modules" / "unocss").is_dir()
 GID_3V = "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"
 GID_INT = "D5/S1/Deficit/DeficitInteger.deficit_integer"
 GID_DEF = "D5/S1/Deficit/DeficitInteger.deficit"
+
+# A fake lock for the scratch-book tests: one Lean theorem, one Lean def.
+FAKE_THM = "D5/S1/Fake/FakeModule.fake_theorem"
+FAKE_DEF = "D5/S1/Fake/FakeModule.fake_def"
+FAKE_DECLS = {gid: {"module": "D5/S1/Fake/FakeModule", "name": f"D5.S1.Fake.{gid.rsplit('.', 1)[1]}", "kind": kind,
+                    "statement_id": "sha256:0", "line": 1, "signature": ""}
+              for gid, kind in ((FAKE_THM, "theorem"), (FAKE_DEF, "def"))}
+
+
+def fake_lock() -> lean.Lock:
+    return lean.Lock(repo="o/trureturing", branch="dev", commit="0" * 40, declarations=dict(FAKE_DECLS))
+
+
+def make_book(parent: Path, slug: str, editions: list[str]) -> config.Book:
+    """A minimal book (book.toml only) at parent/slug."""
+    bdir = parent / slug
+    bdir.mkdir(parents=True)
+    titles = "\n".join(f'{lang} = "Book {lang}"' for lang in editions)
+    (bdir / "book.toml").write_text(f'[book]\nversion = "0.1.0"\neditions = {json.dumps(editions)}\ncode = "S//B"\n\n'
+                                    f"[book.title]\n{titles}\n", encoding="utf-8")
+    return config.load_book(bdir)
+
+
+def fake_build(book: config.Book, out: Path, *, deck: str = "d1", pdfs: tuple[str, ...] = ()) -> Path:
+    """A fake slides build (build/slides/<slug>/ layout and manifest) of `deck`; PDFs only for `pdfs`."""
+    base = slides.base_path(config.load_site())
+    langs = {}
+    for lang in book.languages:
+        (out / deck / lang).mkdir(parents=True)
+        (out / deck / lang / "index.html").write_text(f"<title>{lang}</title>", encoding="utf-8")
+        pdf = slides.build_pdf_name(deck, lang) if lang in pdfs else ""
+        if pdf:
+            (out / pdf).write_bytes(b"%PDF-1.7 fake")
+        langs[lang] = {"dir": f"{deck}/{lang}/", "site_path": slides.site_path(book, deck, lang), "base": base,
+                       "pdf": pdf, "pdf_name": slides.pdf_name(book, deck, lang)}
+    (out / "manifest.json").write_text(json.dumps({"schema": slides.MANIFEST_SCHEMA, "base": base,
+                                                   "decks": {deck: {"langs": langs}}}), encoding="utf-8")
+    return out
+
+
+def deck_head(theme: str, lang: str, **over) -> str:
+    """Headmatter of a valid one-slide edition in `lang` (cover layout)."""
+    fields = {"theme": theme, "title": f'"T {lang}"', "bcp": f'"{config.bcp47(lang)}"', "version": '"0.1.0"'}
+    fields.update(over)
+    return (f"---\ntheme: {fields['theme']}\ntitle: {fields['title']}\nhtmlAttrs:\n  lang: {fields['bcp']}\n"
+            f"deck:\n  code: \"G//O\"\n  title: \"t\"\n  version: {fields['version']}\nlayout: cover\n---\n\n# cover\n")
 
 
 def node_parse(text: str) -> list[dict]:
@@ -108,9 +159,10 @@ class SplitTest(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_NODE, "node and node_modules/@slidev/parser needed")
     def test_matches_slidev_parser(self):
-        texts = [TRICKY, (DECK / "slides.md").read_text(encoding="utf-8"),
-                 (DECK / "slides.en.md").read_text(encoding="utf-8"),
-                 (ROOT / "templates" / "slides" / "slides.md").read_text(encoding="utf-8").replace("{{THEME}}", "x")]
+        texts = [TRICKY] + [p.read_text(encoding="utf-8").replace("{{THEME}}", "x")
+                            for p in sorted((ROOT / "templates" / "slides").glob("slides*.md"))]
+        if HAVE_EXAMPLE:
+            texts += [(DECK / "slides.md").read_text(encoding="utf-8"), (DECK / "slides.en.md").read_text(encoding="utf-8")]
         for text in texts:
             mine = slides.split_slides(text)
             theirs = node_parse(text)
@@ -164,19 +216,38 @@ class YamlTest(unittest.TestCase):
 
 
 class ConventionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tbook-slides-conv-"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
     def test_files_and_paths(self):
-        self.assertEqual(slides.edition_file("zh"), "slides.md")
-        self.assertEqual(slides.edition_file("en"), "slides.en.md")
-        self.assertEqual(slides.edition_file("ja"), "slides.ja.md")
-        self.assertEqual(slides.lang_of_file("slides.md"), "zh")
-        self.assertEqual(slides.lang_of_file("slides.en.md"), "en")
-        self.assertIsNone(slides.lang_of_file("notes.md"))
-        self.assertEqual(slides.site_path("overview", "zh"), "overview/")
-        self.assertEqual(slides.site_path("overview", "en"), "overview/en/")
+        book = make_book(self.tmp, "zh-first", ["zh", "en", "ja"])
+        self.assertEqual(slides.edition_file(book, "zh"), "slides.md")
+        self.assertEqual(slides.edition_file(book, "en"), "slides.en.md")
+        self.assertEqual(slides.edition_file(book, "ja"), "slides.ja.md")
+        self.assertEqual(slides.lang_of_file(book, "slides.md"), "zh")
+        self.assertEqual(slides.lang_of_file(book, "slides.en.md"), "en")
+        self.assertIsNone(slides.lang_of_file(book, "notes.md"))
+        self.assertEqual(slides.site_path(book, "overview", "zh"), "overview/")
+        self.assertEqual(slides.site_path(book, "overview", "en"), "overview/en/")
         self.assertEqual(slides.build_pdf_name("overview", "en"), "overview-en.pdf")
-        book = config.load_book("example-monograph")
-        self.assertEqual(slides.pdf_name(book, "overview", "zh"), "example-monograph-overview-zh.pdf")
-        self.assertEqual(slides.theme_ref(DECK), "../../../../theme/slides")
+        self.assertEqual(slides.pdf_name(book, "overview", "zh"), "zh-first-overview-zh.pdf")
+        self.assertEqual(slides.theme_ref(paths.BOOKS / "any-book" / "slides" / "overview"), "../../../../theme/slides")
+
+    def test_first_language_owns_slides_md(self):
+        """slides.md is the book's first language, whichever it is; slides.<first>.md is no edition."""
+        zh_first = make_book(self.tmp, "zh-first", ["zh", "en"])
+        en_first = make_book(self.tmp, "en-first", ["en", "zh"])
+        self.assertIsNone(slides.lang_of_file(zh_first, "slides.zh.md"))
+        self.assertEqual(slides.edition_file(en_first, "en"), "slides.md")
+        self.assertEqual(slides.edition_file(en_first, "zh"), "slides.zh.md")
+        self.assertEqual(slides.lang_of_file(en_first, "slides.md"), "en")
+        self.assertEqual(slides.lang_of_file(en_first, "slides.zh.md"), "zh")
+        self.assertIsNone(slides.lang_of_file(en_first, "slides.en.md"))
+        self.assertEqual(slides.site_path(en_first, "overview", "en"), "overview/")
+        self.assertEqual(slides.site_path(en_first, "overview", "zh"), "overview/zh/")
 
     def test_base_path(self):
         site = config.load_site()
@@ -191,6 +262,7 @@ class ConventionTest(unittest.TestCase):
         self.assertEqual(slides.t("fr", "present"), "Present online")
 
 
+@needs_example
 class ExampleDeckTest(unittest.TestCase):
     def setUp(self):
         self.book = config.load_book("example-monograph")
@@ -238,6 +310,7 @@ def _ctx(book, lang, target):
                            issues=[], book_files=set(), book_prefix="_book")
 
 
+@needs_example
 class EmbedTest(unittest.TestCase):
     def setUp(self):
         self.book = config.load_book("example-monograph")
@@ -278,6 +351,7 @@ class EmbedTest(unittest.TestCase):
         self.assertTrue(ctx.issues)
 
 
+@needs_example
 class BrokenDeckTest(unittest.TestCase):
     """check() on a scratch copy of the example book with deliberately broken decks."""
 
@@ -300,7 +374,7 @@ class BrokenDeckTest(unittest.TestCase):
                 f"deck:\n  code: \"G//O\"\n  title: \"t\"\n  version: {fields['version']}\nlayout: cover\n---\n\n# cover\n")
 
     def write(self, lang: str, text: str) -> None:
-        (self.deck / slides.edition_file(lang)).write_text(text, encoding="utf-8")
+        (self.deck / slides.edition_file(config.load_book(self.bdir), lang)).write_text(text, encoding="utf-8")
 
     def issues(self) -> list[str]:
         return [i.message for i in slides.check(config.load_book(self.bdir))]
@@ -371,6 +445,7 @@ class BrokenDeckTest(unittest.TestCase):
         self.assertIn("index.html", msgs)
 
 
+@needs_example
 class PublishTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="tbook-slides-pub-"))
@@ -386,7 +461,7 @@ class PublishTest(unittest.TestCase):
             (d / "assets" / "a.js").write_text("//", encoding="utf-8")
             (self.out / f"overview-{lang}.pdf").write_bytes(b"%PDF-1.7 fake")
             langs[lang] = {"title": lang, "info": "", "blurb": "", "slides": 10, "dir": f"overview/{lang}/",
-                           "site_path": slides.site_path("overview", lang), "base": base,
+                           "site_path": slides.site_path(self.book, "overview", lang), "base": base,
                            "pdf": f"overview-{lang}.pdf", "pdf_name": slides.pdf_name(self.book, "overview", lang)}
         (self.out / "manifest.json").write_text(json.dumps(
             {"schema": slides.MANIFEST_SCHEMA, "book": self.book.slug, "base": base, "decks": {"overview": {"langs": langs}}}),
@@ -424,6 +499,7 @@ class PublishTest(unittest.TestCase):
                 slides.publish(self.site, self.book, self.tmp / "s", build_missing=False)
 
 
+@needs_example
 @unittest.skipUnless(HAVE_NODE, "node and node_modules needed")
 class CliNewTest(unittest.TestCase):
     """./tbook slides new in a scratch repository root, then ./tbook check on it."""
@@ -467,6 +543,233 @@ class CliNewTest(unittest.TestCase):
             r = self.tbook("check", "--offline", "--book", "bk")
             slide_errors = [line for line in r.stdout.splitlines() if "slides/intro" in line]
             self.assertEqual(slide_errors, [], r.stdout)
+
+
+class ScratchDeckCase(unittest.TestCase):
+    """A scratch book with one deck d1 (no example book needed) and the fake lock."""
+
+    EDITIONS = ["zh", "en"]
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tbook-slides-scratch-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.book = make_book(self.tmp, "scratch-book", self.EDITIONS)
+        self.deck = self.book.slides_dir / "d1"
+        self.deck.mkdir(parents=True)
+        p = mock.patch.object(lean.Lock, "load", return_value=fake_lock())
+        p.start()
+        self.addCleanup(p.stop)
+
+    def head(self, lang: str, **over) -> str:
+        return deck_head(slides.theme_ref(self.deck), lang, **over)
+
+    def write(self, lang: str, text: str) -> None:
+        (self.deck / slides.edition_file(self.book, lang)).write_text(text, encoding="utf-8")
+
+    def issues(self) -> list[str]:
+        return [i.message for i in slides.check(config.load_book(self.book.dir))]
+
+
+class FirstLanguageTest(ScratchDeckCase):
+    """Finding: slides.md is the book's first language; slides.<first>.md is reported, not shadowed."""
+
+    EDITIONS = ["en", "zh"]
+
+    def write_both(self, body: str = "") -> None:
+        self.write("en", self.head("en") + body)
+        self.write("zh", self.head("zh") + body)
+
+    def test_english_first_book(self):
+        self.write_both(f'\n---\n\n<LeanBadge gid="{FAKE_THM}" />\n')
+        self.assertEqual(sorted(p.name for p in self.deck.iterdir()), ["slides.md", "slides.zh.md"])
+        self.assertEqual(self.issues(), [])
+        self.assertEqual(slides.deck_langs(self.book, "d1"), ["en", "zh"])
+        self.assertEqual(slides.read_edition(self.book, "d1", "en").head["htmlAttrs"]["lang"], "en")
+        self.assertEqual(slides.read_edition(self.book, "d1", "zh").path.name, "slides.zh.md")
+        (it,) = slides.items(self.book)
+        self.assertEqual(it["languages"], ["en", "zh"])
+        self.assertEqual(it["href"], {"en": "slides/d1/", "zh": "slides/d1/zh/"})
+        self.assertIsNone(slides.check_ref(self.book, "d1"))
+
+    def test_first_language_file_is_reported(self):
+        self.write_both()
+        (self.deck / "slides.en.md").write_text(self.head("en"), encoding="utf-8")
+        msgs = self.issues()
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("en is the book's first language, whose edition is slides.md", msgs[0])
+        self.assertEqual(slides.deck_langs(self.book, "d1"), ["en", "zh"])  # no duplicate, nothing shadowed
+
+    def test_zh_named_file_in_a_chinese_first_book(self):
+        zh_first = make_book(self.tmp, "zh-book", ["zh", "en"])
+        d = zh_first.slides_dir / "d1"
+        d.mkdir(parents=True)
+        theme = slides.theme_ref(d)
+        (d / "slides.md").write_text(deck_head(theme, "zh"), encoding="utf-8")
+        (d / "slides.en.md").write_text(deck_head(theme, "en"), encoding="utf-8")
+        (d / "slides.zh.md").write_text(deck_head(theme, "zh"), encoding="utf-8")
+        msgs = [i.message for i in slides.check(zh_first)]
+        self.assertTrue(any("zh is the book's first language" in m for m in msgs), msgs)
+        self.assertEqual(slides.deck_langs(zh_first, "d1"), ["zh", "en"])
+        self.assertEqual([it["languages"] for it in slides.items(zh_first)], [["zh", "en"]])
+
+    def test_english_first_publish_layout(self):
+        self.write_both()
+        out = fake_build(self.book, self.tmp / "build", pdfs=("en",))
+        site_dir = self.tmp / "_site" / "slides"
+        with mock.patch.object(slides, "build_dir", lambda book: out):
+            slides.publish(config.load_site(), self.book, site_dir, build_missing=False)
+        self.assertIn("<title>en</title>", (site_dir / "d1" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("<title>zh</title>", (site_dir / "d1" / "zh" / "index.html").read_text(encoding="utf-8"))
+        self.assertTrue((site_dir / "d1" / "scratch-book-d1-en.pdf").is_file())
+        index = (site_dir / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="d1/"', index)
+        self.assertIn('href="d1/zh/"', index)
+        self.assertIn("scratch-book-d1-en.pdf", index)
+        self.assertNotIn("scratch-book-d1-zh.pdf", index)  # built without the zh PDF
+
+
+class PublishedPdfLinkTest(ScratchDeckCase):
+    """Finding: with a PDF-less slides build (TBOOK_SLIDES_NO_PDF=1), chapter cards must not link PDFs
+    that are never published, even when the chapters were built (with the link) before."""
+
+    def test_unpublished_pdf_links_are_removed(self):
+        self.write("zh", self.head("zh"))
+        self.write("en", self.head("en"))
+        out = fake_build(self.book, self.tmp / "build", pdfs=("zh",))  # the en PDF was not built
+        book_site = self.tmp / "_site"
+        env = SimpleNamespace(attrs={"src": "d1"}, kind="slides")
+        pages = {}
+        for lang, rel in (("zh", "ch01.html"), ("en", "ch01.html"), ("en", "part/ch02.html"), ("en", "print.html")):
+            doc = SimpleNamespace(path=Path("x.md"), chapter=SimpleNamespace(path=rel.replace(".html", ".md")))
+            card = slides.render_embed(env, _ctx(self.book, lang, "mdbook"), "", doc)
+            card = card.replace(" download>", ' download="">')  # as mdBook writes it
+            page = book_site / lang / rel
+            page.parent.mkdir(parents=True, exist_ok=True)
+            page.write_text(card + '\n<a href="../downloads/book.pdf">book</a>\n', encoding="utf-8")
+            pages[(lang, rel)] = page
+        with mock.patch.object(slides, "build_dir", lambda book: out):
+            slides.publish(config.load_site(), self.book, book_site / "slides", build_missing=False)
+        zh = pages[("zh", "ch01.html")].read_text(encoding="utf-8")
+        self.assertIn('href="../slides/d1/scratch-book-d1-zh.pdf"', zh)
+        self.assertTrue((book_site / "slides" / "d1" / "scratch-book-d1-zh.pdf").is_file())
+        for rel in ("ch01.html", "part/ch02.html", "print.html"):
+            en = pages[("en", rel)].read_text(encoding="utf-8")
+            self.assertNotIn("scratch-book-d1-en.pdf", en, rel)
+            self.assertIn("slides/d1/en/", en)  # the other links stay
+            self.assertIn("downloads/book.pdf", en)
+        self.assertFalse((book_site / "slides" / "d1" / "scratch-book-d1-en.pdf").exists())
+
+
+class CitationSpellingTest(ScratchDeckCase):
+    """Finding: green LEAN ✓ only for Lean theorems; kebab-case component tags are checked too."""
+
+    def test_vue_spellings_resolve_to_the_components(self):
+        found, _ = slides.citations(
+            '<lean-badge gid="A" /> <leanBadge gid="B"/> <theorem-card label="x" gid="C">s</theorem-card>\n'
+            '<Lean-Badge gid="D" /> <lean-badge-x gid="E" /> <LeanBadgeX gid="F" /> <leanbadge gid="G" />')
+        self.assertEqual([(c.tag, c.gid) for c in found],
+                         [("LeanBadge", "A"), ("LeanBadge", "B"), ("TheoremCard", "C"), ("LeanBadge", "D")])
+        self.assertEqual(slides.component("theorem-card"), "TheoremCard")
+
+    def test_kebab_case_and_non_theorems_are_checked(self):
+        body = ('\n---\n\n<lean-badge gid="D5/S9/Fake/Nope.not_locked" />\n'
+                f'<theorem-card label="x" gid="{FAKE_DEF}">\n\ns\n\n</theorem-card>\n'
+                f'<LeanBadge gid="{FAKE_DEF}" />\n'
+                f'<leanBadge gid="{FAKE_THM}" />\n'
+                f'<lean-badge kind="definition" gid="{FAKE_DEF}" />\n'
+                f'<TheoremCard kind="definition" label="d" gid="{FAKE_DEF}">\n\ns\n\n</TheoremCard>\n')
+        self.write("zh", self.head("zh") + body)
+        self.write("en", self.head("en") + body)
+        msgs = self.issues()
+        want = {"D5/S9/Fake/Nope.not_locked is not in trureturing.lock.json",
+                f'{FAKE_DEF} is a Lean def; a TheoremCard must cite a theorem (or say kind="definition")',
+                f'{FAKE_DEF} is a Lean def; a LeanBadge must cite a theorem (or say kind="definition")'}
+        self.assertEqual(len(msgs), 6, msgs)  # three per edition
+        for w in want:
+            self.assertEqual(sum(w in m for m in msgs), 2, (w, msgs))
+        self.assertIn("D5/S9/Fake/Nope.not_locked", {g for _, _, g in slides.cited_gids(self.book)})
+
+    def test_slide_imports_are_rejected(self):
+        body = "\n---\nsrc: ./more.md\n---\n"
+        self.write("zh", self.head("zh") + body)
+        self.write("en", self.head("en") + body)
+        msgs = self.issues()
+        self.assertEqual(len(msgs), 2, msgs)
+        self.assertTrue(all("src: imports slides from another file" in m for m in msgs), msgs)
+
+
+@unittest.skipUnless(HAVE_UNO, "node and node_modules (@slidev/parser, unocss) needed")
+class NodeScriptsTest(unittest.TestCase):
+    """tools/node/slides-check.mjs and slides-new.mjs in a scratch repository root (TBOOK_ROOT)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tbook-slides-node-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        for name in ("theme", "templates", "tools", "node_modules"):
+            (self.tmp / name).symlink_to(ROOT / name)
+        (self.tmp / "site.toml").write_text('[site]\ntitle = "t"\nlanguages = ["zh", "en"]\n', encoding="utf-8")
+        self.env = dict(os.environ, TBOOK_ROOT=str(self.tmp))
+
+    def node(self, script: str, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([NODE, str(ROOT / "tools" / "node" / script), *args], cwd=self.tmp, env=self.env,
+                              capture_output=True, text=True)
+
+    def book(self, editions: list[str]) -> Path:
+        (self.tmp / "trureturing.lock.json").write_text(json.dumps(
+            {"schema": lean.LOCK_SCHEMA, "repo": "o/trureturing", "branch": "dev", "commit": "0" * 40,
+             "declarations": FAKE_DECLS}), encoding="utf-8")
+        return make_book(self.tmp / "books", "bk", editions).dir
+
+    def test_check_without_decks_succeeds(self):
+        r = self.node("slides-check.mjs")  # no books/, no lock
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("0 deck(s)", r.stdout)
+        (self.tmp / "books").mkdir()
+        make_book(self.tmp / "books", "plain", ["zh", "en"])
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_check_first_language_and_citations(self):
+        deck = self.book(["en", "zh"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        theme = "../../../../theme/slides"
+        good = f'\n---\n\n<leanBadge gid="{FAKE_THM}" />\n<TheoremCard kind="definition" label="d" gid="{FAKE_DEF}">\n\ns\n\n</TheoremCard>\n'
+        (deck / "slides.md").write_text(deck_head(theme, "en") + good, encoding="utf-8")
+        (deck / "slides.zh.md").write_text(deck_head(theme, "zh") + good, encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("books/bk/slides/d1/slides.md: en", r.stdout)
+        self.assertIn("books/bk/slides/d1/slides.zh.md: zh", r.stdout)
+
+        bad = ('\n---\n\n<lean-badge gid="D5/S9/Fake/Nope.not_locked" />\n'
+               f'<theorem-card label="x" gid="{FAKE_DEF}">\n\ns\n\n</theorem-card>\n<LeanBadge gid="{FAKE_DEF}" />\n'
+               '\n---\nsrc: ./more.md\n---\n')
+        (deck / "slides.md").write_text(deck_head(theme, "en") + bad, encoding="utf-8")
+        (deck / "slides.zh.md").write_text(deck_head(theme, "zh") + bad, encoding="utf-8")
+        (deck / "slides.en.md").write_text(deck_head(theme, "en"), encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for want in ["slides.en.md: en is the book's first language, whose edition is slides.md",
+                     "D5/S9/Fake/Nope.not_locked is not in trureturing.lock.json",
+                     f'{FAKE_DEF} is a Lean def; a TheoremCard must cite a theorem',
+                     f'{FAKE_DEF} is a Lean def; a LeanBadge must cite a theorem',
+                     "src: imports slides from another file"]:
+            self.assertIn(want, r.stderr)
+
+    def test_new_deck_in_an_english_first_book(self):
+        self.book(["en", "zh"])
+        r = self.node("slides-new.mjs", "bk", "intro", "入门", "Getting started")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        deck = self.tmp / "books" / "bk" / "slides" / "intro"
+        self.assertEqual(sorted(p.name for p in deck.iterdir()), ["slides.md", "slides.zh.md"])
+        en = (deck / "slides.md").read_text(encoding="utf-8")
+        zh = (deck / "slides.zh.md").read_text(encoding="utf-8")
+        self.assertIn('lang: "en"', en)
+        self.assertIn("Getting started", en)
+        self.assertIn('lang: "zh-CN"', zh)
+        self.assertIn("入门", zh)
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

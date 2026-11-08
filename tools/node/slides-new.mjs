@@ -3,16 +3,16 @@
 //   node tools/node/slides-new.mjs <book> <deck> "<中文标题>" ["<English title>"]
 //   (also: ./tbook slides new <book> <deck> "<中文标题>" "<English title>")
 //
-// Creates books/<book>/slides/<deck>/ with one edition per language of the book: slides.md (zh,
-// from templates/slides/slides.md), slides.en.md (en, from templates/slides/slides.en.md) and, for any
-// other language, slides.<lang>.md from the template of that name or else the English one (with the
-// English title, to be translated). Headmatter is filled from book.toml: theme path, book code, book
-// title, version and the language's BCP 47 tag.
+// Creates books/<book>/slides/<deck>/ with one edition per language of the book: slides.md for the
+// book's first language (book.toml editions[0]) and slides.<lang>.md for every other language. Each is
+// filled from the template of its language, templates/slides/slides.<lang>.md (zh and en exist), or else
+// the English one (with the English title, to be translated). Headmatter is filled from book.toml: theme
+// path, book code, book title, version and the language's BCP 47 tag.
 //
 // Adapted from chrono-company-slides scripts/new.mjs (Apache-2.0).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { DECK_RE, DEFAULT_LANG, ROOT, TEMPLATES, bcp47, editionFile, loadBook, pick, themeRef, toPosix } from './slides-lib.mjs';
+import { DECK_RE, ROOT, TEMPLATES, bcp47, editionFile, loadBook, pick, themeRef, toPosix } from './slides-lib.mjs';
 
 const USAGE = 'usage: node tools/node/slides-new.mjs <book> <deck> "<中文标题>" ["<English title>"]';
 const [slug, deck, zhTitle, enTitle, ...extra] = process.argv.slice(2);
@@ -47,10 +47,11 @@ if (existsSync(dir)) {
 
 const yaml = (s) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 const html = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\{/g, '&#123;'); // { : no Vue interpolation
-const titleFor = (lang) => (lang === DEFAULT_LANG ? zhTitle : enTitle || zhTitle);
+const titleFor = (lang) => (lang === 'zh' ? zhTitle : enTitle || zhTitle);
 
+// Templates are named by language (templates/slides/slides.<lang>.md), whichever language a book puts first.
 function template(lang) {
-  for (const name of [editionFile(lang), lang === DEFAULT_LANG ? 'slides.md' : 'slides.en.md']) {
+  for (const name of [`slides.${lang}.md`, 'slides.en.md']) {
     const file = join(TEMPLATES, name);
     if (existsSync(file)) return readFileSync(file, 'utf8');
   }
@@ -74,10 +75,10 @@ for (const lang of book.languages) {
     CODE_HTML: html(book.code),
   };
   const md = template(lang).replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
-  const file = join(dir, editionFile(lang));
+  const file = join(dir, editionFile(book, lang));
   writeFileSync(file, md);
   made.push(toPosix(relative(ROOT, file)));
 }
 console.log(`created ${made.join(', ')}`);
 console.log(`preview: npx slidev ${made[0]}   check: ./tbook check   build: ./tbook build slides --book ${slug}`);
-if (!enTitle && book.languages.some((l) => l !== DEFAULT_LANG)) console.log('note: no English title given; the Chinese title was used, translate it in the other editions');
+if (!enTitle && book.languages.some((l) => l !== 'zh')) console.log('note: no English title given; the Chinese title was used, translate it in the other editions');

@@ -273,6 +273,7 @@ ul.plain.tight li { margin-bottom: 8px; }
   white-space: nowrap;
 }
 .tr-badge-lean { --c: var(--tr-sem-lean); box-shadow: var(--tr-fx-glow-ok); }
+.tr-badge-defined { --c: var(--tr-sem-theory); } /* a Lean definition: neutral, never the verified green */
 .tr-badge-open { --c: var(--tr-sem-open); }
 .tr-badge-argued { --c: var(--tr-sem-argued); }
 .tr-badge-unverified { --c: var(--tr-sem-open); background: color-mix(in srgb, var(--tr-sem-open) 24%, transparent); border-style: dashed; }
@@ -285,7 +286,7 @@ ul.plain.tight li { margin-bottom: 8px; }
 }
 .tr-thm-open, .tr-thm-unverified { --c: var(--tr-sem-open); }
 .tr-thm-argued { --c: var(--tr-sem-argued); }
-.tr-thm-def.tr-thm-lean { --c: var(--tr-sem-theory); }
+.tr-thm-defined { --c: var(--tr-sem-theory); }
 .tr-thm > .tr-thm-head::before {
   content: "";
   position: absolute;

@@ -6,21 +6,22 @@
 
     </TheoremCard>
   Props: label (kind and number, as the book prints it), title, gid (Lean GID; must be in
-  trureturing.lock.json), status ('open' for an open problem, 'argued' for an unverified argument),
-  kind ('definition' for a definition card: cyan rule, the GID may name a Lean def), cite (the id of
-  the matching environment in the book, e.g. thm-deficit; ./tbook check then verifies that label and
-  GID agree with the book). The statement goes in the default slot (Markdown and KaTeX work when it is
+  trureturing.lock.json and name a Lean theorem), status ('open' for an open problem, 'argued' for an
+  unverified argument), kind ('definition' for a definition card: neutral cyan rule and LEAN DEF badge,
+  never the green LEAN ✓; the GID may name a Lean def and the footer links it), cite (the id of the
+  matching environment in the book, e.g. thm-deficit; ./tbook check then verifies that label and GID
+  agree with the book). The statement goes in the default slot (Markdown and KaTeX work when it is
   separated by blank lines; keep it unindented).
 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import LeanBadge from './LeanBadge.vue'
-import { leanInfo } from '../lean'
+import { leanInfo, leanState } from '../lean'
 import { t } from '../i18n'
 
 const props = defineProps<{ label?: string, title?: string, gid?: string, status?: 'open' | 'argued', kind?: string, cite?: string }>()
 const info = computed(() => leanInfo(props.gid))
-const state = computed(() => props.status ?? (info.value.locked ? 'lean' : 'unverified'))
+const state = computed(() => leanState(info.value, props.status, props.kind))
 const kindClass = computed(() => props.kind === 'definition' ? 'tr-thm-def' : '')
 </script>
 
@@ -29,7 +30,7 @@ const kindClass = computed(() => props.kind === 'definition' ? 'tr-thm-def' : ''
     <header class="tr-thm-head">
       <span class="tr-thm-label">{{ props.label }}</span>
       <span v-if="props.title" class="tr-thm-title">{{ props.title }}</span>
-      <LeanBadge :gid="props.gid" :status="props.status" />
+      <LeanBadge :gid="props.gid" :status="props.status" :kind="props.kind" />
     </header>
     <div class="tr-thm-body"><slot /></div>
     <footer class="tr-thm-decl">

@@ -1,6 +1,6 @@
 # slidev-theme-trureturing · 演示文稿主题
 
-Slidev 53 主题（chrono-company-slides 方案的赛博朋克版本）。每份演示文稿在 `books/<slug>/slides/<deck>/`：`slides.md`（中文，默认）、`slides.en.md`（英文），逐页对应，headmatter 写 `theme: ../../../../theme/slides`。
+Slidev 53 主题（chrono-company-slides 方案的赛博朋克版本）。每份演示文稿在 `books/<slug>/slides/<deck>/`：`slides.md` 是书的第一语言（`book.toml` 的 `editions` 第一项，默认中文），其他语言各一个 `slides.<lang>.md`（如 `slides.en.md`），逐页对应，headmatter 写 `theme: ../../../../theme/slides`。不要再建 `slides.<第一语言>.md`（它会被 `slides.md` 遮蔽，检查会报错），也不要用 `src:` 从别的文件导入幻灯片（检查读不到导入的页面，会报错）。
 
 ```bash
 ./tbook slides new <book> <deck> "<中文标题>" "<English title>"   # 从 templates/slides/ 新建
@@ -37,18 +37,18 @@ node tools/node/slides-check.mjs                                 # 同上（Node
 
 | 组件 | 用法 |
 | --- | --- |
-| `<LeanBadge gid="<GID>" />` | 绿色 `LEAN ✓`（链接到所钉提交上的 Lean 源码），仅当 `trureturing.lock.json` 中有该 GID；否则红色 `UNVERIFIED`。`status="open"` → 红色 `OPEN`；`status="argued"` → 紫色 `ARGUED`。 |
-| `<TheoremCard label="定理1.3" title="…" gid="<GID>" cite="thm-…">` | 定理卡：编号、标题、徽章、陈述（默认插槽，前后空一行，可写 Markdown 与 `$…$`）、Lean 名。`cite` 指向书中的环境 id，`./tbook check` 据此核对编号与 GID。`kind="definition"` 用于定义；`status="open"` 用于开放问题（不得带 `gid`）。 |
+| `<LeanBadge gid="<GID>" />` | 绿色 `LEAN ✓`（链接到所钉提交上的 Lean 源码），仅当 `trureturing.lock.json` 把该 GID 解析为 Lean `theorem`；锁文件中没有的 GID 显示红色 `UNVERIFIED`。`kind="definition"` → 青色 `LEAN DEF`（Lean 定义，中性样式，不是“已验证”）。`status="open"` → 红色 `OPEN`；`status="argued"` → 紫色 `ARGUED`。 |
+| `<TheoremCard label="定理1.3" title="…" gid="<GID>" cite="thm-…">` | 定理卡：编号、标题、徽章、陈述（默认插槽，前后空一行，可写 Markdown 与 `$…$`）、Lean 名。`cite` 指向书中的环境 id，`./tbook check` 据此核对编号与 GID。`kind="definition"` 用于定义：`gid` 可以是 Lean 定义，卡片为青色中性样式与 `LEAN DEF`，从不显示绿色 `LEAN ✓`；`status="open"` 用于开放问题（不得带 `gid`）。 |
 | `<Stat value="4" label="…" tone="ok" />` | 大号数字。`tone`：`cyan`（默认）、`magenta`、`ok`、`warn`、`violet`、`amber`。 |
 | `<Source>…</Source>` | 页面底部的出处行。 |
 | `<Tex t="\beta(n)" />`、`<Tex display t="…" />` | HTML 块里的 KaTeX（HTML 块中 `$…$` 不会被处理）。 |
 | `<PageNo />` | 自带版式页面的“当前页 / 总页数”。 |
 
-GID 只能引用锁文件中已有的声明：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。
+GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除非写了 `kind="definition"`：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。组件写成 `<lean-badge>`、`<theorem-card>` 等 Vue 认可的其他写法时同样受检查。
 
 ## 样式类（`styles/deck.css`）
 
-`.body`（正文区，`.center` 垂直居中）、`.kicker`、`.display`、`h2.t`（`em` 高亮；`em.warn`、`em.ok`、`em.magenta`）、`.lead`、`.card`（`.hot`、`.ok`、`.warn`、`.violet`）、`.tile`（`.now` 表示“当前”）、`.flow > .step`（`.ok`）、`.readout`（`dt`/`dd`，`dd.cy`、`dd.hot`）、`.g2`/`.g3`/`.g4`/`.g6`/`.split`/`.row`、`ul.plain`、`table.t`、`.eq`、`.mono`、`.muted`、`.dim`、`.sm`、`.xs`、`.hl-cyan`/`.hl-ok`/`.hl-warn`/`.hl-violet`/`.hl-amber`/`.hl-magenta`、`.mt-s`/`.mt`/`.mt-l`。不要用 `c-*`、`mt` 等与 UnoCSS 工具类同名的类（检查会报出）。
+`.body`（正文区，`.center` 垂直居中）、`.kicker`、`.display`、`h2.t`（`em` 高亮；`em.warn`、`em.ok`、`em.magenta`）、`.lead`、`.card`（`.hot`、`.ok`、`.warn`、`.violet`）、`.tile`（`.now` 表示“当前”）、`.flow > .step`（`.ok`）、`.readout`（`dt`/`dd`，`dd.cy`、`dd.hot`）、`.g2`/`.g3`/`.g4`/`.g6`/`.split`/`.row`、`ul.plain`、`table.t`、`.eq`、`.mono`、`.muted`、`.dim`、`.sm`、`.xs`、`.hl-cyan`/`.hl-ok`/`.hl-warn`/`.hl-violet`/`.hl-amber`/`.hl-magenta`、`.mt-s`/`.mt`/`.mt-l`。其中与 UnoCSS 工具类同名的主题类（`mt`、`mb-0`、`grow`）已列入 `uno.config.ts` 的 `blocklist`，可以放心使用。不要自创与 UnoCSS 工具类同名的类（如 `c-*`、`p-4`）：`node tools/node/slides-check.mjs` 会报出不在 `blocklist` 中的冲突；确需新增主题类时，同时把它加入 `blocklist`。
 
 ## 界面文字
 

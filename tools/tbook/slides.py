@@ -2,14 +2,14 @@
 
 Layout::
 
-    books/<slug>/slides/<deck>/slides.md          Chinese edition (zh, the default)
-    books/<slug>/slides/<deck>/slides.en.md       English edition
-    books/<slug>/slides/<deck>/slides.<lang>.md   any other edition language of the book
+    books/<slug>/slides/<deck>/slides.md          the book's first language (book.toml editions[0], zh by default)
+    books/<slug>/slides/<deck>/slides.<lang>.md   every other edition language of the book (e.g. slides.en.md)
 
-Every deck has one file per language of the book, page for page. The shared Slidev theme is
-``theme/slides`` (``theme: ../../../../theme/slides`` in the headmatter); its components
-``<LeanBadge gid>`` and ``<TheoremCard gid>`` show the green LEAN ✓ only for GIDs that
-``trureturing.lock.json`` resolves.
+Every deck has one file per language of the book, page for page; ``slides.<first language>.md`` is an
+error (``slides.md`` would shadow it). The shared Slidev theme is ``theme/slides``
+(``theme: ../../../../theme/slides`` in the headmatter); its components ``<LeanBadge gid>`` and
+``<TheoremCard gid>`` (also written ``<lean-badge>``, ``<theorem-card>``) show the green LEAN ✓ only
+for GIDs that ``trureturing.lock.json`` resolves to a Lean theorem.
 
 This module is the Python side of the scheme (``tbook.check``, ``tbook.render`` and ``tbook.build``
 call it); the Node side lives in ``tools/node/slides-*.mjs``:
@@ -22,8 +22,9 @@ call it); the Node side lives in ``tools/node/slides-*.mjs``:
 * :func:`build` — ``slides-build.mjs``: ``slidev build`` per deck and language into
   ``build/slides/<slug>/<deck>/<lang>/``, browser checks, ``slidev export`` to
   ``build/slides/<slug>/<deck>-<lang>.pdf`` with a page-count check;
-* :func:`publish` — copy the built decks into ``_site/<slug>/slides/`` (zh at ``<deck>/``, other
-  languages at ``<deck>/<lang>/``, PDFs at ``<deck>/<slug>-<deck>-<lang>.pdf``) plus an index page;
+* :func:`publish` — copy the built decks into ``_site/<slug>/slides/`` (the first language at
+  ``<deck>/``, other languages at ``<deck>/<lang>/``, PDFs at ``<deck>/<slug>-<deck>-<lang>.pdf``)
+  plus an index page;
 * :func:`cli` — ``./tbook slides new <book> <deck> "<中文标题>" "<English title>"`` and ``list``.
 """
 
@@ -45,7 +46,7 @@ from urllib.parse import urlparse
 from . import config, lean, paths
 from .model import OPEN, Issue
 
-DEFAULT_LANG = "zh"
+PRIMARY_FILE = "slides.md"  # the edition of the book's first language
 DECK_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FILE_RE = re.compile(r"^slides\.([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\.md$")
 MANIFEST = "manifest.json"
@@ -91,21 +92,24 @@ def esc(text: Any) -> str:
 # --------------------------------------------------------------------------- file conventions
 
 
-def edition_file(lang: str) -> str:
-    """``slides.md`` for zh, ``slides.<lang>.md`` otherwise."""
-    return "slides.md" if lang == DEFAULT_LANG else f"slides.{lang}.md"
+def edition_file(book: config.Book, lang: str) -> str:
+    """``slides.md`` for the book's first language, ``slides.<lang>.md`` for every other language."""
+    return PRIMARY_FILE if lang == book.languages[0] else f"slides.{lang}.md"
 
 
-def lang_of_file(name: str) -> str | None:
-    if name == "slides.md":
-        return DEFAULT_LANG
+def lang_of_file(book: config.Book, name: str) -> str | None:
+    """The edition language of a deck file, or None when the file is not an edition. ``slides.<first
+    language>.md`` is not one: that language's edition is ``slides.md`` (:func:`check` reports it)."""
+    if name == PRIMARY_FILE:
+        return book.languages[0]
     m = FILE_RE.match(name)
-    return m.group(1) if m else None
+    return m.group(1) if m and m.group(1) != book.languages[0] else None
 
 
-def site_path(deck: str, lang: str) -> str:
-    """Path of an edition under ``_site/<slug>/slides/``: ``<deck>/`` or ``<deck>/<lang>/``."""
-    return f"{deck}/" if lang == DEFAULT_LANG else f"{deck}/{lang}/"
+def site_path(book: config.Book, deck: str, lang: str) -> str:
+    """Path of an edition under ``_site/<slug>/slides/``: ``<deck>/`` for the book's first language,
+    ``<deck>/<lang>/`` for the others."""
+    return f"{deck}/" if lang == book.languages[0] else f"{deck}/{lang}/"
 
 
 def pdf_name(book: config.Book, deck: str, lang: str) -> str:
@@ -134,7 +138,7 @@ def base_path(site: config.Site) -> str:
 
 def public_url(site: config.Site, book: config.Book, deck: str, lang: str) -> str:
     """Absolute URL of an edition on the published site ('' when the site has no base_url)."""
-    url = site.book_url(book.slug, "slides", site_path(deck, lang))
+    url = site.book_url(book.slug, "slides", site_path(book, deck, lang))
     return url + "/" if url and not url.endswith("/") else url
 
 
@@ -154,7 +158,7 @@ def deck_langs(book: config.Book, deck: str) -> list[str]:
     d = book.slides_dir / deck
     if not d.is_dir():
         return []
-    found = [lang for lang in (lang_of_file(p.name) for p in d.iterdir() if p.is_file()) if lang]
+    found = {lang for lang in (lang_of_file(book, p.name) for p in d.iterdir() if p.is_file()) if lang}
     order = {lang: i for i, lang in enumerate(book.languages)}
     return sorted(found, key=lambda lang: (order.get(lang, len(order)), lang))
 
@@ -497,7 +501,9 @@ def count_slides(text: str) -> int:
 # --------------------------------------------------------------------------- decks
 
 
-_TAG_RE = re.compile(r"<(LeanBadge|TheoremCard)\b((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
+# Every start tag; :func:`component` keeps those Vue resolves to a citing component.
+_TAG_RE = re.compile(r"<([A-Za-z][\w-]*)(?=[\s/>])((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
+COMPONENTS = ("LeanBadge", "TheoremCard")
 _ATTR_RE = re.compile(r"([:@]?[\w.-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'))?")
 _FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[^\n]*$", re.M)
 _ABS_LINK_RES = (
@@ -514,11 +520,22 @@ class Citation:
     attrs: dict[str, Any]
 
 
+def component(tag: str) -> str:
+    """The component name a template tag resolves to, as Vue resolves it (``capitalize(camelize(tag))``):
+    ``lean-badge`` and ``leanBadge`` are ``LeanBadge``."""
+    name = re.sub(r"-(\w)", lambda m: m.group(1).upper(), tag)
+    return name[:1].upper() + name[1:]
+
+
 def citations(content: str) -> tuple[list[Citation], list[str]]:
-    """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide, in order, and problems found."""
+    """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide (in any spelling Vue accepts, e.g.
+    ``<lean-badge>``), in order, and problems found. ``Citation.tag`` is the PascalCase name."""
     out: list[Citation] = []
     problems: list[str] = []
     for m in _TAG_RE.finditer(_FENCE_RE.sub("", content)):
+        tag = component(m.group(1))
+        if tag not in COMPONENTS:
+            continue
         attrs: dict[str, Any] = {}
         for a in _ATTR_RE.finditer(m.group(2)):
             attrs[a.group(1)] = a.group(2) if a.group(2) is not None else (a.group(3) if a.group(3) is not None else True)
@@ -529,7 +546,7 @@ def citations(content: str) -> tuple[list[Citation], list[str]]:
                 gid = lit.group(2)
             else:
                 problems.append(f"<{m.group(1)} :gid=\"{attrs[':gid']}\">: write gid as a literal string so it can be checked")
-        out.append(Citation(m.group(1), gid.strip() if isinstance(gid, str) else "", attrs))
+        out.append(Citation(tag, gid.strip() if isinstance(gid, str) else "", attrs))
     return out, problems
 
 
@@ -560,13 +577,16 @@ class DeckEdition:
 
 
 def read_edition(book: config.Book, deck: str, lang: str) -> DeckEdition:
-    path = book.slides_dir / deck / edition_file(lang)
+    path = book.slides_dir / deck / edition_file(book, lang)
     all_slides = split_slides(path.read_text(encoding="utf-8"))
     head = all_slides[0].frontmatter if all_slides else {}
     ed = DeckEdition(lang=lang, path=path, slides=[s for s in all_slides if not s.hidden], head=head)
     for s in all_slides:
         if s.error:
             ed.issues.append(f"slide {s.index} (line {s.line}): frontmatter: {s.error}")
+        if "src" in s.frontmatter:
+            ed.issues.append(f"slide {s.index} (line {s.line}): src: imports slides from another file, which the "
+                             "checks (Lean citations, page-for-page parity) do not read; write the slides in this file")
     return ed
 
 
@@ -598,8 +618,8 @@ def check_ref(book: config.Book, src: str) -> str | None:
     if not d.is_dir():
         return f"slides src={src!r}: books/{book.slug}/slides/{src}/ not found (create it: ./tbook slides new {book.slug} {src} \"<中文标题>\" \"<English title>\")"
     primary = book.languages[0]
-    if not (d / edition_file(primary)).is_file():
-        return f"slides src={src!r}: books/{book.slug}/slides/{src}/{edition_file(primary)} not found"
+    if not (d / edition_file(book, primary)).is_file():
+        return f"slides src={src!r}: books/{book.slug}/slides/{src}/{edition_file(book, primary)} not found"
     return None
 
 
@@ -634,17 +654,22 @@ def check(book: config.Book) -> list[Issue]:
         if (d / "index.html").exists():
             err(d / "index.html", 0, "Slidev merges a deck's index.html into every page; delete it")
         langs = deck_langs(book, deck)
+        primary = book.languages[0]
         for p in sorted(d.glob("slides.*.md")):
-            if not lang_of_file(p.name):
-                err(p, 0, "not an edition file: use slides.md (zh) or slides.<lang>.md")
+            if p.name == f"slides.{primary}.md":
+                err(p, 0, f"{primary} is the book's first language, whose edition is {PRIMARY_FILE}; this file is "
+                          f"never read (move its slides into {PRIMARY_FILE} and delete it)")
+            elif not lang_of_file(book, p.name):
+                err(p, 0, f"not an edition file: use {PRIMARY_FILE} ({primary}, the book's first language) "
+                          "or slides.<lang>.md")
         for lang in langs:
             if lang not in book.languages:
-                err(d / edition_file(lang), 0,
+                err(d / edition_file(book, lang), 0,
                     f"{lang!r} is not an edition of this book (book.toml editions: {', '.join(book.languages)})")
         for lang in book.languages:
             if lang not in langs:
-                err(d, 0, f"deck {deck!r} has no {edition_file(lang)}: every deck has an edition for each language "
-                          f"of the book ({', '.join(book.languages)}), page for page")
+                err(d, 0, f"deck {deck!r} has no {edition_file(book, lang)}: every deck has an edition for each "
+                          f"language of the book ({', '.join(book.languages)}; {PRIMARY_FILE} is {primary}), page for page")
         eds = [read_edition(book, deck, lang) for lang in book.languages if lang in langs]
         if not eds:
             continue
@@ -727,8 +752,9 @@ def _check_citation(c: Citation, ed: DeckEdition, s: Slide, lock: lean.Lock | No
     if res is None:
         err(ed.path, s.line, f"{c.gid} is not in trureturing.lock.json; slides may only cite declarations the lock "
                              "resolves (cite it in the book, then ./tbook pin --refresh)")
-    elif c.tag == "TheoremCard" and c.attrs.get("kind") != "definition" and res.kind not in lean.FORMAL_KINDS:
-        err(ed.path, s.line, f'{c.gid} is a Lean {res.kind}; a TheoremCard must cite a theorem (or say kind="definition")')
+    elif c.attrs.get("kind") != "definition" and res.kind not in lean.FORMAL_KINDS:
+        # LEAN ✓ means a kernel-checked theorem; a definition gets the neutral badge only with kind="definition"
+        err(ed.path, s.line, f'{c.gid} is a Lean {res.kind}; a {c.tag} must cite a theorem (or say kind="definition")')
 
 
 def _check_cite(c: Citation, ed: DeckEdition, s: Slide, model, err) -> None:
@@ -775,7 +801,7 @@ def items(book: config.Book) -> list[dict[str, Any]]:
             "blurb": {lang: str(ed.meta.get("blurb") or "") for lang, ed in eds.items()},
             "version": str(primary.meta.get("version") or ""),
             "slides": primary.count,
-            "href": {lang: f"slides/{site_path(deck, lang)}" for lang in langs},
+            "href": {lang: f"slides/{site_path(book, deck, lang)}" for lang in langs},
             "pdf": {lang: f"slides/{deck}/{pdf_name(book, deck, lang)}" for lang in langs},
             "pdf_name": {lang: pdf_name(book, deck, lang) for lang in langs},
             "url": {lang: public_url(site, book, deck, lang) for lang in langs},
@@ -795,7 +821,10 @@ def _deck_for_lang(book: config.Book, deck: str, lang: str) -> str | None:
 
 
 def render_embed(env, ctx, inner: str, doc) -> str:
-    """Replace ``::: {.slides src="<deck>"}``: a link card for mdBook, a short block for Pandoc."""
+    """Replace ``::: {.slides src="<deck>"}``: a link card for mdBook, a short block for Pandoc.
+
+    The card always links the deck's PDF; :func:`publish` removes that link from the published page
+    when the PDF was not built (whether it is depends on the slides build, which may run later)."""
     src = (env.attrs.get("src") or "").strip()
     lang = ctx.lang
     inner = inner.strip("\n")
@@ -817,7 +846,7 @@ def render_embed(env, ctx, inner: str, doc) -> str:
                               f'<p class="tr-media-kind">{esc(kind)}</p>',
                               f'<p><strong class="tr-media-title">{esc(src)}</strong> · {esc(t(lang, "not_built"))}</p>',
                               "", inner, "", "</aside>"])
-        href = f"{up}slides/{site_path(src, deck_lang)}"
+        href = f"{up}slides/{site_path(book, src, deck_lang)}"
         pdf = f"{up}slides/{src}/{pdf_name(book, src, deck_lang)}"
         meta = f"{esc(kind)} · {esc(t(lang, 'pages', n=count))}"
         if deck_lang != lang:
@@ -837,7 +866,7 @@ def render_embed(env, ctx, inner: str, doc) -> str:
         return "\n".join(parts)
     # pandoc (PDF / EPUB): the title, the caption and the public URL (absolute; empty base_url → site path)
     url = public_url(ctx.site, book, src, deck_lang or lang)
-    where = f"<{url}>" if url else f"`{book.slug}/slides/{site_path(src, deck_lang or lang)}`"
+    where = f"<{url}>" if url else f"`{book.slug}/slides/{site_path(book, src, deck_lang or lang)}`"
     sep = "" if lang.startswith(("zh", "ja")) else " "
     head = f"**{kind} · {title}**"
     if count:
@@ -909,7 +938,9 @@ def _stale(book: config.Book, out_dir: Path, manifest: dict[str, Any] | None, ba
 def publish(site: config.Site, book: config.Book, site_dir: Path, *, build_missing: bool = True) -> list[dict[str, Any]]:
     """Copy the built decks into ``site_dir`` (``_site/<slug>/slides/``) and write its ``index.html``.
 
-    zh goes to ``<deck>/``, other languages to ``<deck>/<lang>/``, PDFs to ``<deck>/<slug>-<deck>-<lang>.pdf``.
+    The book's first language goes to ``<deck>/``, other languages to ``<deck>/<lang>/``, PDFs to
+    ``<deck>/<slug>-<deck>-<lang>.pdf``; chapter pages already in ``site_dir.parent/<lang>/`` lose their
+    links to PDFs that were not built.
     Decks not built yet (or built for another base path) are built first unless ``build_missing`` is
     False, in which case a RuntimeError names the problem. Returns :func:`items` for the published decks.
     """
@@ -946,7 +977,26 @@ def publish(site: config.Site, book: config.Book, site_dir: Path, *, build_missi
     for it in published:
         it["built_pdf"] = {lang: (site_dir / it["id"] / it["pdf_name"][lang]).is_file() for lang in it["languages"]}
     (site_dir / "index.html").write_text(index_html(site, book, published), encoding="utf-8")
+    _drop_unpublished_pdf_links(book, site_dir.parent, published)
     return published
+
+
+def _drop_unpublished_pdf_links(book: config.Book, book_site: Path, decks: list[dict[str, Any]]) -> None:
+    """Remove chapter-card links (:func:`render_embed`) to deck PDFs that were not published, e.g. after a
+    ``TBOOK_SLIDES_NO_PDF=1`` slides build. The site assembler copies the book's HTML to
+    ``_site/<slug>/<lang>/`` before it publishes the slides, so the pages are already there."""
+    missing = [f"slides/{it['id']}/{it['pdf_name'][lang]}" for it in decks for lang in it["languages"]
+               if not it["built_pdf"].get(lang)]
+    if not missing:
+        return
+    link = re.compile(r'<a\b[^>]*\bhref="(?:\.\./)*(?:' + "|".join(re.escape(m) for m in missing) + r')"[^>]*>[^<]*</a>')
+    for lang in book.languages:
+        root = book_site / lang
+        for page in sorted(root.rglob("*.html")) if root.is_dir() else []:
+            text = page.read_text(encoding="utf-8")
+            new = link.sub("", text)
+            if new != text:
+                page.write_text(new, encoding="utf-8")
 
 
 def index_html(site: config.Site, book: config.Book, decks: list[dict[str, Any]]) -> str:
@@ -971,7 +1021,7 @@ def index_html(site: config.Site, book: config.Book, decks: list[dict[str, Any]]
     for d in decks:
         rows = []
         for lang in d["languages"]:
-            links = [f'<a href="{esc(site_path(d["id"], lang))}">{esc(t(lang, "present"))} ↗</a>']
+            links = [f'<a href="{esc(site_path(book, d["id"], lang))}">{esc(t(lang, "present"))} ↗</a>']
             if d.get("built_pdf", {}).get(lang, True):
                 links.append(f'<a href="{esc(d["id"])}/{esc(d["pdf_name"][lang])}" download>{esc(t(lang, "pdf"))}</a>')
             rows.append(f'<p class="links" lang="{esc(config.bcp47(lang))}"><span class="ln">'
