@@ -314,7 +314,7 @@ ATX_RE = re.compile(r"^(?P<indent> {0,3})(?P<hashes>#{1,6})(?P<rest>(?:[ \t].*)?
 ATTR_TAIL_RE = re.compile(r"\s*\{(?P<attrs>[^{}]*)\}\s*$")
 CLOSING_HASHES_RE = re.compile(r"(?:^|\s+)#+\s*$")
 SETEXT_RE = re.compile(r"^ {0,3}(?P<ch>=+|-+)[ \t]*$")
-REFDEF_RE = re.compile(r"^(?P<lead> {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*)(?P<url><[^>]*>|\S+)(?P<rest>.*)$")
+REFDEF_RE = mdscan.REFDEF_RE  # a line that only defines a link reference (CommonMark)
 NOT_PARAGRAPH_RE = re.compile(r"^(?: {4,}|\s*$|\s*[#>|<]|\s*:{3,}|\s*[-*+][ \t]|\s*\d+[.)][ \t]|\s*(?:`{3,}|~{3,}))")
 SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 # Pandoc footnote labels: no whitespace, "^", "[" or "]".
@@ -797,7 +797,7 @@ def stage(site: config.Site, book: config.Book, edition: config.Edition, model: 
             kv["epub:type"] = "appendix"
         path = posixpath.normpath(ch.path)
         pieces.append(restructure_chapter(scope_footnotes(md, cid), chapter_path=ch.path, depth=ch.depth,
-                                          chapter_id=cid, title=ch.title, classes=classes, kv=kv, linker=linker,
+                                          chapter_id=cid, title=ch.title_md or ch.title, classes=classes, kv=kv, linker=linker,
                                           heading_ids=heading_ids.by_line.get(path)))
         heads = [h for h in find_headings(pieces[-1]) if h.attrs and h.attrs.id == cid]
         result.chapters.append(StagedChapter(path=ch.path, id=cid, section=ch.section, depth=ch.depth,

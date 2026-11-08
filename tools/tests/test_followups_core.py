@@ -16,7 +16,7 @@ import unittest
 from unittest import mock
 
 from tbook import check, config, doctor, html, lean, mathrender, mdscan, model, paths, render, site
-from test_core import (GID_3V, GID_INT, CoreRepo, FakeLedger, lock_decls, make_lock, media_stub, messages,
+from test_core import (GID_3V, GID_DEF, GID_INT, CoreRepo, FakeLedger, lock_decls, make_lock, media_stub, messages,
                        write)
 
 EXAMPLE = paths.BOOKS / "example-monograph"
@@ -58,7 +58,7 @@ class TitleReferenceTests(unittest.TestCase):
             lem = m.envs["lem-b"]
             self.assertEqual(m.title_text(lem), "定理1.1 的推论 `[@thm-a]`", "code spans stay as written")
             self.assertEqual(m.title_text(m.envs["thm-a"]), "Base")
-            self.assertEqual(m.title_text(lem, ref=lambda t, text: f"<{t.id}:{text}>"),
+            self.assertEqual(m.title_markdown(lem, ref=lambda t, text: f"<{t.id}:{text}>"),
                              "<thm-a:定理1.1> 的推论 `[@thm-a]`")
             self.assertEqual(lem.heading("zh", m.title_text(lem)), "引理1.2（定理1.1 的推论 `[@thm-a]`）")
 
@@ -412,6 +412,86 @@ class DoctorBranchTests(unittest.TestCase):
             doctor.check_trureturing(doctor.Report(), "r@c")
         access.assert_called_once()
         branch.assert_called_once()
+
+
+# --------------------------------------------------------------------------- re-review (markdown-render)
+
+
+class LeanLinkCitationTests(unittest.TestCase):
+    """Re-review 6: a GID cited only in a reference definition ``[x]: lean:GID`` or an angle
+    destination ``(<lean:GID>)`` is checked against the lock and pinned like an inline link."""
+
+    TEXT = f"""\
+# A
+
+见 [该定理][lt] 与 [另一个](<lean:{GID_INT}>)。
+
+[lt]: lean:{GID_DEF}
+[bad]: <lean:no-gid-here>
+"""
+
+    def book(self, repo: CoreRepo):
+        return repo.book(langs=("zh",), summaries={"zh": "- [A](a.md)\n"}, files={"zh": {"a.md": self.TEXT}})
+
+    def test_check_and_pin_cover_every_form(self):
+        from tbook import pin
+
+        with CoreRepo() as repo:
+            book = self.book(repo)
+            self.assertEqual(pin.cited_gids([book]), sorted([GID_DEF, GID_INT]))
+            m = model.load_edition(book.primary)
+            issues: list[model.Issue] = []
+            check.check_env_policy(m, issues)
+            self.assertEqual([(i.line, i.message.split(" (")[0]) for i in issues],
+                             [(6, "not a declaration GID: 'no-gid-here'")])
+            lock = make_lock(lock_decls(**{GID_DEF: None, GID_INT: None}))
+            issues = []
+            with mock.patch.object(lean, "Ledger", lambda r, **kw: FakeLedger()):
+                check.check_lean({"demo": {"zh": m}}, lock, config.load_site(), issues, offline=True)
+            self.assertEqual(sorted((i.line, i.message) for i in issues if i.severity == "error"), [
+                (3, f"{GID_INT} is not in trureturing.lock.json; run ./tbook pin --refresh"),
+                (5, f"{GID_DEF} is not in trureturing.lock.json; run ./tbook pin --refresh"),
+            ])
+            issues = []
+            with mock.patch.object(lean, "Ledger", lambda r, **kw: FakeLedger()):
+                check.check_lean({"demo": {"zh": m}}, make_lock(), config.load_site(), issues, offline=True)
+            self.assertEqual(messages(issues, "error"), [], "a def cited by a link is fine")
+
+
+class CommentCheckTests(unittest.TestCase):
+    """Re-review 9: ``./tbook check`` ignores what HTML comments hold, as every target does."""
+
+    def test_commented_placeholders_are_not_reported(self):
+        text = ("# A\n\n<!--\n![图 3](../assets/fig3.svg) [@todo] [x](lean:not-a-gid)\n-->\n\n"
+                "<!-- ![图 4](fig4.svg) [@todo2] --> ![图](../assets/fig.svg)\n")
+        with CoreRepo() as repo:
+            book = repo.book(langs=("zh",), summaries={"zh": "- [A](a.md)\n"}, files={"zh": {"a.md": text}})
+            m = model.load_edition(book.primary)
+            issues: list[model.Issue] = list(m.issues)
+            check.check_env_policy(m, issues)
+            check.check_links(m, config.load_site(), issues)
+            self.assertEqual([i.format() for i in issues], [])
+
+
+class TitleEscapeSiteTests(unittest.TestCase):
+    """Re-review 4/5: the site shows titles as plain text, with Markdown escapes undone outside math."""
+
+    def test_site_titles_unescape(self):
+        summaries = {"zh": "- [C\\*-代数 与 snake\\_case](ch01.md)\n", "en": "- [C\\*-algebras](ch01.md)\n"}
+        with CoreRepo() as repo:
+            book = title_book(repo)
+            for lang, text in summaries.items():
+                write(book.edition(lang).summary, text)
+            ch01 = book.edition("zh").dir / "ch01.md"
+            ch01.write_text(ch01.read_text(encoding="utf-8").replace('title="Base"', 'title="C\\*-代数 与 \\$5 与 $\\{x\\}$"'),
+                            encoding="utf-8")
+            bdir = repo.root / "_site" / book.slug
+            with mock.patch.object(site, "_media_module", lambda part: None):
+                view = site.collect(config.load_site(), book, bdir, make_lock())
+            ver = site.verification_html(view, "zh", "zh")
+            self.assertIn('<span class="ttl">C*-代数 与 $5 与 $\\{x\\}$</span>', ver)
+            toc = site.toc_html(view, "zh", "zh")
+            self.assertIn('<span class="t-title">C*-代数 与 snake_case</span>', toc)
 
 
 if __name__ == "__main__":

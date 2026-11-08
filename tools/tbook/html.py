@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import config, ledger, mathrender, paths, render
+from . import config, ledger, mathrender, mdscan, paths, render
 from .model import EditionModel, load_edition
 
 MDBOOK_THEME = paths.THEME / "mdbook"
@@ -257,7 +257,10 @@ def book_toml(site: config.Site, book: config.Book, edition: config.Edition,
 
 
 def _escape_title(title: str) -> str:
-    return re.sub(r"([\\\[\]])", r"\\\1", title)
+    """A plain chapter title (``Chapter.title``) as SUMMARY.md link text that mdBook reads back as
+    exactly ``title``: every ASCII punctuation character is backslash-escaped (mdBook knows no math,
+    so TeX backslashes are doubled too). Inverse of ``tbook.summary._unescape``."""
+    return mdscan.escape_markdown(title)
 
 
 def _summary_link(title: str, path: str | None) -> str:

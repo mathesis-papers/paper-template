@@ -5,15 +5,20 @@ Input (produced by tools/tbook/render.py `pandoc_env`, see docs/ARCHITECTURE.md 
 
   :::::: {#thm-x .tr-env .theorem tr-kind="theorem" tr-status="lean" tr-label="定理"
           tr-number="1.2" tr-ref="定理 1.2" tr-title="…" tr-badge="LEAN ✓"
+          tr-badge-title="tooltip" tr-badge-url="URL" tr-unverified="1"
           tr-lean="GID …" tr-lean-name="Lean 名 …" tr-lean-url="URL …"}
   content
   ::::::
+
+`tr-badge-url` is present only when the badge links (a LEAN ✓ badge, to the first
+declaration); `tr-unverified` marks a formal result the lock does not back (red UNVERIFIED
+badge, never a link, while the footer still links each declaration the lock resolves).
 
 Output per FORMAT:
 
 * typst — raw Typst calling functions of theme/typst/book.typ:
     #tr-env(kind: "theorem", status: "lean", ref: "定理 1.2", title: [...], badge: "LEAN ✓",
-            lean: ((gid: "…", name: "…", url: "…"),), id: "thm-x")[content] <thm-x>
+            badge-url: "…", lean: ((gid: "…", name: "…", url: "…"),), id: "thm-x")[content] <thm-x>
   so that internal links `#link(<thm-x>)` written by Pandoc resolve to Typst labels.
   Proofs become #tr-proof(label: "证明")[…] with an inline label and a ∎ at the end.
 * html / html5 / epub / epub3 — semantic XHTML:
@@ -26,10 +31,10 @@ Output per FORMAT:
 * anything else — a portable AST fallback (bold heading paragraph, content, Lean links).
 
 `tr-title` is parsed as Markdown inlines (it may contain $math$). Strings that are not
-carried by the div (title punctuation, the Lean footer label, badge tooltips) come from
-document metadata set by tools/tbook/pandoc.py: tr-punct-open, tr-punct-close,
-tr-lean-label, tr-badge-lean-title, tr-badge-open-title, and tr-tex-macros (the book's
-\newcommand definitions, applied to math in titles).
+carried by the div (title punctuation, the Lean footer label, fallback badge tooltips when
+`tr-badge-title` is absent) come from document metadata set by tools/tbook/pandoc.py:
+tr-punct-open, tr-punct-close, tr-lean-label, tr-badge-lean-title, tr-badge-open-title, and
+tr-tex-macros (the book's \newcommand definitions, applied to math in titles).
 ]]
 
 local stringify = pandoc.utils.stringify
@@ -167,6 +172,7 @@ local function render_typst(div, a)
     "ref: " .. typst_str(a["tr-ref"]),
     "title: " .. typst_content(parse_inlines(a["tr-title"])),
     "badge: " .. typst_str(a["tr-badge"]),
+    "badge-url: " .. typst_str(a["tr-badge-url"]),
     "lean: " .. typst_lean(lean_entries(a)),
     "id: " .. typst_str(id),
   }
@@ -181,7 +187,9 @@ end
 local function render_html(div, a)
   local kind = a["tr-kind"] or ""
   local status = a["tr-status"] or ""
+  local unverified = (a["tr-unverified"] or "") ~= ""
   local classes = { "section", "tr-env", "tr-" .. kind, "tr-status-" .. status }
+  if unverified then classes[#classes + 1] = "tr-unverified" end
   local attr = pandoc.Attr(div.identifier, classes, { { "data-kind", kind } })
 
   if kind == "proof" then
@@ -202,16 +210,15 @@ local function render_html(div, a)
   local leans = lean_entries(a)
   local badge = a["tr-badge"] or ""
   if badge ~= "" then
-    local cls = status == "lean" and "tr-badge-lean" or "tr-badge-open"
-    local tip = status == "lean" and META.badge_lean_title or META.badge_open_title
-    local first = leans[1] and leans[1].url or ""
-    local battr = pandoc.Attr("", { "tr-badge", cls })
-    if first ~= "" then
-      head:insert(pandoc.Space())
-      head:insert(pandoc.Link({ pandoc.Str(badge) }, first, tip, battr))
+    local classes = { "tr-badge", status == "lean" and "tr-badge-lean" or "tr-badge-open" }
+    if unverified then classes[#classes + 1] = "tr-badge-unverified" end
+    local tip = a["tr-badge-title"] or (status == "lean" and META.badge_lean_title or META.badge_open_title)
+    local url = a["tr-badge-url"] or ""  -- only a LEAN ✓ badge links; UNVERIFIED never does
+    head:insert(pandoc.Space())
+    if url ~= "" then
+      head:insert(pandoc.Link({ pandoc.Str(badge) }, url, tip, pandoc.Attr("", classes)))
     else
-      head:insert(pandoc.Space())
-      head:insert(pandoc.Span({ pandoc.Str(badge) }, pandoc.Attr("", { "tr-badge", cls }, { { "title", tip } })))
+      head:insert(pandoc.Span({ pandoc.Str(badge) }, pandoc.Attr("", classes, { { "title", tip } })))
     end
   end
 

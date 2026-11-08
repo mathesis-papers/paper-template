@@ -5,8 +5,9 @@ chapter's Markdown for one target:
 
 * ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`); in an
   environment title → ``定理2.1`` (a ``[定理2.1](#id)`` link for Pandoc, :func:`env_title`);
-* ``[text](lean:GID)`` → a permalink to the declaration's Lean source at the pinned commit
-  (just the text when the lock does not resolve the GID);
+* ``[text](lean:GID)`` (also ``<lean:GID>`` and a reference definition ``[x]: lean:GID``) → a
+  permalink to the declaration's Lean source at the pinned commit (just the text when the lock
+  does not resolve the GID; a reference definition gets ``#``);
 * links/images (inline, ``<…>`` destinations, reference definitions) that point into the
   book directory outside the edition (``../assets/x.svg``) → percent-encoded paths into the
   staged copy ``_book/…`` (files collected in ``ctx.book_files``); ``<…>`` destinations are
@@ -18,7 +19,7 @@ chapter's Markdown for one target:
 * media divs (``viz``/``film``/``slides``) → whatever ``tbook.<kind>.render_embed`` returns.
 
 Every renderer uses :func:`env_view`, so numbering, labels, badges and Lean links agree
-across HTML, PDF and EPUB.
+across HTML, PDF and EPUB. Code spans and HTML comments are left alone (tbook.mdscan).
 """
 
 from __future__ import annotations
@@ -35,10 +36,13 @@ from typing import Callable
 from . import config, lean, mdscan
 from .model import FORMAL, MEDIA, ChapterDoc, EditionModel, Env
 
-# ``url`` is the destination as written: ``<…>`` (may contain spaces) or a plain one.
-LINK_RE = re.compile(r"(?P<bang>!?)\[(?P<text>(?:`[^`]*`|\\.|[^\]\\])*)\]\((?P<url><[^<>\n]*>|[^)\s]+)(?P<title>\s+\"[^\"]*\")?\)")
-# A link reference definition ``[label]: url "title"`` (footnotes ``[^x]:`` are excluded by the caller).
-REFDEF_RE = re.compile(r"^(?P<lead> {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*)(?P<url><[^<>\n]*>|\S+)(?P<rest>.*)$")
+# Inline links/images and link reference definitions, as every reader of links sees them (tbook.mdscan).
+LINK_RE = mdscan.LINK_RE
+REFDEF_RE = mdscan.REFDEF_RE
+# ``[label]:`` followed by text on the same line. Unless REFDEF_RE accepts it, CommonMark (mdBook) reads
+# it as a paragraph, but Pandoc's Markdown takes a URL of several words (``[1]: Knuth, TAOCP.`` or
+# ``[注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is escaped so every target shows it.
+_REFDEF_LIKE_RE = re.compile(r"^(?P<indent> {0,3})\[(?!\^)(?:[^\]\\]|\\.)+\]:[ \t]*\S")
 EXTERNAL_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|#|/)", re.I)
 # Characters a plain (non ``<…>``) destination cannot hold, and those a decoded file path
 # must also escape to stay one path.
@@ -156,23 +160,48 @@ def _env_doc_path(env: Env, ctx: RenderContext) -> Path | str:
 
 
 def env_title(env: Env, ctx: RenderContext) -> tuple[str, str]:
-    """The title of ``env`` as (plain text, target text), with each ``[@id]`` resolved.
+    """The title of ``env`` as (plain text, target Markdown), with each ``[@id]`` resolved.
 
-    Plain text replaces a reference by its reference text (``定理2.1``): mdBook HTML-escapes
-    titles, and every other consumer (headings, the site) shows them as text. For Pandoc the
-    target text links it (``[定理2.1](#id)``); tools/filters/tr-env.lua parses the title as
-    Markdown, so the link works in PDF and EPUB like a reference in prose. Unknown ids stay as
-    written and are reported in ``ctx.issues`` (``./tbook check`` rejects them).
+    A title is inline Markdown (docs/AUTHORING.md §2). Plain text (:meth:`EditionModel.title_text`)
+    replaces a reference by its reference text (``定理2.1``) and undoes backslash escapes outside
+    math: headings and the site show it as text. The target Markdown keeps the escapes; for mdBook
+    the reference is its text and :func:`title_html` writes the header, for Pandoc it is a link
+    (``[定理2.1](#id)``): tools/filters/tr-env.lua parses the title as Markdown, so the link works
+    in PDF and EPUB like a reference in prose. Unknown ids stay as written and are reported in
+    ``ctx.issues`` (``./tbook check`` rejects them).
     """
-    if not env.title or "[@" not in env.title:
-        return env.title, env.title
+    if not env.title:
+        return "", ""
     for m in mdscan.find_outside_code(mdscan.REF_RE, env.title):
         if m.group("id") not in ctx.model.envs:
             ctx.issues.append(f"{_env_doc_path(env, ctx)}: unknown reference [@{m.group('id')}] in a title")
     plain = ctx.model.title_text(env)
     if ctx.target != "pandoc":
-        return plain, plain
-    return plain, ctx.model.title_text(env, ref=lambda target, text: f"[{text}](#{target.id})")
+        return plain, ctx.model.title_markdown(env)
+    return plain, ctx.model.title_markdown(env, ref=lambda target, text: f"[{text}](#{target.id})")
+
+
+# What a title's text may not carry into the mdBook header as such: tbook.mathrender reads "$" as a
+# formula delimiter, "\" as its escape and "`" as a code span in that HTML line too.
+_HEADER_LITERAL = {"$": "&#36;", "\\": "&#92;", "`": "&#96;"}
+
+
+def title_html(markdown: str) -> str:
+    """A title (inline Markdown, references already resolved) as the HTML of the mdBook header.
+
+    Text reads as everywhere else (:func:`tbook.mdscan.unescape_markdown`: ``C\\*-代数`` shows
+    ``C*-代数``); a literal ``$``, ``\\`` or backtick is written as a character reference so the
+    header has exactly the formulas Pandoc sees (``\\$x\\$`` is no formula). Formulas stay TeX for
+    tbook.mathrender, code spans stay as written.
+    """
+    out = []
+    for kind, piece in mdscan.inline_segments(markdown):
+        if kind == "text":
+            plain = esc(mdscan.unescape_text(piece))
+            out.append("".join(_HEADER_LITERAL.get(ch, ch) for ch in plain))
+        else:
+            out.append(esc(piece))
+    return "".join(out)
 
 
 def env_view(env: Env, ctx: RenderContext) -> dict:
@@ -193,6 +222,9 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
             badge, badge_title = unverified_badge(lang)
     elif env.status == "open":
         badge, badge_title = config.s(lang, "badge.open"), config.s(lang, "badge.open_title")
+    # Only a LEAN ✓ badge links (to the first declaration); an UNVERIFIED badge never does, in any
+    # target, even when the lock resolves a cited declaration (a def): the footer links that.
+    badge_url = leans[0]["url"] if badge and leans and not unverified else ""
     return {
         "kind": env.kind,
         "id": env.id,
@@ -200,12 +232,13 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
         "label": env.label(lang),
         "ref_text": env.ref_text(lang),
         "heading": env.heading(lang, title),
-        "title": target_title,  # what the target renders: plain text, or Markdown links for Pandoc
+        "title": target_title,  # inline Markdown for the target (references as text, or links for Pandoc)
         "title_text": title,  # plain text
         "status": status,
         "unverified": unverified,
         "badge": badge,
         "badge_title": badge_title,
+        "badge_url": badge_url,
         "lean": leans,
         "attrs": dict(env.attrs.kv),
     }
@@ -263,10 +296,15 @@ def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
             return m.group(0)
         return f"{m.group('bang')}[{m.group('text')}]({new}{m.group('title') or ''})"
 
-    refdef = REFDEF_RE.match(line)
-    if refdef and not line.lstrip().startswith("[^"):
+    refdef = mdscan.refdef(line)
+    if refdef:
+        # An unresolved ``lean:`` destination becomes "#": never a raw ``lean:`` URL (a dead link,
+        # and epubcheck rejects the scheme); PDF/EPUB show such a link as text (tr-book.lua).
         new = new_url(refdef.group("url"))
-        return f"{refdef.group('lead')}{refdef.group('url') if new is None else new}{refdef.group('rest')}"
+        return f"{refdef.group('lead')}{'#' if new is None else new}{refdef.group('rest')}"
+    like = _REFDEF_LIKE_RE.match(line) if ctx.target == "pandoc" else None
+    if like and not mdscan.REF_RE.match(line, like.end("indent")):  # ``[@id]:`` becomes a link anyway
+        line = f"{like.group('indent')}\\{line[like.end('indent'):]}"
     return mdscan.sub_outside_code(LINK_RE, repl, line)
 
 
@@ -300,10 +338,10 @@ def mdbook_env(env: Env, view: dict, inner: str) -> str:
         head = [f'<span class="tr-env-label">{esc(view["label"])}</span>']
     if view["title"]:
         open_p = config.s(env_lang(view), "punct.title_open")
-        head.append(f'<span class="tr-env-title">{esc(open_p)}{esc(view["title"])}'
+        head.append(f'<span class="tr-env-title">{esc(open_p)}{title_html(view["title"])}'
                     f'{esc(config.s(env_lang(view), "punct.title_close"))}</span>')
     if view["badge"]:
-        first = view["lean"][0]["url"] if view["lean"] and not view.get("unverified") else ""
+        first = view.get("badge_url", "")
         cls = "tr-badge-lean" if view["status"] == "lean" else "tr-badge-open"
         if view.get("unverified"):
             cls += " tr-badge-unverified"
@@ -346,6 +384,11 @@ def pandoc_env(env: Env, view: dict, inner: str) -> str:
         kv["tr-title"] = view["title"]
     if view["badge"]:
         kv["tr-badge"] = view["badge"]
+        kv["tr-badge-title"] = view["badge_title"]
+        if view.get("badge_url"):
+            kv["tr-badge-url"] = view["badge_url"]
+    if view.get("unverified"):
+        kv["tr-unverified"] = "1"
     if view["lean"]:
         kv["tr-lean"] = " ".join(lv["gid"] for lv in view["lean"])
         kv["tr-lean-name"] = " ".join(lv["name"] or lv["gid"] for lv in view["lean"])

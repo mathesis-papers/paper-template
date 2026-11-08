@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import mdscan
+
 # Titles may contain escapes and balanced brackets, as mdBook accepts: ``[Section [x] y](a.md)``.
 LINK_RE = re.compile(r"^\[(?P<title>(?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*)\]\((?P<path>[^)]*)\)\s*$")
 ITEM_RE = re.compile(r"^(?P<indent>\s*)[-*]\s+(?P<rest>.*)$")
@@ -30,7 +32,7 @@ class SummaryError(Exception):
 
 @dataclass
 class Chapter:
-    title: str
+    title: str  # plain text (:func:`_unescape`): what the sidebar, page titles and the site show
     path: str | None  # relative to the edition directory; None for drafts
     section: str  # "prefix" | "numbered" | "suffix"
     number: tuple[int, ...] = ()  # mdBook section number for numbered chapters
@@ -39,6 +41,7 @@ class Chapter:
     top: int = 0  # index of the top-level chapter this one belongs to
     line: int = 0
     children: list["Chapter"] = field(default_factory=list, repr=False)
+    title_md: str = ""  # the link text as written (inline Markdown), for Markdown targets (Pandoc)
 
     @property
     def draft(self) -> bool:
@@ -138,6 +141,7 @@ def parse_summary(path: Path) -> Summary:
             counters[depth] += 1
             ch = Chapter(
                 title=_unescape(link.group("title")),
+                title_md=link.group("title"),
                 path=link.group("path").strip() or None,
                 section="numbered",
                 number=tuple(counters[: depth + 1]),
@@ -160,6 +164,7 @@ def parse_summary(path: Path) -> Summary:
             top_index += 1
             ch = Chapter(
                 title=_unescape(link.group("title")),
+                title_md=link.group("title"),
                 path=link.group("path").strip() or None,
                 section=section if section != "numbered" else "suffix",
                 part=part,
@@ -179,9 +184,9 @@ def parse_summary(path: Path) -> Summary:
 
 
 def _unescape(s: str) -> str:
-    """Undo the escapes a link text needs in SUMMARY.md: ``\\[``, ``\\]`` and ``\\\\`` only.
-
-    Other backslashes are kept, so TeX in a title survives (``[附录 B：$\\varphi$-边界](b.md)``).
-    Inverse of ``tbook.html._escape_title``.
+    """The plain text of a SUMMARY link text: Markdown escapes of ASCII punctuation are undone, as
+    mdBook does (``C\\*-代数`` → ``C*-代数``, ``\\[x\\]`` → ``[x]``), except inside ``$…$``, so TeX in a
+    title survives (``[附录 B：$\\varphi$-边界](b.md)``, ``$\\{x\\}$``). ``tbook.html._escape_title``
+    writes it back for mdBook (:func:`tbook.mdscan.unescape_markdown`).
     """
-    return re.sub(r"\\([\[\]\\])", r"\1", s)
+    return mdscan.unescape_markdown(s)

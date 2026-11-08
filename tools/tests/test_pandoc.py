@@ -189,7 +189,7 @@ ENV_MD = """\
 
 See [the theorem](#thm-x) and [nothing](#missing).
 
-:::::: {#thm-x .tr-env .theorem tr-kind="theorem" tr-status="lean" tr-label="Theorem" tr-number="1.2" tr-ref="Theorem 1.2" tr-title="Bound on $c$" tr-badge="LEAN ✓" tr-lean="D5/S1/X.y" tr-lean-name="D5.S1.X.y" tr-lean-url="https://example.org/X.lean#L3"}
+:::::: {#thm-x .tr-env .theorem tr-kind="theorem" tr-status="lean" tr-label="Theorem" tr-number="1.2" tr-ref="Theorem 1.2" tr-title="Bound on $c$" tr-badge="LEAN ✓" tr-badge-url="https://example.org/X.lean#L3" tr-lean="D5/S1/X.y" tr-lean-name="D5.S1.X.y" tr-lean-url="https://example.org/X.lean#L3"}
 Statement $c \\in \\{0, 1\\}$.
 ::::::
 
@@ -506,7 +506,7 @@ class LuaFilterTest(unittest.TestCase):
         out = run_filters(ENV_MD, "typst", self.META)
         self.assertIn('#tr-env(kind: "theorem", status: "lean", label: "Theorem", number: "1.2", '
                       'ref: "Theorem 1.2", title: [Bound on $c$], badge: "LEAN ✓", '
-                      'lean: ((gid: "D5/S1/X.y", name: "D5.S1.X.y", url: "https://example.org/X.lean#L3"),), '
+                      'badge-url: "https://example.org/X.lean#L3", lean: ((gid: "D5/S1/X.y", name: "D5.S1.X.y", url: "https://example.org/X.lean#L3"),), '
                       'id: "thm-x")[', out)
         self.assertRegex(out, r"\]\s*<thm-x>")
         self.assertIn("#link(<thm-x>)[the theorem]", out)

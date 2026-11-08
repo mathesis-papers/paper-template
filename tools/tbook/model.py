@@ -162,13 +162,19 @@ class EditionModel:
                 return ch
         return None
 
-    def title_text(self, env: Env, ref: Callable[[Env, str], str] | None = None) -> str:
-        """``env.title`` with each ``[@id]`` outside code spans replaced by the referenced environment's
-        reference text (``定理2.1``), formatted by ``ref(target, text)`` (default: the text itself).
+    def title_text(self, env: Env) -> str:
+        """``env.title`` as plain text: :meth:`title_markdown` with the backslash escapes outside math
+        undone (``C\\*-代数`` → ``C*-代数``; TeX in ``$…$`` stays). What every target shows; for HTML
+        contexts escape it (the site, mdBook's header via :func:`tbook.render.title_html`)."""
+        return mdscan.unescape_markdown(self.title_markdown(env))
 
-        The default result is plain text, safe wherever a title goes: escaped into HTML, parsed as
-        Markdown by tools/filters/tr-env.lua, or put in a table cell. An unknown id stays as written
-        (``./tbook check`` reports it).
+    def title_markdown(self, env: Env, ref: Callable[[Env, str], str] | None = None) -> str:
+        """``env.title`` (inline Markdown) with each ``[@id]`` outside code spans replaced by the
+        referenced environment's reference text (``定理2.1``), formatted by ``ref(target, text)``
+        (default: the text itself).
+
+        The result is still Markdown (escapes as written): for tools/filters/tr-env.lua and the
+        ledger's table cells. An unknown id stays as written (``./tbook check`` reports it).
         """
         if not env.title or "[@" not in env.title:
             return env.title
@@ -235,11 +241,13 @@ def load_edition(edition: config.Edition) -> EditionModel:
                 doc.media.append(env)
             else:
                 doc.envs.append(env)
+        # As the builds read them: not in code, not in HTML comments; Lean links inline
+        # (``(lean:…)``, ``(<lean:…>)``) or in reference definitions (``[x]: lean:…``).
         for lineno, line in mdscan.iter_text_lines(blocks):
             for m in mdscan.find_outside_code(mdscan.REF_RE, line):
                 doc.refs.append((lineno, m.group("id")))
-            for m in mdscan.find_outside_code(mdscan.LEAN_LINK_RE, line):
-                doc.lean_links.append((lineno, m.group("gid")))
+            for gid in mdscan.lean_link_gids(line):
+                doc.lean_links.append((lineno, gid))
         model.chapters.append(doc)
     for ch in model.chapters:
         for env in ch.envs + ch.media:
