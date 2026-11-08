@@ -15,7 +15,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-LINK_RE = re.compile(r"^\[(?P<title>(?:[^\]\\]|\\.)*)\]\((?P<path>[^)]*)\)\s*$")
+# Titles may contain escapes and balanced brackets, as mdBook accepts: ``[Section [x] y](a.md)``.
+LINK_RE = re.compile(r"^\[(?P<title>(?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*)\]\((?P<path>[^)]*)\)\s*$")
 ITEM_RE = re.compile(r"^(?P<indent>\s*)[-*]\s+(?P<rest>.*)$")
 PART_RE = re.compile(r"^#\s+(?P<title>.+?)\s*$")
 SEP_RE = re.compile(r"^\s*-{3,}\s*$")

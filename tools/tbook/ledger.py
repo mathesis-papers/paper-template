@@ -7,6 +7,7 @@ pinned commit, followed by the explicitly open items. The output is plain Markdo
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from . import config, lean
@@ -16,8 +17,23 @@ LEDGER_FILE = "verification-ledger.md"
 LEDGER_ID = "tr-verification-ledger"
 
 
+_MATH_RE = re.compile(r"(\$\$?)(.+?)\1", re.S)
+
+
 def _cell(text: str) -> str:
-    return text.replace("|", "\\|").replace("\n", " ")
+    """Make ``text`` safe inside a pipe-table cell.
+
+    Outside math a ``|`` is escaped; inside ``$…$`` it becomes ``\\vert`` so that Pandoc
+    (which keeps ``\\|`` in math as the norm symbol) and mdBook render the same thing.
+    """
+    text = text.replace("\n", " ")
+    out, pos = [], 0
+    for m in _MATH_RE.finditer(text):
+        out.append(text[pos:m.start()].replace("|", "\\|"))
+        out.append(m.group(1) + m.group(2).replace("\\|", "\\Vert ").replace("|", "\\vert ") + m.group(1))
+        pos = m.end()
+    out.append(text[pos:].replace("|", "\\|"))
+    return "".join(out)
 
 
 def ledger_markdown(model: EditionModel, lock: lean.Lock | None,

@@ -142,10 +142,10 @@ def _git_remote_repo(root: Path) -> str:
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return ""
-    m = re.search(r"github\.com[:/]([^/]+/[^/.]+?)(?:\.git)?$", url)
+    m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
     if m:
         return m.group(1)
-    m = re.search(r"/git/([^/]+/[^/.]+?)(?:\.git)?$", url)  # local proxies such as http://host/git/owner/name
+    m = re.search(r"/git/([^/]+/[^/]+?)(?:\.git)?/?$", url)  # local proxies such as http://host/git/owner/name
     return m.group(1) if m else ""
 
 

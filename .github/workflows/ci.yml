@@ -1,0 +1,151 @@
+# Continuous integration (managed by the template; works in the template repository and in every
+# books repository created from it).
+#
+#   check  ./tbook check (structure, bilingual parity, Lean citations re-verified against trureturing's
+#          frozen ledger at the pinned commit), theme tokens, unit tests, template manifest (template
+#          repository only), static checks of visualizations and slides
+#   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
+#   media  visualization browser tests and slide decks (Slidev + Chromium)
+#
+# Also callable from other workflows (workflow_call), e.g. before a release.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHONUNBUFFERED: '1'
+  FORCE_COLOR: '0'
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          fonts: 'false'
+          mdbook: 'true'
+
+      - name: Cache trureturing frozen state
+        uses: actions/cache@v4
+        with:
+          path: .cache/trureturing
+          key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
+          restore-keys: trureturing-state-
+
+      - name: Books, bilingual parity and Lean citations
+        run: ./tbook check
+
+      - name: Theme tokens are up to date
+        run: ./tbook theme --check
+
+      - name: Unit tests
+        env:
+          PYTHONPATH: tools
+        run: python -m unittest discover -s tools/tests -v
+
+      - name: Template manifest is up to date
+        if: github.repository == 'the-omega-institute/trureturing-books-template'
+        run: ./tbook template manifest --check
+
+      - name: Visualizations (static validation)
+        if: hashFiles('tools/node/viz-validate.mjs') != ''
+        run: node tools/node/viz-validate.mjs
+
+      - name: Slides (static checks)
+        if: hashFiles('tools/node/slides-check.mjs') != ''
+        run: node tools/node/slides-check.mjs
+
+  build:
+    name: Build HTML, PDF and EPUB
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          fonts: 'true'
+          mdbook: 'true'
+
+      - name: Build
+        run: ./tbook build html pdf epub
+
+      - name: Upload downloads (PDF, EPUB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: books-dist
+          path: build/dist
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: books-html
+          path: build/html
+          if-no-files-found: warn
+          retention-days: 14
+
+  media:
+    name: Visualizations and slides
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Visualization browser tests
+        if: hashFiles('tools/node/viz-test.mjs') != ''
+        run: node tools/node/viz-test.mjs
+
+      - name: Find slide decks
+        id: decks
+        run: |
+          if compgen -G 'books/*/slides/*/slides.md' > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No slide decks (books/*/slides/<deck>/slides.md); skipping."
+          fi
+
+      - name: Build slides (HTML, browser checks, PDF)
+        if: steps.decks.outputs.present == 'true'
+        run: ./tbook build slides
+
+      - name: Upload slide PDFs
+        if: steps.decks.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slides-pdf
+          path: build/slides/*/*.pdf
+          if-no-files-found: warn
+          retention-days: 14

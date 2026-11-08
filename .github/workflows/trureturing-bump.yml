@@ -1,0 +1,236 @@
+# Move the pinned trureturing commit forward (managed by the template).
+#
+# Weekly (or on demand, optionally with a commit, branch or tag) this resolves the target commit, runs
+# `./tbook pin <sha> --report build/pin.md`, and when trureturing.lock.json changes runs `./tbook check`
+# and opens a pull request on branch trureturing-bump/<sha12> with the pin report and the check output.
+# Declarations whose module statement digest changed are highlighted: a person must re-read those
+# theorems at the new commit and adjust the book text (skills/trureturing-pin) before merging.
+# If some cited declaration no longer resolves (renamed, unfrozen …) the lock is not written; a draft
+# pull request (an empty commit) describes the failures instead.
+#
+# Tokens: pull requests opened with the default GITHUB_TOKEN do not trigger CI; add a repository secret
+# BOT_TOKEN (fine-grained: Contents and Pull requests read/write) so that they do. With GITHUB_TOKEN,
+# enable Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+name: trureturing bump
+
+on:
+  schedule:
+    - cron: '41 6 * * 2' # Tuesdays 06:41 UTC
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'trureturing commit SHA, branch or tag (empty = the branch in site.toml)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trureturing-bump
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  bump:
+    name: Pin the latest trureturing commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
+      HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+      BASE: ${{ github.ref_name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Resolve the target commit
+        id: target
+        env:
+          REF: ${{ inputs.ref }}
+          PYTHONPATH: tools
+        run: |
+          set -euo pipefail
+          target="$(python3 -c '
+          import os
+          from tbook import config, lean
+          site = config.load_site()
+          print(lean.ls_remote(site.trureturing_repo, os.environ.get("REF") or site.trureturing_branch))
+          ')"
+          current="$(python3 -c 'import json; print(json.load(open("trureturing.lock.json"))["commit"])' 2>/dev/null || true)"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          if [ "$target" = "$current" ]; then
+            echo "Already pinned at $target."
+            echo "same=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Pinning ${current:-nothing} → $target"
+            echo "same=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache trureturing frozen state
+        if: steps.target.outputs.same != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/trureturing
+          key: trureturing-state-${{ steps.target.outputs.target }}
+          restore-keys: trureturing-state-
+
+      - name: Pin
+        id: pin
+        if: steps.target.outputs.same != 'true'
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          rc=0
+          ./tbook pin "$TARGET" --report build/pin.md || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- trureturing.lock.json; then
+            echo "lock_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "lock_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ ! -s build/pin.md ]; then
+            echo "./tbook pin exited with $rc before writing a report." > build/pin.md
+          fi
+          cat build/pin.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the books against the new commit
+        id: check
+        if: steps.pin.outputs.lock_changed == 'true'
+        run: |
+          set -euo pipefail
+          rc=0
+          ./tbook check > build/check.txt 2>&1 || rc=$?
+          cat build/check.txt
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the pull request
+        if: steps.pin.outputs.lock_changed == 'true' || (steps.pin.outcome == 'success' && steps.pin.outputs.rc != '0')
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+          CURRENT: ${{ steps.target.outputs.current }}
+          PIN_RC: ${{ steps.pin.outputs.rc }}
+          CHECK_RC: ${{ steps.check.outputs.rc }}
+        run: |
+          set -euo pipefail
+          short="${TARGET:0:12}"
+          TRU_REPO="$(PYTHONPATH=tools python3 -c 'from tbook import config; print(config.load_site().trureturing_repo)')"
+          export TRU_REPO
+          branch="trureturing-bump/$short"
+          body="$RUNNER_TEMP/pr-body.md"
+
+          python3 - "$body" <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          pin = Path("build/pin.md").read_text(encoding="utf-8").strip()
+          check = Path("build/check.txt")
+          pin_rc, check_rc = os.environ.get("PIN_RC", ""), os.environ.get("CHECK_RC", "")
+          digests = sum("statement digest changed" in line for line in pin.splitlines())
+          target, current = os.environ["TARGET"], os.environ.get("CURRENT", "")
+          parts = [f"## trureturing `{current[:12] or '—'}` → `{target[:12]}`", ""]
+          if pin_rc not in ("", "0"):
+              parts += ["> [!CAUTION]",
+                        "> 有被引用的声明在新提交上无法解析（改名、移动或不再冻结），锁文件未更新。"
+                        "请在 trureturing 中确认这些声明，修改书中的 `lean=\"…\"` 引用后重新运行本工作流。",
+                        "> Some cited declarations do not resolve at the new commit (renamed, moved or no "
+                        "longer frozen), so the lock was not written. Check them in trureturing, fix the "
+                        "`lean=\"…\"` citations in the books, and run this workflow again.", ""]
+          if digests:
+              parts += ["> [!WARNING]",
+                        f"> {digests} 条被引用声明所在模块的陈述摘要发生变化。合并前须由人逐条重读这些定理在新提交上的 "
+                        "Lean 陈述，并同步修改各语言版本的正文（`skills/trureturing-pin`）。",
+                        f"> The statement digest changed for {digests} cited declaration(s). Before merging, a "
+                        "person must re-read each of these theorems' Lean statements at the new commit and "
+                        "adjust the book text in every edition (`skills/trureturing-pin`).", ""]
+          if check_rc not in ("", "0"):
+              parts += ["> [!CAUTION]", "> `./tbook check` 在新提交上失败，见下文。",
+                        "> `./tbook check` fails at the new commit; see below.", ""]
+          parts += [pin, ""]
+          if check.is_file():
+              text = check.read_text(encoding="utf-8", errors="replace").strip()
+              if len(text) > 40000:
+                  text = text[:40000] + "\n… (truncated; see the workflow log)"
+              status = "passed" if check_rc == "0" else f"failed (exit {check_rc})"
+              parts += ["<details>", f"<summary><code>./tbook check</code>: {status}</summary>", "",
+                        "```text", text, "```", "", "</details>", ""]
+          repo = os.environ.get("TRU_REPO") or "the-omega-institute/trureturing"
+          if current:
+              parts.append(f"Diff: https://github.com/{repo}/compare/{current}...{target}")
+          else:
+              parts.append(f"Commit: https://github.com/{repo}/commit/{target}")
+          Path(sys.argv[1]).write_text("\n".join(parts).rstrip() + "\n", encoding="utf-8")
+          PY
+          if [ "$HAS_BOT_TOKEN" != "true" ]; then
+            cat >> "$body" <<'EOF'
+
+          > [!NOTE]
+          > 本 PR 由 `GITHUB_TOKEN` 创建，CI 不会自动运行：向分支推送一个提交（或关闭后重新打开 PR）即可触发；设置 `BOT_TOKEN` secret 可免去这一步。
+          > Opened with `GITHUB_TOKEN`, so CI does not start by itself. Push a commit to this branch (or close and reopen the pull request) to run it, or add a `BOT_TOKEN` secret.
+          EOF
+          fi
+
+          draft=false
+          flags=""
+          if [ "$PIN_RC" != "0" ]; then draft=true; flags="[unresolved] "; fi
+          if [ -n "${CHECK_RC:-}" ] && [ "$CHECK_RC" != "0" ]; then draft=true; flags="${flags}[check fails] "; fi
+          if grep -q "statement digest changed" build/pin.md; then flags="${flags}[review statements] "; fi
+          title="${flags}trureturing: pin $short"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          if [ "$PIN_RC" = "0" ]; then
+            git add trureturing.lock.json
+            git commit -q -m "Pin trureturing $short" -m "$(head -n 1 build/pin.md)"
+          else
+            git commit -q --allow-empty -m "trureturing $short: cited declarations do not resolve" \
+              -m "./tbook pin $TARGET failed; see the pull request description."
+          fi
+
+          # Never overwrite commits a person added to an existing bump branch.
+          push=true
+          if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+            if [ -n "$(git log --format='%ae' "origin/$BASE..origin/$branch" | grep -v 'github-actions\[bot\]@users.noreply.github.com' || true)" ]; then
+              echo "::warning title=trureturing bump::origin/$branch has commits by people; not overwriting it."
+              exit 0
+            fi
+            if git diff --quiet "origin/$branch" HEAD; then
+              echo "origin/$branch already has this content."
+              push=false
+            fi
+          fi
+          if [ "$push" = "true" ]; then
+            git push --force origin "HEAD:refs/heads/$branch"
+          fi
+
+          pr="$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title" --body-file "$body"
+            echo "Updated pull request #$pr"
+          else
+            args=(--base "$BASE" --head "$branch" --title "$title" --body-file "$body")
+            if [ "$draft" = "true" ]; then args+=(--draft); fi
+            if ! gh pr create "${args[@]}"; then
+              echo "::error title=trureturing bump::Could not open the pull request. With GITHUB_TOKEN, enable Settings → Actions → General → Allow GitHub Actions to create and approve pull requests (or add a BOT_TOKEN secret)."
+              exit 1
+            fi
+          fi

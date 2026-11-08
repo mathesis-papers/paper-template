@@ -19,3 +19,9 @@ Let the state space $X$ be nonempty, with a process readout $p: X \to P$ and a t
 :::
 
 [@thm-target-recovery] asserts only that a recovery function exists; it gives no algorithm and no cost bound.
+
+## Slides
+
+::: {.slides src="overview"}
+A ten-slide overview: the theorems of both chapters, the open problem and every output.
+:::

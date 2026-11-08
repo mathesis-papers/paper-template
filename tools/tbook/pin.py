@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import config, lean
-from .model import load_book_models
+from .model import load_book_models, media_cited_gids
 
 
 @dataclass
@@ -46,13 +46,14 @@ class PinReport:
 def cited_gids(books: list[config.Book]) -> list[str]:
     gids: set[str] = set()
     for book in books:
-        for model in load_book_models(book).values():
-            for _, _, gid, _ in model.cited_gids():
-                try:
-                    lean.parse_gid(gid)
-                except lean.LeanError:
-                    continue
-                gids.add(gid)
+        found = [gid for model in load_book_models(book).values() for _, _, gid, _ in model.cited_gids()]
+        found += [gid for _, _, gid in media_cited_gids(book)]
+        for gid in found:
+            try:
+                lean.parse_gid(gid)
+            except lean.LeanError:
+                continue
+            gids.add(gid)
     return sorted(gids)
 
 

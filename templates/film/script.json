@@ -1,0 +1,15 @@
+{
+  "voice": "af_heart",
+  "speed": 0.94,
+  "say": {},
+  "music": {"bpm": 80, "progression": "a-minor"},
+  "scenes": [
+    {"id": "open", "name": "OPEN", "lead": 1.5, "tail": 0.8, "lines": [
+      ["@@TITLE_EN@@.", "@@TITLE_ZH@@。"],
+      ["Replace these lines with the narration. Each pair is the English line and its Chinese subtitle.", "把这些句子换成旁白：每一对是英文旁白和对应的中文字幕。"]
+    ]},
+    {"id": "close", "name": "LEDGER", "lead": 0.6, "tail": 2.5, "lines": [
+      ["Every result marked Lean is kernel-checked and frozen in trureturing.", "凡标 Lean 的结论，都已由内核检验并冻结在 trureturing 中。"]
+    ]}
+  ]
+}

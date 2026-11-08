@@ -13,7 +13,8 @@ import importlib
 from pathlib import Path
 
 from . import config, lean, mdscan, paths
-from .model import DEFINITION, FORMAL, MEDIA, NUMBERED, OPEN, PROOF, EditionModel, Issue, load_book_models
+from .model import (DEFINITION, FORMAL, MEDIA, NUMBERED, OPEN, PROOF, EditionModel, Issue, load_book_models,
+                    media_cited_gids)
 
 
 def _err(issues: list[Issue], path: Path | None, line: int, msg: str) -> None:
@@ -60,6 +61,10 @@ def check_env_policy(model: EditionModel, issues: list[Issue]) -> None:
         for line, ref in ch.refs:
             if ref not in model.envs:
                 _err(issues, ch.path, line, f"[@{ref}] refers to no environment in this edition")
+            elif model.envs[ref].kind in MEDIA:
+                _err(issues, ch.path, line,
+                     f"[@{ref}] points at a {model.envs[ref].kind} embed; references can only target "
+                     "numbered environments (theorem, definition, example …)")
         for line, gid in ch.lean_links:
             try:
                 lean.parse_gid(gid)
@@ -134,8 +139,20 @@ def check_parity(book: config.Book, models: dict[str, EditionModel], issues: lis
 
 
 def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lock | None,
-               site: config.Site, issues: list[Issue], *, offline: bool) -> None:
+               site: config.Site, issues: list[Issue], *, offline: bool,
+               extra_cited: list[tuple[Path, int, str]] | None = None) -> None:
+    """Re-verify every cited GID against the lock and the frozen state at the pinned commit.
+
+    ``extra_cited`` holds citations outside the chapters (visualizations, films, slides); they are
+    verified the same way but do not impose the theorem-kind rule (their modules check that).
+    """
     cited: dict[str, list[tuple[Path, int, bool]]] = {}
+    for path, line, gid in extra_cited or []:
+        try:
+            lean.parse_gid(gid)
+        except lean.LeanError:
+            continue  # reported by the media module's own check
+        cited.setdefault(gid, []).append((path, line, False))
     for models in models_by_book.values():
         for model in models.values():
             for path, line, gid, env in model.cited_gids():
@@ -220,6 +237,7 @@ def run(books: list[config.Book], *, offline: bool = False) -> list[Issue]:
                 issues.extend(mod.check(book))
             except NotImplementedError:
                 pass
-    check_lean(models_by_book, lock, site, issues, offline=offline)
+    extra = [c for book in books for c in media_cited_gids(book)]
+    check_lean(models_by_book, lock, site, issues, offline=offline, extra_cited=extra)
     check_theme(issues)
     return issues

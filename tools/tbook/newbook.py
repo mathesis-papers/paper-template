@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 import shutil
 from pathlib import Path
@@ -49,7 +50,8 @@ def new_book(slug: str, titles: dict[str, str], *, langs: list[str] | None = Non
             .replace("{{CODE}}", code)
             .replace("{{TITLES}}", _table({lang: titles[lang] for lang in langs}))
             .replace("{{SUBTITLES}}", _table({lang: (subtitles or {}).get(lang, "") for lang in langs}))
-            .replace("{{DESCRIPTIONS}}", _table({lang: "" for lang in langs})))
+            .replace("{{DESCRIPTIONS}}", _table({lang: "" for lang in langs}))
+            .replace("{{DATE}}", datetime.date.today().isoformat()))
     (target / "book.toml").write_text(text, encoding="utf-8")
     return target
 

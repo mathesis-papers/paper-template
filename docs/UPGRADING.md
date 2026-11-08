@@ -6,7 +6,7 @@
 
 `template.toml` 定义了边界：
 
-- **托管**（`[managed].paths`）：`tools/`、`theme/`、`templates/`、`skills/`、`docs/`、`.github/workflows/`、`.claude/`、`CLAUDE.md`、`AGENTS.md`、`tbook`、`template.toml`、`template-manifest.json`、`requirements.txt`、`package.json`、`package-lock.json`、`.gitignore`、`.editorconfig`。升级时同步（新增、修改、删除）。
+- **托管**（`[managed].paths`）：`tools/`、`theme/`、`templates/`、`skills/`、`docs/`、`.github/workflows/`、`.github/actions/`、`.claude/`、`CLAUDE.md`、`AGENTS.md`、`tbook`、`template.toml`、`template-manifest.json`、`requirements.txt`、`package.json`、`package-lock.json`、`.gitignore`、`.editorconfig`。升级时同步（新增、修改、删除）。
 - **例外**（`[managed].exclude`）：`skills/local-*`（书库自己的 skill）、`docs/project/`（书库自己的文档）。
 - **自有**：`books/`、`site.toml`、`trureturing.lock.json`、`i18n/`、`PROJECT.md`、`README.md`、`LICENSE`，以及任何不在托管路径下的文件。升级永不触碰。
 
@@ -28,7 +28,7 @@
 | 改了 | 未改 | 保留本地 |
 | 改了 | 改了 | **冲突**：保留本地，上游版本写入 `<file>.template-new` |
 
-有冲突时命令以退出码 3 结束。逐个合并后删除 `.template-new` 文件。`--force` 直接采用上游（会丢弃本地改动，慎用）。
+有冲突时命令以退出码 3 结束（`--dry-run` 预览时，若真正执行会冲突，同样返回 3）。逐个合并后删除 `.template-new` 文件。`--force` 直接采用上游（会丢弃本地改动，慎用）。`--source` 接受 git URL、本地 git 仓库（任意 ref，包括提交 SHA）或普通目录（此时不能用 `--to`）。摘要语言默认是 `site.toml` 中 `languages` 的第一个，`TBOOK_LANG=zh|en` 可指定。
 
 升级完成后会运行 `tools/migrations/` 中跨越版本的迁移脚本，并把摘要写到 `build/template-update.md`。然后：
 
@@ -39,7 +39,12 @@
 
 ## 3. 自动升级 PR
 
-`.github/workflows/template-sync.yml` 每周检查模板的新版本，执行升级并开 PR（分支 `template-update/<version>`）。用 `GITHUB_TOKEN` 开的 PR 不会触发其他工作流；若希望 CI 自动跑，在仓库 Secrets 中设置 `BOT_TOKEN`（有 `contents` 与 `pull-requests` 写权限的令牌）。
+`.github/workflows/template-sync.yml` 每周检查模板的新版本，执行升级并开 PR（分支 `template-update/<version>`）；有冲突时 PR 标题以 `[conflicts]` 开头，`.template-new` 文件一并提交供合并。模板仓库至少发布过一个版本（tag `vX.Y.Z`）后它才会工作。
+
+令牌：
+
+- 只用 `GITHUB_TOKEN` 时，需在 Settings → Actions → General 勾选 “Allow GitHub Actions to create and approve pull requests”；这样开的 PR 不会自动触发 CI，且升级若改动 `.github/workflows/`，推送会被 GitHub 拒绝（工作流会给出说明后失败）。
+- 推荐在仓库 Secrets 中设置 `BOT_TOKEN`：细粒度令牌，Contents、Pull requests 与 **Workflows** 均为读写。
 
 ## 4. 改进托管文件
 

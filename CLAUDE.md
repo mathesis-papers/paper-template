@@ -34,6 +34,8 @@
 ./tbook new-chapter <slug> <name> --title zh=… --title en=…
 ./tbook build [html|pdf|epub|slides|viz|films|site|all] [--book <slug>] [--lang zh]
 ./tbook serve                       # 本地预览 _site/
+./tbook viz|slides|film new …       # 新建可视化、演示文稿、视频（list 列出）
+theme/film/film.sh <dir> <step>     # 视频流水线：setup、timeline、shot、serve、clip、poster、all
 ./tbook theme                       # 由 theme/tokens.json 重新生成配色文件
 ./tbook template status|update      # 模板版本
 ```

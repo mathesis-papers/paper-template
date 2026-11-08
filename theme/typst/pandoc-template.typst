@@ -1,0 +1,8 @@
+// Pandoc template for the trureturing PDF (tools/tbook/pandoc.py passes it with --template).
+// The generated main.typ lives at the staging root next to meta.json; the layout itself
+// is theme/typst/book.typ (copied to _theme/typst/). Variant: sys.inputs "tr-variant".
+#import "_theme/typst/book.typ": *
+
+#show: tr-book
+
+$body$

@@ -3,7 +3,7 @@
 Given an :class:`~tbook.model.EditionModel`, :func:`chapter_markdown` rewrites a
 chapter's Markdown for one target:
 
-* ``[@id]`` → ``[定理 2.1](href)`` (``href`` from :attr:`RenderContext.env_href`);
+* ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`);
 * ``[text](lean:GID)`` → a permalink to the declaration's Lean source at the pinned commit;
 * links/images that point into the book directory outside the edition (``../assets/x.svg``)
   → paths into the staged copy ``_book/…`` (files collected in ``ctx.book_files``);

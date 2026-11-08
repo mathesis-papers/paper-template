@@ -1,31 +1,1115 @@
-"""Book-local slides support. STUB — to be implemented (see docs/ARCHITECTURE.md §Contracts)."""
+"""Slide decks of a book (Slidev 53, the chrono-company-slides scheme, trureturing theme).
+
+Layout::
+
+    books/<slug>/slides/<deck>/slides.md          Chinese edition (zh, the default)
+    books/<slug>/slides/<deck>/slides.en.md       English edition
+    books/<slug>/slides/<deck>/slides.<lang>.md   any other edition language of the book
+
+Every deck has one file per language of the book, page for page. The shared Slidev theme is
+``theme/slides`` (``theme: ../../../../theme/slides`` in the headmatter); its components
+``<LeanBadge gid>`` and ``<TheoremCard gid>`` show the green LEAN ✓ only for GIDs that
+``trureturing.lock.json`` resolves.
+
+This module is the Python side of the scheme (``tbook.check``, ``tbook.render`` and ``tbook.build``
+call it); the Node side lives in ``tools/node/slides-*.mjs``:
+
+* :func:`check` — both languages present, headmatter, page-for-page parity (slides are split
+  exactly like ``@slidev/parser``), cited GIDs locked and consistent with the book (``cite=``),
+  no root-relative links;
+* :func:`render_embed` — ``::: {.slides src="<deck>"}`` in a chapter: a link card (mdBook) or a
+  short block with the public URL (PDF / EPUB);
+* :func:`build` — ``slides-build.mjs``: ``slidev build`` per deck and language into
+  ``build/slides/<slug>/<deck>/<lang>/``, browser checks, ``slidev export`` to
+  ``build/slides/<slug>/<deck>-<lang>.pdf`` with a page-count check;
+* :func:`publish` — copy the built decks into ``_site/<slug>/slides/`` (zh at ``<deck>/``, other
+  languages at ``<deck>/<lang>/``, PDFs at ``<deck>/<slug>-<deck>-<lang>.pdf``) plus an index page;
+* :func:`cli` — ``./tbook slides new <book> <deck> "<中文标题>" "<English title>"`` and ``list``.
+"""
 
 from __future__ import annotations
 
+import html
+import json
+import os
+import posixpath
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+from . import config, lean, paths
+from .model import OPEN, Issue
+
+DEFAULT_LANG = "zh"
+DECK_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+FILE_RE = re.compile(r"^slides\.([a-z]{2,3}(?:-[A-Za-z0-9]+)*)\.md$")
+MANIFEST = "manifest.json"
+MANIFEST_SCHEMA = "trureturing-books.slides.v1"
+
+# Interface strings this component needs that theme/i18n/*.toml does not have yet. config.s() wins
+# once the keys are merged there as [slides] (the Slidev theme keeps the same table in i18n.ts).
+LOCAL_STRINGS: dict[str, dict[str, str]] = {
+    "zh": {
+        "present": "在线演示",
+        "pdf": "下载 PDF",
+        "pages": "{n} 页",
+        "static_note": "在线演示见",
+        "keys": "在线演示：方向键或空格翻页，O 总览，F 全屏。",
+        "back_to_book": "返回本书",
+        "none": "本书还没有演示文稿。",
+        "not_built": "尚未构建",
+    },
+    "en": {
+        "present": "Present online",
+        "pdf": "Download PDF",
+        "pages": "{n} slides",
+        "static_note": "Slides online:",
+        "keys": "Online: arrow keys or space to advance, O for the overview, F for full screen.",
+        "back_to_book": "Back to the book",
+        "none": "This book has no slides yet.",
+        "not_built": "not built yet",
+    },
+}
 
 
-def check_ref(book, src: str) -> str | None:
-    """Return an error message if ``src`` does not name a usable slides, else None."""
+def t(lang: str, key: str, **fmt: Any) -> str:
+    """``slides.<key>`` from the shared i18n tables, else from :data:`LOCAL_STRINGS`."""
+    text = config.s(lang, f"slides.{key}") or LOCAL_STRINGS.get(lang, LOCAL_STRINGS["en"]).get(key) \
+        or LOCAL_STRINGS["en"].get(key, key)
+    return text.format(**fmt) if fmt else text
+
+
+def esc(text: Any) -> str:
+    return html.escape(str(text), quote=True)
+
+
+# --------------------------------------------------------------------------- file conventions
+
+
+def edition_file(lang: str) -> str:
+    """``slides.md`` for zh, ``slides.<lang>.md`` otherwise."""
+    return "slides.md" if lang == DEFAULT_LANG else f"slides.{lang}.md"
+
+
+def lang_of_file(name: str) -> str | None:
+    if name == "slides.md":
+        return DEFAULT_LANG
+    m = FILE_RE.match(name)
+    return m.group(1) if m else None
+
+
+def site_path(deck: str, lang: str) -> str:
+    """Path of an edition under ``_site/<slug>/slides/``: ``<deck>/`` or ``<deck>/<lang>/``."""
+    return f"{deck}/" if lang == DEFAULT_LANG else f"{deck}/{lang}/"
+
+
+def pdf_name(book: config.Book, deck: str, lang: str) -> str:
+    """Published PDF name, e.g. ``example-monograph-overview-zh.pdf`` (kept in sync with slides-lib.mjs)."""
+    return f"{book.slug}-{deck}-{lang}.pdf"
+
+
+def build_pdf_name(deck: str, lang: str) -> str:
+    """PDF name under ``build/slides/<slug>/`` (docs/ARCHITECTURE.md §5)."""
+    return f"{deck}-{lang}.pdf"
+
+
+def theme_ref(deck_dir: Path) -> str:
+    """The ``theme:`` value a deck must use: the relative path to ``theme/slides``."""
+    return Path(os.path.relpath(paths.THEME / "slides", deck_dir)).as_posix()
+
+
+def base_path(site: config.Site) -> str:
+    """URL path of the site root (``/books/`` for https://owner.github.io/books/); ``/`` when unknown."""
+    path = urlparse(site.base_url).path if site.base_url else ""
+    path = path or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    return path if path.endswith("/") else path + "/"
+
+
+def public_url(site: config.Site, book: config.Book, deck: str, lang: str) -> str:
+    """Absolute URL of an edition on the published site ('' when the site has no base_url)."""
+    url = site.book_url(book.slug, "slides", site_path(deck, lang))
+    return url + "/" if url and not url.endswith("/") else url
+
+
+def build_dir(book: config.Book) -> Path:
+    return paths.BUILD / "slides" / book.slug
+
+
+def deck_names(book: config.Book) -> list[str]:
+    root = book.slides_dir
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and not p.name.startswith(("_", ".")))
+
+
+def deck_langs(book: config.Book, deck: str) -> list[str]:
+    """Languages with an edition file in the deck directory, the book's order first."""
+    d = book.slides_dir / deck
+    if not d.is_dir():
+        return []
+    found = [lang for lang in (lang_of_file(p.name) for p in d.iterdir() if p.is_file()) if lang]
+    order = {lang: i for i, lang in enumerate(book.languages)}
+    return sorted(found, key=lambda lang: (order.get(lang, len(order)), lang))
+
+
+# --------------------------------------------------------------------------- YAML (frontmatter subset)
+
+
+class YamlError(ValueError):
+    pass
+
+
+_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r",
+            "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\", "N": "\x85", "_": "\xa0"}
+
+
+def _double_quoted(s: str, i: int) -> tuple[str, int]:
+    out = []
+    i += 1
+    while i < len(s):
+        c = s[i]
+        if c == '"':
+            return "".join(out), i + 1
+        if c == "\\" and i + 1 < len(s):
+            d = s[i + 1]
+            if d in "xuU":
+                n = {"x": 2, "u": 4, "U": 8}[d]
+                out.append(chr(int(s[i + 2:i + 2 + n], 16)))
+                i += 2 + n
+                continue
+            out.append(_ESCAPES.get(d, d))
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    raise YamlError("unterminated double-quoted string")
+
+
+def _single_quoted(s: str, i: int) -> tuple[str, int]:
+    out = []
+    i += 1
+    while i < len(s):
+        if s[i] == "'":
+            if s[i + 1:i + 2] == "'":
+                out.append("'")
+                i += 2
+                continue
+            return "".join(out), i + 1
+        out.append(s[i])
+        i += 1
+    raise YamlError("unterminated single-quoted string")
+
+
+def _plain(text: str) -> Any:
+    v = text.strip()
+    if v in ("", "~", "null", "Null", "NULL"):
+        return None
+    if v in ("true", "True", "TRUE"):
+        return True
+    if v in ("false", "False", "FALSE"):
+        return False
+    if re.fullmatch(r"[-+]?(?:0|[1-9][0-9]*)", v):
+        return int(v)
+    if re.fullmatch(r"[-+]?(?:[0-9]+\.[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?", v):
+        return float(v)
+    return v
+
+
+def _split_flow(body: str) -> list[str]:
+    parts, depth, quote, cur = [], 0, "", []
+    for c in body:
+        if quote:
+            cur.append(c)
+            if c == quote:
+                quote = ""
+            continue
+        if c in "\"'":
+            quote = c
+        elif c in "[{":
+            depth += 1
+        elif c in "]}":
+            depth -= 1
+        elif c == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+            continue
+        cur.append(c)
+    if "".join(cur).strip():
+        parts.append("".join(cur))
+    return parts
+
+
+def _scalar(text: str) -> Any:
+    """A YAML value written on one line: quoted, flow collection or plain (trailing comment removed)."""
+    s = text.strip()
+    if not s:
+        return None
+    if s[0] in "\"'":
+        value, end = (_double_quoted if s[0] == '"' else _single_quoted)(s, 0)
+        rest = s[end:].strip()
+        if rest and not rest.startswith("#"):
+            raise YamlError(f"unexpected text after a quoted string: {rest!r}")
+        return value
+    if s[0] in "[{":
+        close = "]" if s[0] == "[" else "}"
+        body = s[1:s.rindex(close)] if close in s else s[1:]
+        items = [p.strip() for p in _split_flow(body)]
+        if s[0] == "[":
+            return [_scalar(p) for p in items if p]
+        out: dict[str, Any] = {}
+        for p in items:
+            k, _, v = p.partition(":")
+            out[str(_scalar(k))] = _scalar(v)
+        return out
+    s = re.split(r"\s#", s, maxsplit=1)[0]
+    return _plain(s)
+
+
+@dataclass
+class _Line:
+    indent: int
+    text: str
+    no: int  # index into the raw lines
+
+
+def parse_yaml(text: str) -> dict[str, Any]:
+    """Parse the YAML subset used by Slidev frontmatter: nested block mappings, block and flow
+    sequences, quoted and plain scalars, block scalars (``|``/``>``) and comments."""
+    raw = text.split("\n")
+    items = []
+    for no, line in enumerate(raw):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "\t" in line[:len(line) - len(line.lstrip())]:
+            raise YamlError(f"line {no + 1}: tabs are not allowed for indentation")
+        items.append(_Line(len(line) - len(line.lstrip(" ")), stripped, no))
+
+    def block_scalar(header: str, start_no: int, parent_indent: int) -> tuple[str, int]:
+        body, no, ind = [], start_no + 1, None
+        while no < len(raw):
+            line = raw[no]
+            if line.strip():
+                cur = len(line) - len(line.lstrip(" "))
+                if cur <= parent_indent:
+                    break
+                ind = cur if ind is None else ind
+                body.append(line[ind:])
+            else:
+                body.append("")
+            no += 1
+        while body and not body[-1]:
+            body.pop()
+        value = "\n".join(body) if header.startswith("|") else " ".join(b for b in body if b)
+        if not header.endswith("-"):
+            value += "\n"
+        return value, no
+
+    def skip_to(no: int, i: int) -> int:
+        while i < len(items) and items[i].no < no:
+            i += 1
+        return i
+
+    def node(i: int, indent: int) -> tuple[Any, int]:
+        if items[i].text.startswith("- ") or items[i].text == "-":
+            return seq(i, indent)
+        return mapping(i, indent)
+
+    def value_after(rest: str, i: int, line: _Line) -> tuple[Any, int]:
+        rest = rest.strip()
+        if rest.startswith(("|", ">")):
+            value, no = block_scalar(rest.split("#")[0].strip(), line.no, line.indent)
+            return value, skip_to(no, i)
+        if rest and not rest.startswith("#"):
+            return _scalar(rest), i
+        if i < len(items) and (items[i].indent > line.indent or
+                               (items[i].indent == line.indent and items[i].text.startswith("- "))):
+            return node(i, items[i].indent)
+        return None, i
+
+    def mapping(i: int, indent: int) -> tuple[dict, int]:
+        out: dict[str, Any] = {}
+        while i < len(items) and items[i].indent == indent and not items[i].text.startswith("- "):
+            line = items[i]
+            text = line.text
+            if text[0] in "\"'":
+                key, end = (_double_quoted if text[0] == '"' else _single_quoted)(text, 0)
+                if not text[end:].lstrip().startswith(":"):
+                    raise YamlError(f"line {line.no + 1}: expected ':' after the key")
+                rest = text[end:].lstrip()[1:]
+            else:
+                m = re.match(r"([^:#]+?)\s*:(?:\s|$)", text + " ")
+                if not m:
+                    raise YamlError(f"line {line.no + 1}: expected 'key: value', got {text!r}")
+                key, rest = m.group(1), text[m.end():]
+            out[str(key)], i = value_after(rest, i + 1, line)
+        if i < len(items) and items[i].indent > indent:
+            raise YamlError(f"line {items[i].no + 1}: unexpected indentation")
+        return out, i
+
+    def seq(i: int, indent: int) -> tuple[list, int]:
+        out: list[Any] = []
+        while i < len(items) and items[i].indent == indent and (items[i].text.startswith("- ") or items[i].text == "-"):
+            line = items[i]
+            rest = line.text[1:].strip()
+            if re.match(r"[^\"'\[{][^:#]*:\s", rest + " ") and not rest.startswith(("|", ">")):
+                # "- key: value" starts an inline mapping
+                sub_indent = indent + (len(line.text) - len(line.text[1:].lstrip()))
+                items[i] = _Line(sub_indent, rest, line.no)
+                value, i = mapping(i, sub_indent)
+                out.append(value)
+                continue
+            value, i = value_after(rest, i + 1, line)
+            out.append(value)
+        return out, i
+
+    if not items:
+        return {}
+    value, i = node(0, items[0].indent)
+    if i < len(items):
+        raise YamlError(f"line {items[i].no + 1}: unexpected content")
+    if not isinstance(value, dict):
+        raise YamlError("frontmatter must be a mapping")
+    return value
+
+
+# --------------------------------------------------------------------------- splitting (as @slidev/parser)
+
+
+@dataclass
+class Slide:
+    index: int  # 1-based position among all slides of the file
+    line: int  # 1-based line where the slide (its frontmatter) starts
+    frontmatter: dict[str, Any]
+    content: str
+    error: str = ""
+
+    @property
+    def hidden(self) -> bool:
+        return bool(self.frontmatter.get("hide") or self.frontmatter.get("disabled"))
+
+
+_FRONTMATTER_RE = re.compile(r"^---.*\r?\n([\s\S]*?)---")
+_YAML_BLOCK_RE = re.compile(r"^\s*```ya?ml([\s\S]*?)```")
+
+
+def _advance_comment(line: str, inside: bool) -> bool:
+    cursor = 0
+    while cursor < len(line):
+        if inside:
+            end = line.find("-->", cursor)
+            if end < 0:
+                return True
+            inside = False
+            cursor = end + 3
+        else:
+            start = line.find("<!--", cursor)
+            if start < 0:
+                return False
+            end = line.find("-->", start + 4)
+            if end < 0:
+                return True
+            cursor = end + 3
+    return inside
+
+
+def _parse_slide(raw: str, index: int, line: int) -> Slide:
+    data, error = "", ""
+    m = _FRONTMATTER_RE.match(raw)
+    content = raw
+    if m:
+        data, content = m.group(1), raw[m.end():]
+    else:
+        m = _YAML_BLOCK_RE.match(raw)
+        if m:
+            data, content = m.group(1), raw[m.end():]
+    try:
+        fm = parse_yaml(data) if data else {}
+    except YamlError as exc:
+        fm, error = {}, str(exc)
+    content = content.strip()
+    comments = list(re.finditer(r"<!--([\s\S]*?)-->", content))
+    if comments and comments[-1].end() >= len(content):  # trailing comment = speaker notes
+        content = content[:comments[-1].start()].strip()
+    return Slide(index=index, line=line, frontmatter=fm, content=content, error=error)
+
+
+def split_slides(text: str) -> list[Slide]:
+    """Split a Slidev file into slides exactly as ``@slidev/parser`` ``parseSync`` does.
+
+    A line starting with ``---`` ends the current slide; when it is not ``----`` and the next line is
+    not blank, it opens a frontmatter block closed by the next ``---`` line. Fenced code and HTML
+    comments are skipped.
+    """
+    lines = re.split(r"\r?\n", text)
+    slides: list[Slide] = []
+    start = 0
+    in_comment = False
+
+    def cut(end: int) -> None:
+        nonlocal start
+        if start == end:
+            return
+        slides.append(_parse_slide("\n".join(lines[start:end]), len(slides) + 1, start + 1))
+        start = end + 1
+
+    i = 0
+    while i < len(lines):
+        raw_line = lines[i]
+        line = raw_line.rstrip()
+        if in_comment:
+            in_comment = _advance_comment(raw_line, True)
+        elif line.startswith("---"):
+            cut(i)
+            nxt = lines[i + 1] if i + 1 < len(lines) else None
+            if (len(line) < 4 or line[3] != "-") and nxt is not None and nxt.strip():
+                start = i
+                i += 1
+                while i < len(lines) and lines[i].rstrip() != "---":
+                    i += 1
+        elif line.lstrip().startswith("```"):
+            level = re.match(r"^\s*`+", line).group(0)
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith(level):
+                j += 1
+            if j != len(lines):
+                i = j
+        else:
+            in_comment = _advance_comment(raw_line, False)
+        i += 1
+    if start <= len(lines) - 1:
+        cut(len(lines))
+    return slides
+
+
+def count_slides(text: str) -> int:
+    """Slides Slidev presents (and exports): all slides except those marked hide/disabled."""
+    return sum(1 for s in split_slides(text) if not s.hidden)
+
+
+# --------------------------------------------------------------------------- decks
+
+
+_TAG_RE = re.compile(r"<(LeanBadge|TheoremCard)\b((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
+_ATTR_RE = re.compile(r"([:@]?[\w.-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'))?")
+_FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[^\n]*$", re.M)
+_ABS_LINK_RES = (
+    re.compile(r"\b(?:href|src|poster|data)\s*=\s*[\"'](/(?!/)[^\"']*|file:[^\"']*)[\"']", re.I),
+    re.compile(r"\]\((/(?!/)[^)\s]*|file:[^)\s]*)\)"),
+    re.compile(r"url\(\s*[\"']?(/(?!/)[^\"')]*)", re.I),
+)
+
+
+@dataclass
+class Citation:
+    tag: str  # LeanBadge | TheoremCard
+    gid: str
+    attrs: dict[str, Any]
+
+
+def citations(content: str) -> tuple[list[Citation], list[str]]:
+    """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide, in order, and problems found."""
+    out: list[Citation] = []
+    problems: list[str] = []
+    for m in _TAG_RE.finditer(_FENCE_RE.sub("", content)):
+        attrs: dict[str, Any] = {}
+        for a in _ATTR_RE.finditer(m.group(2)):
+            attrs[a.group(1)] = a.group(2) if a.group(2) is not None else (a.group(3) if a.group(3) is not None else True)
+        gid = attrs.get("gid")
+        if ":gid" in attrs:
+            lit = re.fullmatch(r"\s*(['\"`])(.*)\1\s*", str(attrs[":gid"]))
+            if lit:
+                gid = lit.group(2)
+            else:
+                problems.append(f"<{m.group(1)} :gid=\"{attrs[':gid']}\">: write gid as a literal string so it can be checked")
+        out.append(Citation(m.group(1), gid.strip() if isinstance(gid, str) else "", attrs))
+    return out, problems
+
+
+@dataclass
+class DeckEdition:
+    lang: str
+    path: Path
+    slides: list[Slide]  # visible slides only
+    head: dict[str, Any]
+    issues: list[str] = field(default_factory=list)
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        deck = self.head.get("deck")
+        return deck if isinstance(deck, dict) else {}
+
+    @property
+    def title(self) -> str:
+        return str(self.head.get("title") or "")
+
+    @property
+    def deck_title(self) -> str:
+        return str(self.meta.get("title") or self.title)
+
+    @property
+    def count(self) -> int:
+        return len(self.slides)
+
+
+def read_edition(book: config.Book, deck: str, lang: str) -> DeckEdition:
+    path = book.slides_dir / deck / edition_file(lang)
+    all_slides = split_slides(path.read_text(encoding="utf-8"))
+    head = all_slides[0].frontmatter if all_slides else {}
+    ed = DeckEdition(lang=lang, path=path, slides=[s for s in all_slides if not s.hidden], head=head)
+    for s in all_slides:
+        if s.error:
+            ed.issues.append(f"slide {s.index} (line {s.line}): frontmatter: {s.error}")
+    return ed
+
+
+def cited_gids(book: config.Book) -> list[tuple[Path, int, str]]:
+    """(file, line, GID) for every GID the book's decks cite — for ``./tbook pin`` and the lock check."""
+    out = []
+    for deck in deck_names(book):
+        for lang in deck_langs(book, deck):
+            ed = read_edition(book, deck, lang)
+            for s in ed.slides:
+                for c in citations(s.content)[0]:
+                    if c.gid:
+                        out.append((ed.path, s.line, c.gid))
+    return out
+
+
+# --------------------------------------------------------------------------- contract: check
+
+
+def check_ref(book: config.Book, src: str) -> str | None:
+    """Error message if ``::: {.slides src=…}`` does not name a deck of the book, else None."""
+    src = (src or "").strip()
+    if not src:
+        return 'slides embed needs src="<deck>"'
+    if not DECK_RE.match(src):
+        return (f"slides src={src!r} must name a deck directory of this book (kebab-case), "
+                f"i.e. books/{book.slug}/slides/<deck>/")
+    d = book.slides_dir / src
+    if not d.is_dir():
+        return f"slides src={src!r}: books/{book.slug}/slides/{src}/ not found (create it: ./tbook slides new {book.slug} {src} \"<中文标题>\" \"<English title>\")"
+    primary = book.languages[0]
+    if not (d / edition_file(primary)).is_file():
+        return f"slides src={src!r}: books/{book.slug}/slides/{src}/{edition_file(primary)} not found"
     return None
 
 
-def check(book) -> list:
-    """Validate the book's slides directory; return a list of model.Issue."""
-    return []
+def check(book: config.Book) -> list[Issue]:
+    """Validate ``books/<slug>/slides/``; returns ``tbook.model.Issue`` items."""
+    issues: list[Issue] = []
+    names = deck_names(book)
+    if not names:
+        return issues
+    try:
+        lock = lean.Lock.load()
+    except lean.LeanError as exc:
+        issues.append(Issue("error", paths.LOCK_FILE, 0, str(exc)))
+        lock = None
+    models: dict[str, Any] = {}
+
+    def model_for(lang: str):
+        if lang not in models:
+            from .model import load_edition
+
+            try:
+                models[lang] = load_edition(book.edition(lang))
+            except config.ConfigError:
+                models[lang] = None
+        return models[lang]
+
+    for deck in names:
+        d = book.slides_dir / deck
+        err = lambda path, line, msg: issues.append(Issue("error", path, line, msg))  # noqa: E731
+        if not DECK_RE.match(deck):
+            err(d, 0, f"deck name {deck!r} must be kebab-case (a-z, 0-9, -)")
+        if (d / "index.html").exists():
+            err(d / "index.html", 0, "Slidev merges a deck's index.html into every page; delete it")
+        langs = deck_langs(book, deck)
+        for p in sorted(d.glob("slides.*.md")):
+            if not lang_of_file(p.name):
+                err(p, 0, "not an edition file: use slides.md (zh) or slides.<lang>.md")
+        for lang in langs:
+            if lang not in book.languages:
+                err(d / edition_file(lang), 0,
+                    f"{lang!r} is not an edition of this book (book.toml editions: {', '.join(book.languages)})")
+        for lang in book.languages:
+            if lang not in langs:
+                err(d, 0, f"deck {deck!r} has no {edition_file(lang)}: every deck has an edition for each language "
+                          f"of the book ({', '.join(book.languages)}), page for page")
+        eds = [read_edition(book, deck, lang) for lang in book.languages if lang in langs]
+        if not eds:
+            continue
+        want_theme = theme_ref(d)
+        cites: dict[str, list[list[Citation]]] = {}
+        for ed in eds:
+            for msg in ed.issues:
+                err(ed.path, 0, msg)
+            head_line = ed.slides[0].line if ed.slides else 1
+            if ed.head.get("theme") != want_theme:
+                err(ed.path, head_line, f"headmatter must say theme: {want_theme} (the shared slide theme)")
+            if not ed.title:
+                err(ed.path, head_line, "headmatter title is missing")
+            elif re.search(r"[<>]|\{\{", ed.title):
+                err(ed.path, head_line, "title must not contain <, > or {{ (Slidev renders it as a Vue template)")
+            attrs = ed.head.get("htmlAttrs") if isinstance(ed.head.get("htmlAttrs"), dict) else {}
+            if attrs.get("lang") != config.bcp47(ed.lang):
+                err(ed.path, head_line, f'headmatter must set htmlAttrs.lang: "{config.bcp47(ed.lang)}" (the language of the file)')
+            for key in ("code", "title", "version"):
+                if not ed.meta.get(key):
+                    err(ed.path, head_line, f"deck.{key} is missing (the slide header and footer show it)")
+            if not ed.count:
+                err(ed.path, 0, "the deck has no slides")
+            cites[ed.lang] = []
+            model = None
+            for s in ed.slides:
+                found, problems = citations(s.content)
+                cites[ed.lang].append(found)
+                for msg in problems:
+                    err(ed.path, s.line, msg)
+                for rx in _ABS_LINK_RES:
+                    for m in rx.finditer(_FENCE_RE.sub("", s.content)):
+                        err(ed.path, s.line, f"link {m.group(1)} is absolute; the site is served under /<repo>/, "
+                                             "use a relative or https:// link")
+                for c in found:
+                    _check_citation(c, ed, s, lock, err)
+                    if c.tag == "TheoremCard" and c.attrs.get("cite"):
+                        model = model or model_for(ed.lang)
+                        _check_cite(c, ed, s, model, err)
+        # page-for-page parity with the primary language
+        main = eds[0]
+        for ed in eds[1:]:
+            if ed.count != main.count:
+                err(ed.path, 0, f"{ed.count} slides, but {paths.rel(main.path)} has {main.count}; "
+                                "editions correspond page for page")
+            for key in ("code", "version"):
+                if str(ed.meta.get(key, "")) != str(main.meta.get(key, "")):
+                    err(ed.path, 0, f"deck.{key} is {ed.meta.get(key)!r}, {paths.rel(main.path)} has {main.meta.get(key)!r}")
+            for i, (a, b) in enumerate(zip(main.slides, ed.slides), start=1):
+                for key in ("layout", "bare", "chapter", "class"):
+                    if str(a.frontmatter.get(key, "")) != str(b.frontmatter.get(key, "")):
+                        err(ed.path, b.line, f"slide {i}: {key} is {b.frontmatter.get(key)!r}, "
+                                             f"{paths.rel(main.path)} has {a.frontmatter.get(key)!r}")
+                if bool(a.frontmatter.get("section")) != bool(b.frontmatter.get("section")):
+                    err(ed.path, b.line, f"slide {i}: section is {'present' if b.frontmatter.get('section') else 'missing'}, "
+                                         f"unlike {paths.rel(main.path)}")
+                ga = [c.gid or f"({c.attrs.get('status')})" for c in cites[main.lang][i - 1]]
+                gb = [c.gid or f"({c.attrs.get('status')})" for c in cites[ed.lang][i - 1]]
+                if ga != gb:
+                    err(ed.path, b.line, f"slide {i}: cites [{' '.join(gb)}], {paths.rel(main.path)} cites [{' '.join(ga)}]")
+    return issues
 
 
-def items(book) -> list[dict]:
-    """Registry entries shown on the book's landing page."""
-    return []
+def _check_citation(c: Citation, ed: DeckEdition, s: Slide, lock: lean.Lock | None, err) -> None:
+    status = c.attrs.get("status")
+    if status == "open" and c.gid:
+        err(ed.path, s.line, f'<{c.tag} status="open"> must not cite Lean: open problems have no proof; drop gid')
+    if status not in (None, "open", "argued"):
+        err(ed.path, s.line, f'<{c.tag} status="{status}">: status is "open" or "argued"')
+    if not c.gid:
+        if not status:
+            err(ed.path, s.line, f'<{c.tag}> needs gid="<GID>" (a frozen Lean declaration) or status="open|argued"')
+        return
+    try:
+        lean.parse_gid(c.gid)
+    except lean.LeanError as exc:
+        err(ed.path, s.line, str(exc))
+        return
+    res = lock.get(c.gid) if lock else None
+    if res is None:
+        err(ed.path, s.line, f"{c.gid} is not in trureturing.lock.json; slides may only cite declarations the lock "
+                             "resolves (cite it in the book, then ./tbook pin --refresh)")
+    elif c.tag == "TheoremCard" and c.attrs.get("kind") != "definition" and res.kind not in lean.FORMAL_KINDS:
+        err(ed.path, s.line, f'{c.gid} is a Lean {res.kind}; a TheoremCard must cite a theorem (or say kind="definition")')
+
+
+def _check_cite(c: Citation, ed: DeckEdition, s: Slide, model, err) -> None:
+    """A TheoremCard with cite="<id>" must agree with that environment of the book."""
+    cite = str(c.attrs["cite"]).lstrip("#")
+    env = model.envs.get(cite) if model else None
+    if env is None:
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: no environment #{cite} in the {ed.lang} edition of the book')
+        return
+    want = env.ref_text(ed.lang)
+    label = str(c.attrs.get("label") or "")
+    if label != want:
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: label is {label!r} but the book numbers it {want!r}')
+    if c.gid and env.lean and c.gid not in env.lean:
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: cites {c.gid}, the book cites {" ".join(env.lean)}')
+    if not c.gid and env.lean and c.attrs.get("status") != "argued":
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: the book cites {" ".join(env.lean)}; add gid')
+    is_open = c.attrs.get("status") == "open"
+    if is_open != (env.kind in OPEN):
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: #{cite} is a {env.kind}; '
+                             + ('use status="open"' if env.kind in OPEN else 'only open problems take status="open"'))
+
+
+# --------------------------------------------------------------------------- contract: items, embed
+
+
+def items(book: config.Book) -> list[dict[str, Any]]:
+    """Decks of the book for its landing page. Paths are relative to ``_site/<slug>/``."""
+    site = config.load_site()
+    out = []
+    for deck in deck_names(book):
+        langs = [lang for lang in deck_langs(book, deck) if lang in book.languages]
+        if not langs:
+            continue
+        eds = {lang: read_edition(book, deck, lang) for lang in langs}
+        primary = eds[langs[0]]
+        out.append({
+            "kind": "slides",
+            "id": deck,
+            "languages": langs,
+            "title": {lang: ed.deck_title for lang, ed in eds.items()},
+            "full_title": {lang: ed.title for lang, ed in eds.items()},
+            "info": {lang: str(ed.head.get("info") or "") for lang, ed in eds.items()},
+            "blurb": {lang: str(ed.meta.get("blurb") or "") for lang, ed in eds.items()},
+            "version": str(primary.meta.get("version") or ""),
+            "slides": primary.count,
+            "href": {lang: f"slides/{site_path(deck, lang)}" for lang in langs},
+            "pdf": {lang: f"slides/{deck}/{pdf_name(book, deck, lang)}" for lang in langs},
+            "pdf_name": {lang: pdf_name(book, deck, lang) for lang in langs},
+            "url": {lang: public_url(site, book, deck, lang) for lang in langs},
+            "index": "slides/index.html",
+        })
+    return out
+
+
+def _deck_for_lang(book: config.Book, deck: str, lang: str) -> str | None:
+    langs = deck_langs(book, deck)
+    if lang in langs:
+        return lang
+    for other in book.languages:
+        if other in langs:
+            return other
+    return None
 
 
 def render_embed(env, ctx, inner: str, doc) -> str:
-    """Markdown/HTML that replaces a ``::: {.slides src=…}`` block for ctx.target."""
-    src = env.attrs.get("src")
-    return f"> **slides: {src}**\n>\n> {inner.strip()}"
+    """Replace ``::: {.slides src="<deck>"}``: a link card for mdBook, a short block for Pandoc."""
+    src = (env.attrs.get("src") or "").strip()
+    lang = ctx.lang
+    inner = inner.strip("\n")
+    book = ctx.book
+    problem = check_ref(book, src)
+    if problem:
+        ctx.issues.append(f"{doc.path}: {problem}")
+    deck_lang = _deck_for_lang(book, src, lang) if not problem else None
+    ed = read_edition(book, src, deck_lang) if deck_lang else None
+    title = (ed.title if ed else "") or src
+    count = ed.count if ed else 0
+    kind = config.s(lang, "ui.slides") or "Slides"
+    if ctx.target == "mdbook":
+        # the chapter page is _site/<slug>/<lang>/<chapter>.html; climb to _site/<slug>/
+        depth = len(posixpath.dirname(doc.chapter.path or "").split("/")) if posixpath.dirname(doc.chapter.path or "") else 0
+        up = "../" * (depth + 1)
+        if not ed:
+            return "\n".join([f'<aside class="tr-media tr-slides" data-slides="{esc(src)}">',
+                              f'<p class="tr-media-kind">{esc(kind)}</p>',
+                              f'<p><strong class="tr-media-title">{esc(src)}</strong> · {esc(t(lang, "not_built"))}</p>',
+                              "", inner, "", "</aside>"])
+        href = f"{up}slides/{site_path(src, deck_lang)}"
+        pdf = f"{up}slides/{src}/{pdf_name(book, src, deck_lang)}"
+        meta = f"{esc(kind)} · {esc(t(lang, 'pages', n=count))}"
+        if deck_lang != lang:
+            meta += f" · {esc(config.s(deck_lang, 'meta.name') or deck_lang)}"
+        parts = [
+            f'<aside class="tr-media tr-slides" data-slides="{esc(src)}" lang="{esc(config.bcp47(deck_lang))}">',
+            f'<p class="tr-media-kind tr-media-caption">{meta}</p>',
+            f'<p><a href="{esc(href)}"><strong class="tr-media-title">{esc(title)}</strong></a></p>',
+        ]
+        if inner:
+            parts += ["", inner, ""]
+        parts += [
+            f'<div class="tr-media-links"><a href="{esc(href)}">{esc(t(lang, "present"))} ↗</a>'
+            f'<a href="{esc(pdf)}" download>{esc(t(lang, "pdf"))}</a></div>',
+            "</aside>",
+        ]
+        return "\n".join(parts)
+    # pandoc (PDF / EPUB): the title, the caption and the public URL (absolute; empty base_url → site path)
+    url = public_url(ctx.site, book, src, deck_lang or lang)
+    where = f"<{url}>" if url else f"`{book.slug}/slides/{site_path(src, deck_lang or lang)}`"
+    sep = "" if lang.startswith(("zh", "ja")) else " "
+    head = f"**{kind} · {title}**"
+    if count:
+        pages = t(lang, "pages", n=count)
+        head += f"（{pages}）" if lang.startswith(("zh", "ja")) else f" ({pages})"
+    lines = ["::: {.tr-media .tr-slides}", head, ""]
+    if inner:
+        lines += [inner, ""]
+    lines += [f"{t(lang, 'static_note')}{sep}{where}", ":::"]
+    return "\n".join(lines)
 
 
-def build(site, book, out_dir: Path) -> None:
-    """Publish the book's slides pages into ``out_dir`` (``_site/<slug>/slides/``)."""
-    raise NotImplementedError
+# --------------------------------------------------------------------------- contract: build, publish
+
+
+def _node() -> str:
+    node = os.environ.get("NODE") or shutil.which("node")
+    if not node:
+        raise RuntimeError("node not found: install Node >= 22.12 and run `npm ci` (slides need Slidev and Playwright)")
+    return node
+
+
+def build(site: config.Site, book: config.Book, out_dir: Path) -> Path | None:
+    """Build every deck of the book into ``out_dir`` (``build/slides/<slug>``): HTML per language,
+    browser checks, PDFs. Environment: ``PW_CHROMIUM_PATH`` (Chromium binary), ``TBOOK_SLIDES_NO_PDF=1``
+    (skip PDF export), ``TBOOK_SLIDES_NO_CHECK=1`` (skip browser checks), ``NODE`` (node binary)."""
+    if not deck_names(book):
+        print(f"  {book.slug}: no slides", flush=True)
+        return None
+    cmd = [_node(), str(paths.TOOLS / "node" / "slides-build.mjs"), "--book", book.slug,
+           "--out", str(Path(out_dir).resolve()), "--base", base_path(site)]
+    if os.environ.get("TBOOK_SLIDES_NO_PDF") == "1":
+        cmd.append("--no-pdf")
+    if os.environ.get("TBOOK_SLIDES_NO_CHECK") == "1":
+        cmd.append("--no-check")
+    env = dict(os.environ, TBOOK_ROOT=str(paths.ROOT))
+    if site.base_url:
+        env.setdefault("TBOOK_BASE_URL", site.base_url)
+    r = subprocess.run(cmd, cwd=paths.ROOT, env=env)
+    if r.returncode != 0:
+        raise RuntimeError(f"slides of {book.slug}: tools/node/slides-build.mjs exited with {r.returncode} (see above)")
+    return Path(out_dir)
+
+
+def read_manifest(out_dir: Path) -> dict[str, Any] | None:
+    f = Path(out_dir) / MANIFEST
+    if not f.is_file():
+        return None
+    data = json.loads(f.read_text(encoding="utf-8"))
+    return data if data.get("schema") == MANIFEST_SCHEMA else None
+
+
+def _stale(book: config.Book, out_dir: Path, manifest: dict[str, Any] | None, base: str) -> str:
+    if manifest is None:
+        return f"{paths.rel(out_dir)} has no build"
+    if manifest.get("base") != base:
+        return f"{paths.rel(out_dir)} was built for base {manifest.get('base')!r}, the site uses {base!r}"
+    for deck in deck_names(book):
+        built = manifest.get("decks", {}).get(deck, {}).get("langs", {})
+        for lang in deck_langs(book, deck):
+            if lang not in book.languages:
+                continue
+            info = built.get(lang)
+            if not info or not (out_dir / info["dir"] / "index.html").is_file():
+                return f"{deck} ({lang}) is not built"
+    return ""
+
+
+def publish(site: config.Site, book: config.Book, site_dir: Path, *, build_missing: bool = True) -> list[dict[str, Any]]:
+    """Copy the built decks into ``site_dir`` (``_site/<slug>/slides/``) and write its ``index.html``.
+
+    zh goes to ``<deck>/``, other languages to ``<deck>/<lang>/``, PDFs to ``<deck>/<slug>-<deck>-<lang>.pdf``.
+    Decks not built yet (or built for another base path) are built first unless ``build_missing`` is
+    False, in which case a RuntimeError names the problem. Returns :func:`items` for the published decks.
+    """
+    names = deck_names(book)
+    if not names:
+        return []
+    out = build_dir(book)
+    base = base_path(site)
+    manifest = read_manifest(out)
+    why = _stale(book, out, manifest, base)
+    if why:
+        if not build_missing:
+            raise RuntimeError(f"slides of {book.slug}: {why}; run ./tbook build slides --book {book.slug}")
+        print(f"  slides of {book.slug}: {why}; building", flush=True)
+        build(site, book, out)
+        manifest = read_manifest(out)
+        why = _stale(book, out, manifest, base)
+        if why:
+            raise RuntimeError(f"slides of {book.slug}: {why} after building")
+    site_dir = Path(site_dir)
+    site_dir.mkdir(parents=True, exist_ok=True)
+    for deck in names:
+        target = site_dir / deck
+        if target.exists():
+            shutil.rmtree(target)
+        built = manifest["decks"][deck]["langs"]
+        # primary language first: the other languages are published inside its directory
+        for lang in [lang for lang in book.languages if lang in deck_langs(book, deck)]:
+            info = built[lang]
+            shutil.copytree(out / info["dir"], site_dir / info["site_path"], dirs_exist_ok=True)
+            if info.get("pdf") and (out / info["pdf"]).is_file():
+                shutil.copy2(out / info["pdf"], site_dir / deck / pdf_name(book, deck, lang))
+    published = items(book)
+    for it in published:
+        it["built_pdf"] = {lang: (site_dir / it["id"] / it["pdf_name"][lang]).is_file() for lang in it["languages"]}
+    (site_dir / "index.html").write_text(index_html(site, book, published), encoding="utf-8")
+    return published
+
+
+def index_html(site: config.Site, book: config.Book, decks: list[dict[str, Any]]) -> str:
+    """The bilingual slides index of a book (``_site/<slug>/slides/index.html``); Chinese by default."""
+    langs = list(book.languages)
+    primary = langs[0]
+
+    def pair(fn) -> str:
+        texts = [(lang, fn(lang)) for lang in langs]
+        if len({text for _, text in texts}) == 1:
+            return esc(texts[0][1])
+        return "".join(f'<span class="l-{esc(lang)}" lang="{esc(config.bcp47(lang))}">{esc(text)}</span>'
+                       for lang, text in texts)
+
+    tokens = (paths.GENERATED / "tokens.css").read_text(encoding="utf-8") if (paths.GENERATED / "tokens.css").is_file() else ""
+    lock = None
+    try:
+        lock = lean.Lock.load()
+    except lean.LeanError:
+        pass
+    cards = []
+    for d in decks:
+        rows = []
+        for lang in d["languages"]:
+            links = [f'<a href="{esc(site_path(d["id"], lang))}">{esc(t(lang, "present"))} ↗</a>']
+            if d.get("built_pdf", {}).get(lang, True):
+                links.append(f'<a href="{esc(d["id"])}/{esc(d["pdf_name"][lang])}" download>{esc(t(lang, "pdf"))}</a>')
+            rows.append(f'<p class="links" lang="{esc(config.bcp47(lang))}"><span class="ln">'
+                        f'{esc(config.s(lang, "meta.name") or lang)}</span><span class="lk">{"".join(links)}</span></p>')
+        blurb = pair(lambda lang, d=d: d["blurb"].get(lang) or d["info"].get(lang) or "")
+        cards.append(
+            f'<article class="deck">\n'
+            f'  <p class="kind">{pair(lambda lang: config.s(lang, "ui.slides") or "Slides")} · '
+            f'{pair(lambda lang, d=d: t(lang, "pages", n=d["slides"]))}'
+            f'{" · <span class=ver>v" + esc(d["version"]) + "</span>" if d["version"] else ""}</p>\n'
+            f'  <h2>{pair(lambda lang, d=d: d["title"].get(lang, d["id"]))}</h2>\n'
+            f'  <p class="blurb">{blurb}</p>\n  ' + "\n  ".join(rows) + "\n</article>"
+        )
+    body = "\n".join(cards) or f"<p>{pair(lambda lang: t(lang, 'none'))}</p>"
+    toggle = "".join(f'<button type="button" data-set-lang="{esc(lang)}">{esc(config.s(lang, "meta.short") or lang.upper())}</button>'
+                     for lang in langs) if len(langs) > 1 else ""
+    hide = "\n".join(f':root[data-lang="{lang}"] [class^="l-"]:not(.l-{lang}) {{ display: none; }}' for lang in langs)
+    hide_default = f':root:not([data-lang]) [class^="l-"]:not(.l-{primary}) {{ display: none; }}'
+    commit = (f'<p class="pin">{pair(lambda lang: config.s(lang, "ui.pinned_at"))} '
+              f'<a href="{esc(lock.tree_url)}"><code>{esc(lock.commit[:12])}</code></a></p>') if lock else ""
+    title_text = " · ".join(dict.fromkeys(f"{book.edition(lang).title} · {config.s(lang, 'ui.slides') or 'Slides'}" for lang in langs))
+    return f"""<!doctype html>
+<html lang="{esc(config.bcp47(primary))}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(title_text)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* colours: theme/generated/tokens.css (generated from theme/tokens.json) */
+{tokens}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; min-height: 100vh; background: var(--tr-void); background-image: var(--tr-fx-aurora); color: var(--tr-ink);
+  font: 16px/1.65 var(--tr-font-body); }}
+body::before {{ content: ""; position: fixed; inset: 0; pointer-events: none; background: var(--tr-fx-scanlines); }}
+main {{ position: relative; max-width: 880px; margin: 0 auto; padding: 40px 16px 64px; }}
+a {{ color: var(--tr-sem-link); text-underline-offset: 3px; }}
+a:focus-visible, button:focus-visible {{ outline: 2px solid var(--tr-sem-now); outline-offset: 2px; }}
+nav.top {{ display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: space-between; font: 13px/1.6 var(--tr-font-data); }}
+nav.top .crumbs a {{ color: var(--tr-dim); text-decoration: none; margin-right: 16px; }}
+nav.top .crumbs a:hover {{ color: var(--tr-cyan); }}
+.langs {{ display: inline-flex; border: 1px solid var(--tr-line-hot); }}
+.langs button {{ background: transparent; border: 0; color: var(--tr-dim); cursor: pointer; font: 600 12px/1 var(--tr-font-data); letter-spacing: .08em; padding: 6px 10px; }}
+.langs button + button {{ border-left: 1px solid var(--tr-line-hot); }}
+.langs button[aria-pressed="true"] {{ background: var(--tr-cyan); color: var(--tr-on-accent); }}
+header {{ margin: 36px 0 28px; }}
+.code {{ display: inline-block; font: 700 13px/1 var(--tr-font-display); letter-spacing: .22em; color: var(--tr-cyan);
+  border: 1px solid var(--tr-line-hot); padding: 7px 12px; text-shadow: var(--tr-fx-glow-cyan); }}
+h1 {{ font: 700 clamp(28px, 6vw, 40px)/1.2 var(--tr-font-display); margin: 18px 0 6px; }}
+h1 .k {{ color: var(--tr-cyan); }}
+.sub {{ color: var(--tr-dim); margin: 0; }}
+.deck {{ position: relative; margin: 18px 0; padding: 20px 22px 16px; background: var(--tr-panel); border: 1px solid var(--tr-panel-edge);
+  border-inline-start: 3px solid var(--tr-magenta); clip-path: var(--tr-fx-cut-corner); }}
+.kind {{ margin: 0; font: 500 12px/1.6 var(--tr-font-data); letter-spacing: .14em; text-transform: uppercase; color: var(--tr-dim); }}
+.kind .ver {{ text-transform: none; }}
+h2 {{ font: 600 22px/1.35 var(--tr-font-display); margin: 6px 0 4px; }}
+.blurb {{ margin: 0 0 10px; color: var(--tr-ink); opacity: .86; }}
+.links {{ display: flex; align-items: baseline; gap: 16px; margin: 6px 0 0; }}
+.links .ln {{ flex: none; width: 64px; font: 12px/1.6 var(--tr-font-data); color: var(--tr-dim); letter-spacing: .06em; }}
+.links .lk {{ display: flex; flex-wrap: wrap; gap: 4px 16px; min-width: 0; }}
+.links a {{ font: 600 14px/1.5 var(--tr-font-display); letter-spacing: .04em; text-decoration: none; border-bottom: 1px solid var(--tr-line-hot); }}
+.links a:hover {{ color: var(--tr-ink); border-bottom-color: var(--tr-cyan); }}
+footer {{ margin-top: 36px; color: var(--tr-dim); font-size: 14px; }}
+footer p {{ margin: 4px 0; }}
+.pin code {{ font-family: var(--tr-font-data); color: var(--tr-sigma); }}
+{hide_default}
+{hide}
+</style>
+</head>
+<body>
+<main>
+<nav class="top">
+  <span class="crumbs"><a href="../">← {pair(lambda lang: t(lang, "back_to_book"))}</a><a href="../../">{pair(lambda lang: config.s(lang, "ui.back_to_library"))}</a></span>
+  {f'<span class="langs" role="group">{toggle}</span>' if toggle else ""}
+</nav>
+<header>
+  <span class="code">{esc(book.code)}</span>
+  <h1>{pair(lambda lang: book.edition(lang).title)} <span class="k">· {pair(lambda lang: config.s(lang, "ui.slides") or "Slides")}</span></h1>
+  <p class="sub">{pair(lambda lang: book.edition(lang).subtitle)}</p>
+</header>
+{body}
+<footer>
+  <p>{pair(lambda lang: t(lang, "keys"))}</p>
+  {commit}
+  <p>{pair(lambda lang: config.s(lang, "ui.generated_note"))}</p>
+</footer>
+</main>
+<script>
+(function () {{
+  var langs = {json.dumps(langs)}, root = document.documentElement, key = "tr-lang";
+  function set(lang, save) {{
+    if (langs.indexOf(lang) < 0) return;
+    root.setAttribute("data-lang", lang);
+    root.lang = {json.dumps({lang: config.bcp47(lang) for lang in langs}, ensure_ascii=False)}[lang];
+    document.querySelectorAll("[data-set-lang]").forEach(function (b) {{ b.setAttribute("aria-pressed", String(b.getAttribute("data-set-lang") === lang)); }});
+    if (save) {{ try {{ localStorage.setItem(key, lang); }} catch (e) {{}} }}
+  }}
+  var q = new URLSearchParams(location.search).get("lang"), stored = null;
+  try {{ stored = localStorage.getItem(key); }} catch (e) {{}}
+  set(q || stored || langs[0], !!q);
+  document.querySelectorAll("[data-set-lang]").forEach(function (b) {{
+    b.addEventListener("click", function () {{ set(b.getAttribute("data-set-lang"), true); }});
+  }});
+}})();
+</script>
+</body>
+</html>
+"""
+
+
+# --------------------------------------------------------------------------- contract: cli
+
+
+def _list(books: list[config.Book]) -> int:
+    found = False
+    for book in books:
+        for it in items(book):
+            found = True
+            langs = ", ".join(f"{lang}: {it['full_title'][lang]}" for lang in it["languages"])
+            print(f"{book.slug}/{it['id']}  {it['slides']} slides  [{langs}]")
+    if not found:
+        print("no slide decks")
+    return 0
+
+
+def cli(args) -> int:
+    """``./tbook slides new <book> <deck> "<中文标题>" "<English title>"`` and ``./tbook slides list [<book>]``."""
+    rest = [a for a in (getattr(args, "rest", None) or []) if a != "--"]
+    if args.action == "list":
+        return _list(config.load_books(rest or None))
+    if args.action == "new":
+        if len(rest) not in (3, 4):
+            print('usage: ./tbook slides new <book> <deck> "<中文标题>" "<English title>"', file=sys.stderr)
+            return 2
+        config.load_book(rest[0])  # clear error for an unknown book
+        cmd = [_node(), str(paths.TOOLS / "node" / "slides-new.mjs"), *rest]
+        return subprocess.run(cmd, cwd=paths.ROOT, env=dict(os.environ, TBOOK_ROOT=str(paths.ROOT))).returncode
+    print(f"tbook slides: unknown action {args.action!r} (new, list)", file=sys.stderr)
+    return 2

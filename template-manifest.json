@@ -1,0 +1,671 @@
+{
+  "schema": "trureturing-books.template-manifest.v1",
+  "template": "trureturing-books-template",
+  "version": "0.1.0",
+  "files": {
+    ".claude/skills": {
+      "sha256": "c1aefaccb300698f4b7ae764e1fa857f93c0609ba47b078e4806d926f289c23b",
+      "mode": "120000"
+    },
+    ".editorconfig": {
+      "sha256": "85bccbd23a9070becfe1dc0dbb9ad7305fb2bb98f92f54cb9856d7d6eca4ebfe",
+      "mode": "100644"
+    },
+    ".github/actions/setup/action.yml": {
+      "sha256": "d1463b4edbfee44ab5439b214da6d053fdb7075a9d2aa10b12b637fee2a8c328",
+      "mode": "100644"
+    },
+    ".github/workflows/ci.yml": {
+      "sha256": "8d821d9a07967452f371899a3710dc6647b633483e09868c7ebd6c6a8a345739",
+      "mode": "100644"
+    },
+    ".github/workflows/film.yml": {
+      "sha256": "137173178110d52dffe2d85c7d9a973f2d0a8eb760314bdecf6f9f0396eaad8b",
+      "mode": "100644"
+    },
+    ".github/workflows/lean-verify.yml": {
+      "sha256": "5e03258ef6449e612e33d15a731c065ea0c48f4bc69176d076c4ca6716ae5ae5",
+      "mode": "100644"
+    },
+    ".github/workflows/pages.yml": {
+      "sha256": "2913c69ee41b48b718ca140570ffe380076ffe540d54ccd0ad497a068fa3f0df",
+      "mode": "100644"
+    },
+    ".github/workflows/release.yml": {
+      "sha256": "976ac9ee4f1689248be668081170b1c1239ac2cfb08820d8c096b80700231862",
+      "mode": "100644"
+    },
+    ".github/workflows/template-release.yml": {
+      "sha256": "ac0b26e7862e9fe398fb797153740443013633e33aceeb8710168e3832645157",
+      "mode": "100644"
+    },
+    ".github/workflows/template-sync.yml": {
+      "sha256": "d853cb0ccb2f4249f7691fabcf9b9f62d5a8ea02cbc7ebdf543b9192a0aaf98a",
+      "mode": "100644"
+    },
+    ".github/workflows/trureturing-bump.yml": {
+      "sha256": "b00429abe82652140545d5c5c13c36a5d44c6893f2f9731af015db182613cae3",
+      "mode": "100644"
+    },
+    ".gitignore": {
+      "sha256": "19b284ec24232a7385813dd1d938c4210585663b9eb50dc838734dfba9b0f5f8",
+      "mode": "100644"
+    },
+    "AGENTS.md": {
+      "sha256": "6ebdb617a8104a7756d0cf36578ab01103dc9f07e4dc6feb751296b9c402faf7",
+      "mode": "120000"
+    },
+    "CLAUDE.md": {
+      "sha256": "42b53513fd97ef61f2b634330a10506517547aa202c437e940abec056d1e3936",
+      "mode": "100644"
+    },
+    "docs/ARCHITECTURE.md": {
+      "sha256": "6c10b6883604da00f11c3b74d0c291a85c8ee11dca8d91d20eb97537cc2fa2d6",
+      "mode": "100644"
+    },
+    "docs/AUTHORING.md": {
+      "sha256": "bd3a6496d7fd04d202649b4e0f42aa684a09d61fcaf0620fdde947a1f81211a3",
+      "mode": "100644"
+    },
+    "docs/CHANGELOG.md": {
+      "sha256": "1a0daea942d5183f63e67698406fef2a6fb596f8fff8ebb3874952294c659a1d",
+      "mode": "100644"
+    },
+    "docs/PUBLISHING.md": {
+      "sha256": "e6c77788c007ba9e20574ebf836df4c2fb5d43d0f633283d81777a94a90509cb",
+      "mode": "100644"
+    },
+    "docs/UPGRADING.md": {
+      "sha256": "598a3df28fb73277937b709345be5f281655f45d8c8fe052c9df6a6d959abf04",
+      "mode": "100644"
+    },
+    "docs/VERIFICATION.md": {
+      "sha256": "ff02531b4be45cb653554f419d95596fe2de9e7d4729bd7df69b83dfdf7c25d1",
+      "mode": "100644"
+    },
+    "package-lock.json": {
+      "sha256": "2ebcba7a4e36980e147e5e62e3a90bcc1a3b74746ac84178529a1116d51ff780",
+      "mode": "100644"
+    },
+    "package.json": {
+      "sha256": "20373842ec600265932b85010b3ca24d5cf0f6f49141f129877c426f86bd5ac4",
+      "mode": "100644"
+    },
+    "requirements.txt": {
+      "sha256": "71077ac39b13e13d8d7daf1009c654b23efd0ef0a1c56defae547df7c1b03931",
+      "mode": "100644"
+    },
+    "skills/book-export/SKILL.md": {
+      "sha256": "565b3141dde6638bd1f60f90fe81bc0b540e0ed91153ebf4fbd62f5e249c21f0",
+      "mode": "100644"
+    },
+    "skills/book-film/SKILL.md": {
+      "sha256": "a1cfc340fae3b50340551a2b050364689b174dd6e5d0b0b5e9f5c2063d2b5ed9",
+      "mode": "100644"
+    },
+    "skills/book-new/SKILL.md": {
+      "sha256": "1221e443e89e970c0550361a3a49064b8fad591ea3c660468f81636b8475ade4",
+      "mode": "100644"
+    },
+    "skills/book-release/SKILL.md": {
+      "sha256": "e13055af32dfd73f37d18174df97f9ba05ffd40ec461e74ad5e935bf2588d39f",
+      "mode": "100644"
+    },
+    "skills/book-slides/SKILL.md": {
+      "sha256": "27015c50627f4ff452e32f701be12190241e839938b7523a825200ffd730dc19",
+      "mode": "100644"
+    },
+    "skills/book-viz/SKILL.md": {
+      "sha256": "8d1dfb239f03a01e9119a0ad7650b70a60a6ddacf303778d87f3d7f7cf28dabd",
+      "mode": "100644"
+    },
+    "skills/book-write/SKILL.md": {
+      "sha256": "9681595e3b7b3b5cc7ea063b351d9007f1126297b2113a84fe88cdf451e27dc9",
+      "mode": "100644"
+    },
+    "skills/template-update/SKILL.md": {
+      "sha256": "ff7b2ff627717380d455f6cff36a8a9b0ff864f4a186525dc0b523d494d05bb1",
+      "mode": "100644"
+    },
+    "skills/theorem-formalize/SKILL.md": {
+      "sha256": "e14fa0580650217dab26fe39e2bcbca95f5a34d520f24d6b588cf2f0851e059d",
+      "mode": "100644"
+    },
+    "skills/trureturing-pin/SKILL.md": {
+      "sha256": "f121ec4661d503f7bd4b0add21f917e71cd34362273160da7522a68f4595fb21",
+      "mode": "100644"
+    },
+    "tbook": {
+      "sha256": "7bd9bf465dfb9793577d3be33ade27f08ecf0601807cbffefbad43cbc873b2d7",
+      "mode": "100755"
+    },
+    "templates/book/assets/.gitkeep": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": "100644"
+    },
+    "templates/book/book.toml": {
+      "sha256": "7ef752ac83081219b5c3d10ce1f3880e17f14e96e0db63fb133773dc272dbc69",
+      "mode": "100644"
+    },
+    "templates/book/en/README.md": {
+      "sha256": "770e2cbd2e010ce4ecf279d9de70ab34a07e33957899e59786f555ee62773ca4",
+      "mode": "100644"
+    },
+    "templates/book/en/SUMMARY.md": {
+      "sha256": "9dab6a932871a78673ac4fa1de267f8387d3ec958273aa8cc0aa721207685c4d",
+      "mode": "100644"
+    },
+    "templates/book/en/ch01-introduction.md": {
+      "sha256": "2e70ffe8fa30f6d275012628043ff817dcb0ece43161c9c8d1c9a4b28a1707a1",
+      "mode": "100644"
+    },
+    "templates/book/zh/README.md": {
+      "sha256": "2716af866fe5729e749218be93b3d667146756755fa402363374bb701762a609",
+      "mode": "100644"
+    },
+    "templates/book/zh/SUMMARY.md": {
+      "sha256": "5a500772f270011f06c8c7d5206f0dba33b84f2ebcdcb28b9df8758e890f0ab2",
+      "mode": "100644"
+    },
+    "templates/book/zh/ch01-introduction.md": {
+      "sha256": "cc2601f10ad40439dfb4aca05bcbd0fa49fde9e4bac29708033d776599846302",
+      "mode": "100644"
+    },
+    "templates/film/README.md": {
+      "sha256": "a7e4a5da1ac32393ebcf659586ef74bef164c4d6ef6a9b26b78116d0d82ed4ab",
+      "mode": "100644"
+    },
+    "templates/film/film.json": {
+      "sha256": "a558d625704ed35c27db418bf344f2c9692bab1bdbbaf557c3f234d608e0934d",
+      "mode": "100644"
+    },
+    "templates/film/scenes.js": {
+      "sha256": "3cffe451453a3df1153ad74688fc97d4c47b4319cb0e16fd49339bf1ed1a23bf",
+      "mode": "100644"
+    },
+    "templates/film/script.json": {
+      "sha256": "9869f9b6b7d7066eb23b78c9a6d3c07ab6fc7ae287d70fa8b7a253ca5513cae2",
+      "mode": "100644"
+    },
+    "templates/slides/slides.en.md": {
+      "sha256": "6db7e4073105cd84e508b25a8ca5e4b6c8d566cdc220a06dd7248dd356ea756c",
+      "mode": "100644"
+    },
+    "templates/slides/slides.md": {
+      "sha256": "94c19f3fae74c44d3998516f4c1787a192c3e6346cfec6325ca80c63067ce956",
+      "mode": "100644"
+    },
+    "templates/viz/README.md": {
+      "sha256": "4bd49758bdfac6f8533e845eb39640a7c6b221a91a4c1495ad7cc0d64c4050bf",
+      "mode": "100644"
+    },
+    "templates/viz/index.html": {
+      "sha256": "3e0471d019015461d5b9f8e5f671f5a5b603c05d17c638a68e7e35a23c37af4e",
+      "mode": "100644"
+    },
+    "templates/viz/main.js": {
+      "sha256": "fab101531ed984b367fc5c8fb1225337ef3fbdac3207ac00e9d1ba9f6fcd7b96",
+      "mode": "100644"
+    },
+    "templates/viz/style.css": {
+      "sha256": "c4f781c221a2bd08f7e66f73a9ae9cac44dd73806be127645e34a1d3302b56ee",
+      "mode": "100644"
+    },
+    "templates/viz/test.mjs": {
+      "sha256": "a449835ecfddb31e43cdb960fa95fd5bcef9b3f8e621dacfc1949d9774c03784",
+      "mode": "100644"
+    },
+    "theme/epub/book.css": {
+      "sha256": "8be3930124805061374b1695150c448e98f6b617200a6879c16b086397e559c0",
+      "mode": "100644"
+    },
+    "theme/film/build.py": {
+      "sha256": "2761db2706fabe65e7ed7a401cd0d6e889b9fdf09c5b17feea53420402bb2d49",
+      "mode": "100644"
+    },
+    "theme/film/common.py": {
+      "sha256": "4f2b96088b9d463378e1aaf2a47bb84668ed7e59181cda63c52548766694632a",
+      "mode": "100644"
+    },
+    "theme/film/engine.js": {
+      "sha256": "813584df2c1fd33b6a4622b96d6c0b90233d57defd5c91fbe441820abd0769cd",
+      "mode": "100644"
+    },
+    "theme/film/film.sh": {
+      "sha256": "10f8bcaa0e07db367035cbb83c96156a10f8bd6906984e35437cb90a1a1781fe",
+      "mode": "100755"
+    },
+    "theme/film/lib.js": {
+      "sha256": "a7386e265e562384466fa3d80cca9599a0a9171d0c32fb527e06addcd479facb",
+      "mode": "100644"
+    },
+    "theme/film/mix.py": {
+      "sha256": "c125b3c037317bac34ec2b4c6f16a9b06723ba5c0c5dcf2e1f530c4ec83d63bb",
+      "mode": "100644"
+    },
+    "theme/film/music.py": {
+      "sha256": "8265c724da3e68332a0c848bcd4e707c823254d62420878e76fd46528f871dae",
+      "mode": "100644"
+    },
+    "theme/film/mux.sh": {
+      "sha256": "491328ff2c2eec57d0afe65c02e632d88ce306ed8581759d329f5137ba98393f",
+      "mode": "100755"
+    },
+    "theme/film/poster.js": {
+      "sha256": "61b788a1ac9f75d4e15dc39672f9032ca36721e17cc0197fad282fd8f8e0d9e9",
+      "mode": "100644"
+    },
+    "theme/film/release.py": {
+      "sha256": "ee2b4034361c43dc61daa58b169842c5c4bf7c5534bea8d338d5379e8fa53a15",
+      "mode": "100644"
+    },
+    "theme/film/render.js": {
+      "sha256": "d84839f14d1afff0b9b09e3f2b2bc957def1196b24422d25cdf2e3a831612d9b",
+      "mode": "100644"
+    },
+    "theme/film/render_all.sh": {
+      "sha256": "2e5694d676012600db018c772a3319b5b4ae9a6688657d28a6b01545b3cc7688",
+      "mode": "100755"
+    },
+    "theme/film/setup.sh": {
+      "sha256": "757f7b9170d8a0b040d0b95545637209c65708e5f77662a70078d9112dbfde4a",
+      "mode": "100755"
+    },
+    "theme/film/shot.js": {
+      "sha256": "5b1be09b8399216f6684137c8d03c6d2fe30668cd9758b42dcd3173ab7b51610",
+      "mode": "100644"
+    },
+    "theme/film/site/films.css": {
+      "sha256": "2f56e7033fc2ffdb3588ce4e6ff926ca64572c432409cbd61b3c1288c31f9a16",
+      "mode": "100644"
+    },
+    "theme/film/site/films.js": {
+      "sha256": "764d19c4e3b8cea527179f855ce3056be04e765c0d38a33509b31f13ee9ab9b0",
+      "mode": "100644"
+    },
+    "theme/film/small.sh": {
+      "sha256": "07886b813c0df1fd67ea1dc7ce2efa764d1b13b5af63a4f7f3debf286074568b",
+      "mode": "100755"
+    },
+    "theme/film/tts.py": {
+      "sha256": "cb1aba0dbe7cc59e2c3b21238dd02ef1a995e95f96b12b2d8a0e2792ce205cac",
+      "mode": "100644"
+    },
+    "theme/generated/tokens.css": {
+      "sha256": "788d97fa4f6b0deaa0fd3497a36ed45cd6e50bbda5f1231826e9be5f0e6f3df6",
+      "mode": "100644"
+    },
+    "theme/generated/tokens.mjs": {
+      "sha256": "d7ad1f01eab9160a6ad7d2fbcc8acc90698faad5e164d8e15ba952c05e9f6f71",
+      "mode": "100644"
+    },
+    "theme/generated/tokens.typ": {
+      "sha256": "6aaa9dca22a3a321ad8e5b8213f673e48fd8b763fb369d36642d4880fd2b4770",
+      "mode": "100644"
+    },
+    "theme/i18n/en.toml": {
+      "sha256": "895670ac3c29ce63073eadaf4f2102d140e5a7d99529ba04b8b01e653787b7f4",
+      "mode": "100644"
+    },
+    "theme/i18n/zh.toml": {
+      "sha256": "5322d5ebe561c5e2e8a91a703c171551e3f707aea9c536608340a91ecfbd276b",
+      "mode": "100644"
+    },
+    "theme/mdbook/favicon.svg": {
+      "sha256": "a7ca6af0ab47829e5d4f834708495d68a17d796221d9277a95b47db97b358ca4",
+      "mode": "100644"
+    },
+    "theme/mdbook/head.hbs": {
+      "sha256": "f8eec3fe71798e7493e58a2bbfabf24672964365eb3a2ea302178ba7990bf7a6",
+      "mode": "100644"
+    },
+    "theme/mdbook/tr-book.css": {
+      "sha256": "77f49b496fd3de68b2e469d79217a361b71ab87dc3bee055424d792636fdb9ef",
+      "mode": "100644"
+    },
+    "theme/mdbook/tr-book.js": {
+      "sha256": "ba8ade47f5ec76c9482714833ecbea0f878868df2d44213f8f9738bdf9f127a8",
+      "mode": "100644"
+    },
+    "theme/site/favicon.svg": {
+      "sha256": "af436b9beec6f8aabda4c5a1e363e33734ea8721d832475d0ca8397e4c80154a",
+      "mode": "100644"
+    },
+    "theme/site/site.css": {
+      "sha256": "a3178bba98d4b94912407cd13eb518a9b2335649a7f5da9e73f42cb736c30481",
+      "mode": "100644"
+    },
+    "theme/site/site.js": {
+      "sha256": "c1822388f0aa83f0c5807fb8a88d562c801e6e1f232939d927235201b0bbec8f",
+      "mode": "100644"
+    },
+    "theme/slides/README.md": {
+      "sha256": "e6066d5776dba1a02157fa3adbccd428d6c93d3b4e24b415f4611b394033de97",
+      "mode": "100644"
+    },
+    "theme/slides/components/LeanBadge.vue": {
+      "sha256": "e90565d517b9eaecb729934c493229c176017e2bf1735ce9a85d78a33be5650f",
+      "mode": "100644"
+    },
+    "theme/slides/components/PageNo.vue": {
+      "sha256": "0b01ae1251fb5e2ac45f0a150e79c14439a8a5cb43a0435bc5236250235c51c4",
+      "mode": "100644"
+    },
+    "theme/slides/components/Source.vue": {
+      "sha256": "f981232324afa0906732922d79c3d72eb7e30a3c2a92045b3ed6daddbf5753d2",
+      "mode": "100644"
+    },
+    "theme/slides/components/Stat.vue": {
+      "sha256": "7177a75e74d9f725b2fee07fd8782564d34c9350a54acfa9f4b616a76250ce36",
+      "mode": "100644"
+    },
+    "theme/slides/components/Tex.vue": {
+      "sha256": "62460355ee652ee883376b184a2779a73a1e29b9017e3ba4fc04943c3c10207d",
+      "mode": "100644"
+    },
+    "theme/slides/components/TheoremCard.vue": {
+      "sha256": "80a5f0e7d57bf401360858be39a732369ca9d171c91327a41663882afea86a79",
+      "mode": "100644"
+    },
+    "theme/slides/env.d.ts": {
+      "sha256": "9d72963d2ca7d6df6a0fbe92c73857be9644133176a755a99dfc69a33000c7a0",
+      "mode": "100644"
+    },
+    "theme/slides/i18n.ts": {
+      "sha256": "5dec770fb08971332a7fea9fb1ccdffd0b6fea90d9339af09fb00c9c6ca214d9",
+      "mode": "100644"
+    },
+    "theme/slides/layouts/cover.vue": {
+      "sha256": "f7c97353db33cb946060ba31b825da4191dd7b7ae95c3e50d78827cea4a5960b",
+      "mode": "100644"
+    },
+    "theme/slides/layouts/default.vue": {
+      "sha256": "5b5d5f3b18c46258df468b4a3b42bed9be39ccbb88466b30ac8c0a83ca8a2634",
+      "mode": "100644"
+    },
+    "theme/slides/layouts/section.vue": {
+      "sha256": "ef06b89990897408a8a3cbc732983ba8efd68c4590c57769e81c924a2e74b08b",
+      "mode": "100644"
+    },
+    "theme/slides/lean.ts": {
+      "sha256": "f1817cdda1dcf35e7d486226037d0afb3fe5159c90ccee70f0d8e3dd696dc3c8",
+      "mode": "100644"
+    },
+    "theme/slides/package.json": {
+      "sha256": "3c5143585345b65d57af984e03ab0660478688423878894e3616e41ff728b268",
+      "mode": "100644"
+    },
+    "theme/slides/setup/main.ts": {
+      "sha256": "a98ef4e8f246cfcd3af8529e2c193afebed48bf87a927d4085245687151e0cbb",
+      "mode": "100644"
+    },
+    "theme/slides/setup/shortcuts.ts": {
+      "sha256": "d00154f8bf0552e2d139a5f928fb5f186ef2a69fd9ea07764159704ff5b7d765",
+      "mode": "100644"
+    },
+    "theme/slides/setup/vite-plugins.ts": {
+      "sha256": "3f4074cec850890348eae9d91448f2ae8aa02656867db15a1363c6a5984d88b6",
+      "mode": "100644"
+    },
+    "theme/slides/styles/deck.css": {
+      "sha256": "ec0205d842361228379c74bf15f8f7bf34117d845481b2ab6cafdc06f4b445e6",
+      "mode": "100644"
+    },
+    "theme/slides/styles/index.ts": {
+      "sha256": "a24ead65bb31d9958f733931dfd0b83e2d5cac9233eb60eea6ff766151dddd16",
+      "mode": "100644"
+    },
+    "theme/slides/uno.config.ts": {
+      "sha256": "e00a2333c56ba6de6d530d59baa22913b2fa0281625414ab386a4019672ba98c",
+      "mode": "100644"
+    },
+    "theme/tokens.json": {
+      "sha256": "5eb6117e4af3af8f71fd388fd0c7403d2fb820ac7af285a1bf8ae9e543f6a548",
+      "mode": "100644"
+    },
+    "theme/typst/book.typ": {
+      "sha256": "c7b981527a636e00667f44f229788f4640845884d6b89277a1f3a4debbee3290",
+      "mode": "100644"
+    },
+    "theme/typst/cover.typ": {
+      "sha256": "d96c2437bef183503a309e014a4eaa828dbeab569665385697c1695df2677bac",
+      "mode": "100644"
+    },
+    "theme/typst/fonts.sha256": {
+      "sha256": "ae704536a12506bab4af20a4589472e876788e32bb5a5c670a542f84fafa5847",
+      "mode": "100644"
+    },
+    "theme/typst/pandoc-template.typst": {
+      "sha256": "3f2248324685d7049eb092a949394f42c87112dd8639ea12299d5d44d959fd88",
+      "mode": "100644"
+    },
+    "theme/viz/favicon.svg": {
+      "sha256": "9909b7171e2a4510efb5706303df14d537e2c8faff62b6741a485b895fb3a5b1",
+      "mode": "100644"
+    },
+    "theme/viz/hub.css": {
+      "sha256": "8f44e4538d50f8ad1013f5d59ec025e7d13308f8219d7c8b6b93209bcee3cae8",
+      "mode": "100644"
+    },
+    "theme/viz/hub.js": {
+      "sha256": "a03bb3d9a66b6484ce03bbf84e90d12d09c23aa791d048380b839b61de9b6dc9",
+      "mode": "100644"
+    },
+    "theme/viz/shell.js": {
+      "sha256": "cddb8617acd097c3ceaee984b7dbea962b8a148d6c8e32eb42ab968e1a6729b3",
+      "mode": "100644"
+    },
+    "theme/viz/theme.css": {
+      "sha256": "0dd6ef05f509bc85f8bb8db328e7c47ed26bf8e2f07d97218dc6a85b1d6368e5",
+      "mode": "100644"
+    },
+    "tools/fetch-fonts.sh": {
+      "sha256": "072544a78c254b052ff6a6967e27ab76036d83ca8741a3397cc5db660f51164c",
+      "mode": "100755"
+    },
+    "tools/filters/tr-book.lua": {
+      "sha256": "b4a534dbe63e62623ee73f4e6480ce50a8be0801b2f079e9092d794eb10511e5",
+      "mode": "100644"
+    },
+    "tools/filters/tr-env.lua": {
+      "sha256": "fdc6db69cff8629e8a0e36a0ad552bc42636979a90909cf2035613dbac867832",
+      "mode": "100644"
+    },
+    "tools/migrations/README.md": {
+      "sha256": "18fe36d15263be549540dd9a397fe3020c30f6bc5571e6b4972fa3b9987013a5",
+      "mode": "100644"
+    },
+    "tools/node/katex-render.mjs": {
+      "sha256": "2cdcd1f9f806f78d084553233490aa2572fb820c2bf8f724960b0bc69e0e8e1b",
+      "mode": "100644"
+    },
+    "tools/node/slides-build.mjs": {
+      "sha256": "5bcddb096deb55177bc3501cbfc7c8ca1b7d6d16ba7f0c67456274b10b11e902",
+      "mode": "100644"
+    },
+    "tools/node/slides-check.mjs": {
+      "sha256": "45bd857134436effc13df2f86646f2fa5207548581d68a5361daf9a7b77f8207",
+      "mode": "100644"
+    },
+    "tools/node/slides-lib.mjs": {
+      "sha256": "838b760d11ff7829c02740823aa06dc52bab80d194c4e31dfd36e231c140bd21",
+      "mode": "100644"
+    },
+    "tools/node/slides-new.mjs": {
+      "sha256": "75ace32b61a9111354cab01bfdb101de12d25e3d736b7921e25b53891b02a2c0",
+      "mode": "100644"
+    },
+    "tools/node/viz-common.mjs": {
+      "sha256": "36bba14106f8d98bd64a5cacb405d84077655a255f2c5d7f2be94c70418cb4ab",
+      "mode": "100644"
+    },
+    "tools/node/viz-new.mjs": {
+      "sha256": "1a3b4e1090a814783c75dd2ad89ad4ecfab20ccdd72b1458633969a548f2a2d7",
+      "mode": "100644"
+    },
+    "tools/node/viz-server.mjs": {
+      "sha256": "89c3e6b6b1c912bb6e353285278ab976dcf989192169268087b27f93fdc2be03",
+      "mode": "100644"
+    },
+    "tools/node/viz-test.mjs": {
+      "sha256": "02fd73454e37bd88a5fec3e958a57a8d93e28df7accfa2e96569019454f97d9c",
+      "mode": "100644"
+    },
+    "tools/node/viz-testkit.mjs": {
+      "sha256": "1099a3d987722685a33ac76431d048ecb941a0a85a9e634b0a92382da09f9acd",
+      "mode": "100644"
+    },
+    "tools/node/viz-thumbs.mjs": {
+      "sha256": "b05de528f0e68569861d8611ccd065b31ee148980aa48cc96c3f4dfe9a7a2931",
+      "mode": "100644"
+    },
+    "tools/node/viz-validate.mjs": {
+      "sha256": "4f24e3fa6a8db2e9389d963ca2dc5473abb6f8eea539e75747a1e522bfd2f7f3",
+      "mode": "100644"
+    },
+    "tools/tbook/__init__.py": {
+      "sha256": "485f70baa5b42b7889558ecaa94f28a93c8d1c6ef2d50913d3510a9433098cee",
+      "mode": "100644"
+    },
+    "tools/tbook/__main__.py": {
+      "sha256": "e0930aeba5a3e2e2d94ca6c5fac4f72c0c4eb2be9bba283becf98e909091471c",
+      "mode": "100644"
+    },
+    "tools/tbook/build.py": {
+      "sha256": "3a26c195eb6e7c65be9108f42b80a7736daacf96d387a89ebd2ec884754819ec",
+      "mode": "100644"
+    },
+    "tools/tbook/check.py": {
+      "sha256": "d2db90c9ed00244d4fad60c4315fd5fc32ebc29feff32c4ba3f0703a0048c6e4",
+      "mode": "100644"
+    },
+    "tools/tbook/cli.py": {
+      "sha256": "28dae63230045ad048fa7c73c32ea2623e10d4a8a56c2b211eaf2f6ae6e885cb",
+      "mode": "100644"
+    },
+    "tools/tbook/config.py": {
+      "sha256": "060f14167e6513d391c7e31cf13f9bb106d97f9a66498c21db0571e359c76e40",
+      "mode": "100644"
+    },
+    "tools/tbook/cover.py": {
+      "sha256": "97f8ab07dfa1ceb65b7b37374e48ff323848373a2d56e361bdb827c03245afd3",
+      "mode": "100644"
+    },
+    "tools/tbook/doctor.py": {
+      "sha256": "e3088f46abff31304985c18595e0401dd194e2f97d425afebeb867ff83917c0d",
+      "mode": "100644"
+    },
+    "tools/tbook/film.py": {
+      "sha256": "bf2121ff36f5dbf4d825baa6400a8b719dbc8ba6d39497ef324a7e024c04f79a",
+      "mode": "100644"
+    },
+    "tools/tbook/html.py": {
+      "sha256": "1a7e7a06689944d9fde0b0f3f8e252d5b585ece0637b7946f677c2e822f443ac",
+      "mode": "100644"
+    },
+    "tools/tbook/lean.py": {
+      "sha256": "06b91c3ec087fea33a2dab08f1721bdac66cc300bfcd155e238e049856df650a",
+      "mode": "100644"
+    },
+    "tools/tbook/leanverify.py": {
+      "sha256": "01d130b8d12ea5054ed4e7dd392f2b09485e1489eb5d042aeaf573e38a1701db",
+      "mode": "100644"
+    },
+    "tools/tbook/ledger.py": {
+      "sha256": "5270a53a69837c70a3392cc40734be3d307cb5874c151f3323fccba6d8754f64",
+      "mode": "100644"
+    },
+    "tools/tbook/mathrender.py": {
+      "sha256": "f929a0a58686489731c8707e3710f044e5d16902ad22822e57a1899923e7f3ea",
+      "mode": "100644"
+    },
+    "tools/tbook/mdscan.py": {
+      "sha256": "553f53521257d2bf0d72a25eccedf0dc83bce9d100b76a00bd220332e668b602",
+      "mode": "100644"
+    },
+    "tools/tbook/model.py": {
+      "sha256": "0fb7e0eac9e17b2ab67f6daa41a5ffc8f0cc6d1a65f28aab578b05a5a1c9c5c9",
+      "mode": "100644"
+    },
+    "tools/tbook/newbook.py": {
+      "sha256": "c9d1227b1b5a6cfc1a43587c487583c5276866f077eb9453126e9d42551e36fc",
+      "mode": "100644"
+    },
+    "tools/tbook/pandoc.py": {
+      "sha256": "bda5f653a93f8624a8f6fa731b7989471094373114b3c7ead5f8a003085e2d13",
+      "mode": "100644"
+    },
+    "tools/tbook/paths.py": {
+      "sha256": "1aefdb6761e13d001406132de9289f0c7769554bbf38a0a5411de245f6ef9b54",
+      "mode": "100644"
+    },
+    "tools/tbook/pin.py": {
+      "sha256": "e1b225d3722691fdbd1cfb2a9815a6bd44f8f99b8de35980a97a5442f4bedcb4",
+      "mode": "100644"
+    },
+    "tools/tbook/render.py": {
+      "sha256": "c986fd2baa1a761c985154f3df1825f665e0a845d3cd7087c92bc7782d0d5070",
+      "mode": "100644"
+    },
+    "tools/tbook/serve.py": {
+      "sha256": "b960a83aaeed21924ea70697c46db7972a73728d0e86411213d6baf6e867b90a",
+      "mode": "100644"
+    },
+    "tools/tbook/site.py": {
+      "sha256": "23f02e1f04caaae2dcda37879e2c271aad1272879a94814210a4489582b364aa",
+      "mode": "100644"
+    },
+    "tools/tbook/slides.py": {
+      "sha256": "7fad42be164e3fd637bc93cf0c5a37ac22e4173e0cf4b6567808a5f1c25e619e",
+      "mode": "100644"
+    },
+    "tools/tbook/summary.py": {
+      "sha256": "57c135e1bcb1986b78cf80cce326b24a4e8a3a906acd90f50d351b7a1f020824",
+      "mode": "100644"
+    },
+    "tools/tbook/template.py": {
+      "sha256": "cd1108c3d6286f95382d7d8513f7f5b37f90d8cb018045dc1546f1ae626056f3",
+      "mode": "100644"
+    },
+    "tools/tbook/theme.py": {
+      "sha256": "4bd17977aa18892bbe4fcabff3baf20cddc2895d7a00da9e569654293599930e",
+      "mode": "100644"
+    },
+    "tools/tbook/viz.py": {
+      "sha256": "8b9c7713ff9ba8ffe89a4403267b65fc10fedf3d1f05334ce31d9248e61fbbf5",
+      "mode": "100644"
+    },
+    "tools/tests/test_core.py": {
+      "sha256": "f6d979dad6f16b4ed6b6a06fda3f2b7e431a58f0c39b243e64fa6258f5005abd",
+      "mode": "100644"
+    },
+    "tools/tests/test_film.py": {
+      "sha256": "53f597eaf38d87de7e270696e1c14ea2fb6c49f1986f41c7367ae33fa6d1237e",
+      "mode": "100644"
+    },
+    "tools/tests/test_html.py": {
+      "sha256": "0bcaa70b7e12e4c6e1feba85f912f9e99bdcd4b8c7fe5fea81078ec03df6a4fb",
+      "mode": "100644"
+    },
+    "tools/tests/test_pandoc.py": {
+      "sha256": "7dee48fd16cfdbcf8403e26f4f0afb3f9c830d61f523fc53a08033fa209fecbf",
+      "mode": "100644"
+    },
+    "tools/tests/test_site.py": {
+      "sha256": "c0a8924f463512c9de3234c6b70a811b0ac5ab27a36a3341482ad8e15da9003d",
+      "mode": "100644"
+    },
+    "tools/tests/test_slides.py": {
+      "sha256": "21e739324e57be59bb55373be09e9de8c085f073b5e227dbfe427d5897a50852",
+      "mode": "100644"
+    },
+    "tools/tests/test_template.py": {
+      "sha256": "aef862e5f07302b33237a274bed5aa86fcf197eee06451f35a390e924eba0aa5",
+      "mode": "100644"
+    },
+    "tools/tests/test_viz.py": {
+      "sha256": "c5bb015c0fcbc764f3d5bcb2981b6b31fdaef682faa2531c232096afce0cc1ca",
+      "mode": "100644"
+    }
+  }
+}

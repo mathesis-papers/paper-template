@@ -13,7 +13,7 @@ proof          proof — unnumbered; ``lean`` optional.
 media          viz, film, slides — embeds, not numbered.
 =============  ==================================================================
 
-Numbered kinds share one counter per top-level chapter: ``定理 2.1``, ``定义 2.2``…
+Numbered kinds share one counter per top-level chapter: ``定理2.1``, ``定义2.2``…
 """
 
 from __future__ import annotations
@@ -101,12 +101,12 @@ class Env:
         return config.s(lang, f"env.{self.kind}")
 
     def ref_text(self, lang: str) -> str:
-        """``定理 2.1`` / ``Theorem 2.1``."""
+        """``定理2.1`` / ``Theorem 2.1``."""
         sep = "" if lang.startswith(("zh", "ja")) else " "
         return f"{self.label(lang)}{sep}{self.number}" if self.number else self.label(lang)
 
     def heading(self, lang: str) -> str:
-        """``定理 2.1（亏量三值）`` / ``Theorem 2.1 (Deficit is three-valued)``."""
+        """``定理2.1（亏量三值）`` / ``Theorem 2.1 (Deficit is three-valued)``."""
         head = self.ref_text(lang)
         if self.title:
             head += config.s(lang, "punct.title_open") + self.title + config.s(lang, "punct.title_close")
@@ -172,7 +172,8 @@ def load_edition(edition: config.Edition) -> EditionModel:
         issues.append(Issue("error", exc.path, exc.line, exc.message))
         return model
     model.summary = summary
-    counters: dict[int, int] = {}
+    # One counter per numbered/suffix chapter; all prefix chapters share number 0.
+    counters: dict[int | str, int] = {}
     for chapter in summary.chapters:
         if chapter.draft:
             continue
@@ -204,8 +205,9 @@ def load_edition(edition: config.Edition) -> EditionModel:
                 div=node,
             )
             if kind in NUMBERED:
-                counters[chapter.top] = counters.get(chapter.top, 0) + 1
-                env.number = f"{prefix}.{counters[chapter.top]}"
+                ckey: int | str = "prefix" if prefix == "0" else chapter.top
+                counters[ckey] = counters.get(ckey, 0) + 1
+                env.number = f"{prefix}.{counters[ckey]}"
             if kind in MEDIA:
                 doc.media.append(env)
             else:
@@ -231,3 +233,27 @@ def load_edition(edition: config.Edition) -> EditionModel:
 
 def load_book_models(book: config.Book) -> dict[str, EditionModel]:
     return {ed.lang: load_edition(ed) for ed in book.editions}
+
+
+def media_cited_gids(book: config.Book) -> list[tuple[Path, int, str]]:
+    """(file, line, GID) cited by a book's visualizations, films and slide decks.
+
+    These count as citations for ``./tbook pin --refresh`` and the lock check, exactly like
+    chapter citations. Each media module enforces its own rules about declaration kinds.
+    """
+    import importlib
+
+    out: list[tuple[Path, int, str]] = []
+    for kind in MEDIA:
+        try:
+            mod = importlib.import_module(f"tbook.{kind}")
+        except ImportError:
+            continue
+        fn = getattr(mod, "cited_gids", None)
+        if fn is None:
+            continue
+        try:
+            out.extend(fn(book))
+        except NotImplementedError:
+            continue
+    return out

@@ -47,6 +47,9 @@ def cmd_pin(args) -> int:
     except lean.LeanError as exc:
         print(f"pin: {exc}", file=sys.stderr)
         return 1
+    except (KeyError, ValueError) as exc:
+        print(f"pin: unreadable {paths.rel(paths.LOCK_FILE)}: {exc!r}; delete it and run ./tbook pin", file=sys.stderr)
+        return 1
     text = report.markdown()
     print(text)
     if args.report:

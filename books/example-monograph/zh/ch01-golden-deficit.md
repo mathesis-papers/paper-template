@@ -29,3 +29,15 @@ $$
 ::: remark
 [@thm-deficit-three-valued] 对任意大的输入都成立：它把一个算术算法（逐位进位）和一个精确界联系起来，可以作为后续推理的前提反复使用。在 Lean 中，它的名字是 [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)。
 :::
+
+## 动手看一看
+
+下面的交互可视化与视频都由本书仓库构建：画面上的数值只是页面上的计算，帮助理解；结论成立与否以 Lean 为准。
+
+::: {.viz src="golden-carry" height="560"}
+拖动滑块或点击亏量图选择 $v_1, v_2$，逐步观察进位；亏量 $c(v_1, v_2)$ 总是 $-1$、$0$、$1$ 之一（[@thm-deficit-three-valued]）。
+:::
+
+::: {.film src="001-golden-deficit"}
+动画：两个 Zeckendorf 表示相加、进位，以及亏量为什么只取 $-1, 0, 1$（[@thm-deficit-three-valued]）。
+:::

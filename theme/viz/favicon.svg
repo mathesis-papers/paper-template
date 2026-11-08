@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- trureturing visualizations mark (after trureturing-visualize/assets/favicon.svg). tbook.viz.build and
+       tools/node/viz-server.mjs replace each colour placeholder (a token name between double at-signs) with the
+       screen palette of theme/tokens.json. -->
+  <rect width="32" height="32" fill="@@void@@"/>
+  <path d="M9 3v8M9 14v4M9 21v8" stroke="@@cyan@@" stroke-width="2.4" stroke-linecap="square"/>
+  <path d="M13 8.5a5 5 0 0 1 0 7M17 6a8.5 8.5 0 0 1 0 12M13 16.5a5 5 0 0 1 0 7M17 14a8.5 8.5 0 0 1 0 12" fill="none" stroke="@@magenta@@" stroke-width="1.5"/>
+  <circle cx="25" cy="16" r="1.8" fill="@@amber@@"/>
+</svg>

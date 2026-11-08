@@ -1,0 +1,108 @@
+# Toolchain for ./tbook on GitHub-hosted Ubuntu runners (managed by the template).
+#
+#   - uses: ./.github/actions/setup
+#     with:
+#       browsers: 'true'   # Playwright Chromium: viz browser tests, slide export, thumbnails
+#       fonts: 'true'      # CJK / mono system fonts + tools/fetch-fonts.sh into .cache/fonts (PDF)
+#       mdbook: 'true'     # mdBook 0.5.4 (HTML)
+#
+# Python packages come from requirements.txt (pandoc via pypandoc_binary, typst, epubcheck);
+# Node packages from package-lock.json (KaTeX, Slidev, Playwright). Java, needed by epubcheck,
+# is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
+name: tbook setup
+description: Python, Node, mdBook, fonts and (optionally) Chromium for building trureturing books.
+
+inputs:
+  browsers:
+    description: Install Playwright's Chromium with its system dependencies.
+    required: false
+    default: 'false'
+  fonts:
+    description: Install CJK and monospace system fonts and fetch the PDF fonts into .cache/fonts.
+    required: false
+    default: 'true'
+  mdbook:
+    description: Install mdBook 0.5.4.
+    required: false
+    default: 'true'
+  python-version:
+    description: Python version for ./tbook (>= 3.11).
+    required: false
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: requirements.txt
+
+    - name: Install Python packages
+      shell: bash
+      run: python -m pip install -r requirements.txt
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: package-lock.json
+
+    - name: Install Node packages
+      shell: bash
+      env:
+        # Browsers are installed explicitly below (with their system libraries) when requested.
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      run: npm ci --no-audit --no-fund
+
+    - name: Cache Playwright browsers
+      if: inputs.browsers == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Install Chromium for Playwright
+      if: inputs.browsers == 'true'
+      shell: bash
+      run: npx playwright install --with-deps chromium
+
+    - name: Install mdBook
+      if: inputs.mdbook == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: mdbook@0.5.4
+
+    - name: Install system fonts
+      if: inputs.fonts == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends \
+          fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core
+        fc-cache -f >/dev/null
+
+    - name: Cache fetched fonts
+      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != ''
+      uses: actions/cache@v4
+      with:
+        path: .cache/fonts
+        key: fonts-${{ hashFiles('tools/fetch-fonts.sh', 'theme/typst/fonts.sha256') }}
+
+    - name: Fetch PDF fonts
+      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != ''
+      shell: bash
+      run: |
+        # The build falls back to system fonts, so a failed download is a warning, not an error.
+        bash tools/fetch-fonts.sh || echo "::warning title=Fonts::tools/fetch-fonts.sh failed; PDFs fall back to system fonts"
+
+    - name: Toolchain versions
+      shell: bash
+      run: |
+        python --version
+        node --version
+        if command -v mdbook >/dev/null; then mdbook --version; fi
+        if command -v java >/dev/null; then java -version 2>&1 | head -n 1; else echo "::warning::java not found: EPUB validation (epubcheck) will be skipped or fail"; fi

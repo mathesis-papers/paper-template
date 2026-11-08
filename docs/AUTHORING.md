@@ -88,7 +88,7 @@ $$
 
 | 写法 | 结果 |
 | --- | --- |
-| `[@thm-deficit-three-valued]` | “定理 1.3”，链接到该定理（跨章节可用） |
+| `[@thm-deficit-three-valued]` | “定理1.3”，链接到该定理（跨章节可用） |
 | ``[`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`` | 指向所钉提交上 Lean 源文件对应行的永久链接 |
 | `[第二章](ch02-refutation-observation.md)` | 章节链接（HTML 为页面链接，PDF/EPUB 为内部跳转） |
 | `![图注](../assets/figure.svg)` | 图片；放在 `assets/` 的图各语言共享 |

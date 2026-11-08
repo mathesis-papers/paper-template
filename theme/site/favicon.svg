@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- trureturing books library mark: a cut-corner volume, two spines and the LEAN check.
+       tbook.site fills each colour placeholder (a token name between double at-signs) from the
+       screen palette of theme/tokens.json. -->
+  <path d="M4 4h44l12 12v44H16L4 48z" fill="@@void@@" stroke="@@line-hot@@" stroke-width="3"/>
+  <path d="M16 15v32M25 15v32" stroke="@@cyan@@" stroke-width="5" stroke-linecap="square"/>
+  <path d="M33 16l8 30" stroke="@@magenta@@" stroke-width="5" stroke-linecap="square"/>
+  <path d="M39 39l5 5 9-12" stroke="@@ok@@" stroke-width="4" fill="none" stroke-linecap="square"/>
+</svg>

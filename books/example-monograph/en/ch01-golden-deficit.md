@@ -29,3 +29,15 @@ The contraction face evaluates Zeckendorf digits at powers of the conjugate $\ps
 ::: remark
 [@thm-deficit-three-valued] holds however large the inputs are: it ties an arithmetic algorithm (digitwise carrying) to an exact bound, and can be reused as a premise in later arguments. In Lean its name is [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued).
 :::
+
+## See it for yourself
+
+The interactive visualization and the film below are built from this book's repository. The numbers on screen are computations on the page that help you see; whether a result holds is decided by Lean.
+
+::: {.viz src="golden-carry" height="560"}
+Drag the sliders or click the deficit map to pick $v_1, v_2$ and step through the carries; the deficit $c(v_1, v_2)$ is always $-1$, $0$ or $1$ ([@thm-deficit-three-valued]).
+:::
+
+::: {.film src="001-golden-deficit"}
+Animation: adding two Zeckendorf representations, the carries, and why the deficit takes only $-1, 0, 1$ ([@thm-deficit-three-valued]).
+:::

@@ -59,20 +59,25 @@ def parse_name_key(key: str) -> list[str | int]:
         if tag not in ("ns(", "nn("):
             raise LeanError(f"bad name key at {i}: {key[i:i + 20]!r}")
         parent, i = parse(i + 3)
-        if key[i] != ",":
+        if i >= len(key) or key[i] != ",":
             raise LeanError(f"bad name key at {i}: expected ','")
         i += 1
         if tag == "ns(":
             colon = key.index(":", i)
             length = int(key[i:colon])
             start = colon + 1
-            comp: str | int = key[start:start + length]
-            i = start + length
+            # trureturing writes component lengths in UTF-8 bytes (e.g. ``5:mk₂``).
+            raw = key[start:].encode("utf-8")[:length]
+            try:
+                comp: str | int = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise LeanError(f"bad name key at {start}: length splits a UTF-8 sequence") from exc
+            i = start + len(comp)
         else:
             close = key.index(")", i)
             comp = int(key[i:close])
             i = close
-        if key[i] != ")":
+        if i >= len(key) or key[i] != ")":
             raise LeanError(f"bad name key at {i}: expected ')'")
         return parent + [comp], i + 1
 

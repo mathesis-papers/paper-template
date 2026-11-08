@@ -6,8 +6,8 @@ license = "CC-BY-4.0"
 editions = [{{EDITIONS}}]
 # 封面与站点卡片上的赛博朋克代号，形如 CODE//NAME。
 code = "{{CODE}}"
-# 出版日期（YYYY-MM-DD）；留空则用构建当天。
-date = ""
+# 出版日期（YYYY-MM-DD），进入 PDF/EPUB 元数据；留空则用构建当天（产物不能跨日复现）。
+date = "{{DATE}}"
 
 [book.title]
 {{TITLES}}

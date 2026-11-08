@@ -71,7 +71,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 - `#id`：形式结论、定义、开放条目必须有 id；id 以字母开头，可含字母、数字、`-`、`_`、`:`。
 - `title="…"`：可选，单行，可含行内数学。
 - `lean="GID [GID …]"`：一条或多条，空格或逗号分隔。
-- 编号：同一顶层章节内，所有编号种类共用一个计数器：`定理 2.1`、`定义 2.2`……前言类（prefix）章节用 `0.n`，附录类（suffix）章节用 `A.n`、`B.n`。
+- 编号：同一顶层章节内，所有编号种类共用一个计数器：`定理2.1`、`定义2.2`（中文、日文不加空格；英文为 `Theorem 2.1`）……前言类（prefix）章节用 `0.n`，附录类（suffix）章节用 `A.n`、`B.n`。
 - 简写 `::: proof`（单个类名，无花括号）也可以。
 
 ### 3.2 GID
@@ -80,7 +80,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 ### 3.3 引用与链接
 
-- `[@thm-deficit]` → `定理 1.2`（链接到该环境；跨章节有效）。
+- `[@thm-deficit]` → `定理1.2`（链接到该环境；跨章节有效）。
 - `` [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued) `` → 指向所钉提交上 Lean 源文件（含行号）的永久链接。
 - 图片：`![说明](../assets/figure.svg)`。指向书目录内、语言目录外的文件会被复制进构建目录 `_book/`。
 
@@ -104,8 +104,14 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 :::
 ```
 
-- HTML：可视化以 iframe 嵌入，附“全屏打开”；视频以 `<video>` 播放（海报 + 发布地址）；幻灯片为链接卡片。
+- HTML：可视化以 iframe 嵌入（`height` 160–2400，默认 560），附“全屏打开”；视频以 `<video>` 播放（海报 + 发布地址）；幻灯片为链接卡片（在线演示、PDF）。
 - PDF / EPUB：静态缩略图或海报 + 图注 + 在线地址（由 `site.toml` 的 `base_url` 拼出）。
+- 书内媒体的源文件：
+  - 可视化：`books/<slug>/viz/visualizations.json`（登记表）+ `viz/<id>/`（`index.html`、`style.css`、`main.js`、`thumb.jpg`）与 `viz/tests/<id>.test.mjs`；页面契约见 `templates/viz/README.md`。
+  - 视频：`books/<slug>/films/<NNN>-<name>/`（`film.json`、`script.json`、`scenes.js`、`poster.jpg`）；规范见 `templates/film/README.md`，发布 tag 为 `film-<slug>-<NNN>-v<k>`。
+  - 幻灯片：`books/<slug>/slides/<deck>/slides.md`（第一语言）与 `slides.<lang>.md`，逐页对应；写法见 `theme/slides/README.md`。
+- 媒体中引用的 Lean GID（登记表的 `lean`、页面的 `data-lean-gid`、`film.json` 的 `lean`、幻灯片的 `<LeanBadge>` / `<TheoremCard>`）与章节引用一样必须在锁文件中，由 `./tbook pin --refresh` 解析、`./tbook check` 复核。
+- `[@id]` 只能指向编号环境，不能指向媒体块。
 
 ### 3.5 数学
 
@@ -129,33 +135,53 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 ## 5. 构建目录契约
 
 ```
-build/stage/<slug>/<lang>/mdbook/   mdBook 工程（book.toml、src/）
-build/stage/<slug>/<lang>/pandoc/   Pandoc 输入（book.md、_book/、cover.png）
-build/html/<slug>/<lang>/           mdBook 输出
+build/stage/<slug>/<lang>/mdbook/   mdBook 工程：book.toml、src/（章节、SUMMARY、404.md、_book/ 书内文件、
+                                    tr/katex/fonts）、theme/head.hbs、tr/（tokens.css、纸面配色、KaTeX CSS、
+                                    tr-editions.js、tr-book.css/js）
+build/stage/<slug>/<lang>/pandoc/   Pandoc 输入：book.md、_book/、_theme/（Typst 主题副本与 code-<variant>.tmTheme）、
+                                    meta.json、main.typ（PDF）、cover.png（EPUB 封面 1600×2560）、
+                                    epub/（book.css、metadata.json、colophon.md）
+build/html/<slug>/<lang>/           mdBook 输出（含 tr/ 下带哈希的 CSS/JS）
 build/dist/<slug>/                  下载文件，文件名由 Book.artifact() 决定：
                                     <slug>-<version>-<lang>-screen.pdf
                                     <slug>-<version>-<lang>-print.pdf
                                     <slug>-<version>-<lang>.epub
-build/slides/<slug>/<deck>/<lang>/  Slidev 输出；PDF 在 build/slides/<slug>/<deck>-<lang>.pdf
+build/slides/<slug>/<deck>/<lang>/  Slidev 输出；PDF 在 build/slides/<slug>/<deck>-<lang>.pdf；
+                                    manifest.json（schema trureturing-books.slides.v1：base、
+                                    decks.<deck>.langs.<lang>.{title,info,blurb,slides,dir,site_path,base,pdf,pdf_name}）
+books/<slug>/films/<NNN>-<name>/out/  视频流水线产物（git 忽略）；入口 theme/film/film.sh <film dir> <step>
+build/lean-verify/                  ./tbook lean-project 生成的深度验证 Lake 工程
 _site/                              GitHub Pages 产物（见 §6）
 ```
+
+HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook 侧栏的 “1.2.” 编号（默认关闭，因为标题已写“第一章 / Chapter 1”）；`site.toml` 的 `[site] branch = "main"` 决定“建议修改”链接指向的分支。语言切换按 `_site/<slug>/<lang>/` 的布局链接到 `../<lang>/<同一页>`。
+
+环境变量：`MDBOOK`（mdBook 路径）、`PANDOC`、`PW_CHROMIUM_PATH`（已有的 Chromium）、`TBOOK_EPUBCHECK=1|warn|0`、`TBOOK_SLIDES_NO_PDF=1`、`TBOOK_SLIDES_NO_CHECK=1`、`SOURCE_DATE_EPOCH`（可复现的时间戳）、`TBOOK_REPO` / `TBOOK_BASE_URL`（覆盖仓库与站点地址）、`TRURETURING_DIR`（本地 trureturing 检出）、`TBOOK_LANG=zh|en`（模板升级摘要语言）。
 
 ## 6. 站点结构（`_site/`）
 
 ```
-index.html                 书库首页（双语切换，书卡片：封面、简介、在线阅读、下载）
-404.html
-assets/                    站点共享样式、tokens.css、字体链接、favicon
-<slug>/index.html          书的落地页：版本、语言、下载、可视化、视频、幻灯片、验证账本摘要
+index.html                 书库首页（双语切换，书卡片：封面、简介、在线阅读、下载、媒体计数）
+404.html                   自包含的 404 页
+.nojekyll
+assets/                    站点共享样式、tokens.css、site.js、favicon
+manifest.json              机器可读清单（schema trureturing-books.site.v1，见下）
+<slug>/index.html          书的落地页：版本、语言、下载、目录、验证摘要、可视化/视频/幻灯片
+<slug>/cover-<lang>.png    站点封面（640×1024，tbook.cover 生成）
 <slug>/<lang>/             mdBook HTML
 <slug>/downloads/          PDF、EPUB
-<slug>/viz/<id>/           可视化页面；<slug>/viz/assets/ 为共享运行时
-<slug>/films/              视频列表（播放地址指向 Release 资产）
-<slug>/slides/<deck>/      幻灯片（中文）；<slug>/slides/<deck>/en/（英文）
-manifest.json              机器可读的站点清单（书、版本、文件、钉住的 trureturing 提交）
+<slug>/viz/                index.html（可视化索引）、visualizations.json、assets/（共享运行时）、<id>/
+<slug>/films/              index.html、films.json、assets/{tokens.css,films.css,films.js}、<NNN>-<name>/poster.jpg
+                           （播放与下载地址指向 GitHub Release 资产）
+<slug>/slides/             index.html；<deck>/（中文）、<deck>/en/（英文）、
+                           <deck>/<slug>-<deck>-<lang>.pdf
 ```
 
-所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。
+`manifest.json` 字段：`generated_at`、`site{title,languages,base_url,repo}`、`template{name,version}`、`trureturing{repo,commit,branch}`、`books[{slug, version, code, title{lang}, editions[{lang,bcp47,primary,html}], landing, verified, open, declarations[], media{viz,films,slides}, files[{path,size,sha256,kind(pdf|epub|cover|slides-pdf),lang,variant}]}]`。设置 `SOURCE_DATE_EPOCH` 可使 `generated_at` 可复现。
+
+站点品牌：`site.toml` 可选 `[site] logo = "TRURETURING//BOOKS"`；缺省时用英文站名生成 `FIRST//REST`。
+
+所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。`./tbook serve` 在同样的子路径下预览（`TBOOK_SERVE_HOST=0.0.0.0` 可供局域网访问）；`./tbook build site --book x` 只装配选定的书；`./tbook build viz|films` 只重新发布这些部分。媒体发布失败时，站点其余部分仍会写出，命令以非零退出。
 
 ## 7. Python 组件接口
 
@@ -178,19 +204,23 @@ manifest.json              机器可读的站点清单（书、版本、文件�
 # tbook/html.py
 def build_edition(site, book, edition, model, lock, out_dir: Path) -> Path
 # tbook/pandoc.py
-def build_pdf(site, book, edition, model, lock, variant: str, out_path: Path) -> Path   # variant: screen | print
-def build_epub(site, book, edition, model, lock, out_path: Path) -> Path
+def build_pdf(site, book, edition, model, lock, variant: str, out_path: Path, *, stage_dir=None) -> Path  # screen | print
+def build_epub(site, book, edition, model, lock, out_path: Path, *, stage_dir=None) -> Path
 # tbook/cover.py
-def render_cover(site, book, edition, out_path: Path, *, fmt: str = "png", variant: str = "screen") -> Path
+def render_cover(site, book, edition, out_path: Path, *, fmt: str = "png", variant: str = "screen",
+                 model=None, lock=None, meta=None, width_px: int = 1600) -> Path
 # tbook/viz.py, tbook/film.py, tbook/slides.py
 def check_ref(book, src: str) -> str | None          # 错误信息或 None
 def check(book) -> list[Issue]
 def items(book) -> list[dict]                         # 落地页用的条目
+def cited_gids(book) -> list[tuple[Path, int, str]]   # 媒体引用的 GID；pin --refresh 与锁文件校验都计入
 def render_embed(env, ctx, inner: str, doc) -> str    # 替换媒体块；ctx.target 为 "mdbook" 或 "pandoc"
-def build(site, book, out_dir: Path) -> None          # 发布到 _site/<slug>/<viz|films|slides>/
+def build(site, book, out_dir: Path)                  # viz/film：发布到 _site/<slug>/<viz|films>/；
+                                                      # slides：构建到 build/slides/<slug>/（发布用 publish）
+def publish(site, book, site_dir: Path, *, build_missing=True) -> list[dict]   # 仅 slides
 def cli(args) -> int                                  # ./tbook viz|slides|film new|list …
 # tbook/site.py
-def build(site, books, out_dir: Path, only: set[str] | None = None) -> Path
+def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_root: Path | None = None) -> Path
 # tbook/template.py
 def main(args) -> int                                 # status | update | manifest
 # tbook/serve.py, tbook/doctor.py, tbook/leanverify.py
@@ -199,11 +229,13 @@ def run() -> int
 def generate(out_dir) -> Path
 ```
 
+媒体块的输出：mdbook 目标以块级 `<figure class="tr-media tr-viz|tr-film">`（slides 为链接卡片 `.tr-slides`）开头；pandoc 目标输出 Markdown，包在 `::: {.tr-media .tr-viz|.tr-film|.tr-slides}` 中得到 PDF/EPUB 的媒体面板，图片路径指向 `_book/…` 并加入 `ctx.book_files`。
+
 `render.pandoc_env()` 输出的富属性 fenced div（Lua 过滤器 `tools/filters/tr-env.lua` 按输出格式渲染）：
 
 ```
 :::::: {#thm-x .tr-env .theorem tr-kind="theorem" tr-status="lean" tr-label="定理" tr-number="1.2"
-        tr-ref="定理 1.2" tr-title="…" tr-badge="LEAN ✓" tr-lean="GID …" tr-lean-name="Lean 名 …" tr-lean-url="URL …"}
+        tr-ref="定理1.2" tr-title="…" tr-badge="LEAN ✓" tr-lean="GID …" tr-lean-name="Lean 名 …" tr-lean-url="URL …"}
 内容
 ::::::
 ```
@@ -212,7 +244,7 @@ def generate(out_dir) -> Path
 
 ```html
 <section class="tr-env tr-theorem tr-status-lean" id="thm-x" data-kind="theorem">
-<header class="tr-env-head"><span class="tr-env-label">定理 1.2</span><span class="tr-env-title">（…）</span><a class="tr-badge tr-badge-lean" href="…">LEAN ✓</a></header>
+<header class="tr-env-head"><span class="tr-env-label">定理1.2</span><span class="tr-env-title">（…）</span><a class="tr-badge tr-badge-lean" href="…">LEAN ✓</a></header>
 
 内容
 

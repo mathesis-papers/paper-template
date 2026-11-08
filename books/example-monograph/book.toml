@@ -5,7 +5,7 @@ authors = ["The Omega Institute"]
 license = "CC-BY-4.0"
 editions = ["zh", "en"]
 code = "GOLDEN//OBSERVE"
-date = ""
+date = "2026-11-08"
 
 [book.title]
 zh = "黄金整数与可观测性"

@@ -1,0 +1,141 @@
+# Publish a release of the template itself (only in the-omega-institute/trureturing-books-template).
+#
+# Maintainers: move docs/CHANGELOG.md [Unreleased] to "## [X.Y.Z] - YYYY-MM-DD", set template.toml
+# [template].version = "X.Y.Z", run ./tbook template manifest, merge to main, then
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+# Books repositories pick the release up through template-sync.yml (./tbook template update).
+name: Template release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: template-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify version and manifest
+    if: github.repository == 'the-omega-institute/trureturing-books-template'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tag matches template.toml
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          import tomllib
+
+          tag = os.environ["TAG"]
+          tpl = tomllib.load(open("template.toml", "rb"))["template"]
+          prefix, version = tpl.get("tag_prefix", "v"), tpl["version"]
+          if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
+              print(f"::error title=Template release::template.toml version {version!r} is not X.Y.Z[-pre]")
+              sys.exit(1)
+          if tag != prefix + version:
+              print(f"::error title=Template release::tag {tag} does not match template.toml version {version} "
+                    f"(expected tag {prefix}{version}). Bump template.toml, regenerate the manifest, tag again.")
+              sys.exit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+              out.write(f"prerelease={'true' if '-' in version else 'false'}\n")
+          print(f"template version {version}")
+          PY
+
+      - name: Manifest is up to date
+        run: ./tbook template manifest --check
+
+  ci:
+    name: CI
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Create the GitHub release
+    needs: [verify, ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Release notes from docs/CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version, repo, tag = os.environ["VERSION"], os.environ["REPO"], os.environ["TAG"]
+          section = []
+          log = Path("docs/CHANGELOG.md")
+          if log.is_file():
+              keep = False
+              for line in log.read_text(encoding="utf-8").splitlines():
+                  m = re.match(r"^##\s+\[?v?([^\]\s]+)\]?", line)
+                  if m:
+                      keep = m.group(1) == version
+                      continue
+                  if re.match(r"^#\s", line):
+                      keep = False
+                  if keep:
+                      section.append(line)
+          body = "\n".join(section).strip()
+          if not body:
+              print(f"::warning title=Template release::docs/CHANGELOG.md has no section for {version}")
+              body = f"Template release {version}."
+          body += (
+              "\n\n---\n\n"
+              "升级书库 · Upgrade a books repository:\n\n"
+              "```bash\n"
+              f"./tbook template update --to {version}\n"
+              "```\n\n"
+              "或等待每周的 `template-sync` 工作流开出升级 PR · or wait for the weekly `template-sync` pull request. "
+              f"[docs/UPGRADING.md](https://github.com/{repo}/blob/{tag}/docs/UPGRADING.md)\n"
+          )
+          Path(os.environ["RUNNER_TEMP"], "notes.md").write_text(body + "\n", encoding="utf-8")
+          print(body)
+          PY
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          title="trureturing-books-template $VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            flags=()
+            if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); else flags+=(--latest); fi
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          fi
