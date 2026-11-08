@@ -5,7 +5,8 @@ optional — with a fix hint. Each check lists the targets that need it; a check
 when one of the core targets needs it:
 
 =============  ===========================================================================
-check          Python ≥ 3.11, trureturing.lock.json, trureturing access (checkout or network)
+check          Python ≥ 3.11, trureturing.lock.json, trureturing access (checkout or network),
+               the pinned commit on the site.toml trureturing branch
 html           mdBook 0.5.x, Node ≥ 22.12, KaTeX in node_modules
 pdf            pypandoc (Pandoc 3.9), typst; fonts are optional (Typst falls back)
 epub           pypandoc; epubcheck + Java are optional (validation is skipped without them)
@@ -16,8 +17,11 @@ Optional targets — ``slides`` (Slidev + Chromium), ``viz`` (Chromium for tests
 ``films`` (Chromium + ffmpeg), ``lean-verify`` (elan/lake) — are reported but never fail the
 command. Exit status: 1 if a required check fails, else 0.
 
-Nothing here installs anything or writes files; network access is one HEAD request with a
-short timeout, made only when no local trureturing checkout is available.
+Nothing here installs anything. Network access is one HEAD request with a short timeout, made
+only when no local trureturing checkout is available, and, when neither the cache nor a checkout
+can tell, one GitHub compare API request asking whether the pinned commit is on the site.toml
+branch. The only file written is the one ``./tbook check`` writes for that question: a positive
+answer cached under ``.cache/trureturing/<commit>/``.
 """
 
 from __future__ import annotations
@@ -362,6 +366,45 @@ def _checkouts() -> list[Path]:
 
 
 def check_trureturing(report: Report, pinned: str | None) -> None:
+    """Access to trureturing at the pinned commit, and whether that commit is on the configured branch."""
+    _check_access(report, pinned)
+    check_branch(report, pinned)
+
+
+def check_branch(report: Report, pinned: str | None) -> None:
+    """``./tbook check`` requires the pinned commit on site.toml's trureturing branch (default ``dev``).
+
+    Asked as check asks it (cache, local checkout, GitHub's compare API), so a stale checkout or a
+    missing API token shows up here first. "Cannot tell" is only a warning: check makes it an error
+    in GitHub Actions alone.
+    """
+    from . import config, lean
+
+    _, _, commit = (pinned or "").partition("@")
+    if not commit:
+        return  # check_lock reported the lock
+    try:
+        site = config.load_site()
+        repo, branch = site.trureturing_repo, site.trureturing_branch
+        anc = lean.Ledger(repo).branch_contains(commit, branch)
+    except Exception as exc:  # noqa: BLE001 - doctor reports, it never crashes
+        report.add(Check("pinned commit on the trureturing branch", False, f"cannot tell: {exc}",
+                         "fix site.toml, then ./tbook check", targets=("check",), required=False))
+        return
+    label = f"pinned commit {commit[:12]} on {repo}@{branch}"
+    if anc.on_branch:
+        report.add(Check(label, True, anc.detail, targets=("check",)))
+    elif anc.on_branch is False:
+        report.add(Check(label, False, f"not on {branch}: {anc.detail}",
+                         f"pin a commit on {branch}: ./tbook pin", targets=("check",)))
+    else:
+        report.add(Check(label, False, f"cannot tell: {anc.detail}",
+                         f"set TRURETURING_DIR to a trureturing checkout that has fetched {branch} "
+                         "(git fetch origin), or allow api.github.com (set GITHUB_TOKEN to avoid its rate limit)",
+                         targets=("check",), required=False))
+
+
+def _check_access(report: Report, pinned: str | None) -> None:
     repo, _, commit = (pinned or "").partition("@")
     for cand in _checkouts():
         if not (cand / ".git").exists():

@@ -28,6 +28,17 @@ HAVE_KATEX = bool(NODE) and (paths.ROOT / "node_modules" / "katex" / "package.js
 MDBOOK = os.environ.get("MDBOOK") or shutil.which("mdbook")
 LOCK = lean.Lock.load()
 EXAMPLE = paths.BOOKS / "example-monograph"
+# The staging test's own lock: the verified count follows the lock, so it must not be the repository's.
+STAGE_LOCK = lean.Lock(
+    repo="the-omega-institute/trureturing", branch="dev", commit="d" * 40, pinned_at="2026-01-01T00:00:00Z",
+    declarations={
+        "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued": {
+            "module": "D5/S1/Deficit/DeficitThreeValued", "name": "D5.S1.Deficit.deficit_three_valued",
+            "kind": "theorem", "statement_id": "sha256:3v", "line": 12},
+        "D5/S1/Deficit/DeficitInteger.deficit_integer": {
+            "module": "D5/S1/Deficit/DeficitInteger", "name": "D5.S1.Deficit.deficit_integer",
+            "kind": "theorem", "statement_id": "sha256:int", "line": 5},
+    })
 
 
 def texs(text: str) -> list[str]:
@@ -402,7 +413,7 @@ class StageTest(unittest.TestCase):
             book = config.load_book(write_book(Path(tmp)))
             ed = book.editions[0]
             model = load_edition(ed)
-            stage = html.stage_edition(site, book, ed, model, LOCK, root=Path(tmp) / "stage")
+            stage = html.stage_edition(site, book, ed, model, STAGE_LOCK, root=Path(tmp) / "stage")
             src = stage.src
             for rel in ("SUMMARY.md", "README.md", "a.md", "part/sec.md", "b.md", "appendix.md",
                         ledger.LEDGER_FILE, "404.md", "img/local.svg", "_book/assets/fig.svg"):
