@@ -20,7 +20,7 @@ trureturing @ commit:  D5/S1/Deficit/DeficitThreeValued.lean   （Lean 源；由
 
 trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片 `Golden/Frozen/state/<module>.lean.json` 存在，当且仅当该模块已冻结**；状态片只在声明经内核验证（无 `sorry`、无私有公理）后由 trureturing 的流程写入。因此“在所钉提交上，状态片列有该声明且种类为 theorem”就是本书库对“已经 Lean 验证”的判据。
 
-这条判据只在 trureturing 的集成分支上成立：冻结律由 trureturing 的 CI 在 `site.toml` 的 `[trureturing].branch`（默认 `dev`）上执行。GitHub 也会按 SHA 提供从未合入的提交（任何人发起的 PR 的 head、其他分支），那些提交上的状态片可以是任意内容。所以**所钉提交必须能从该分支到达**：`./tbook pin` 拒绝不在分支上的提交，`./tbook check` 每次复核（§2）。锁文件的 `branch` 字段记录的就是被核对的分支，`./tbook check` 要求它与 `site.toml` 的分支相同（改了 `site.toml` 的分支就要重新 `./tbook pin`，或在提交也在新分支上时 `./tbook pin --refresh`），站点清单发布的分支因此就是被核对的分支。`[trureturing].branch` 必须是分支名：完整 SHA、所钉提交的缩写 SHA 或 `refs/…` 都是错误，因为 GitHub compare API 也会把 SHA 当作比较基准（`compare/<sha>...<sha>` 的结果是 `identical`）。
+这条判据只在 trureturing 的集成分支上成立：冻结律由 trureturing 的 CI 在 `site.toml` 的 `[trureturing].branch`（默认 `dev`）上执行。GitHub 也会按 SHA 提供从未合入的提交（任何人发起的 PR 的 head、其他分支），那些提交上的状态片可以是任意内容。所以**所钉提交必须能从该分支到达**：`./tbook pin` 拒绝不在分支上的提交，`./tbook check` 每次复核（§2）。锁文件的 `branch` 字段记录的就是被核对的分支，`./tbook check` 要求它与 `site.toml` 的分支相同（改了 `site.toml` 的分支就要重新 `./tbook pin`，或在提交也在新分支上时 `./tbook pin --refresh`），站点清单发布的分支因此就是被核对的分支。`[trureturing].branch` 必须是合法的分支名，因为 GitHub compare API 读的不只是分支名：`compare/<sha>...<sha>` 与 `compare/<sha>^0...<sha>` 的结果都是 `identical`，`owner:branch` 则指向另一个仓库（例如 fork）的分支。所以下列写法都是错误：`git check-ref-format --branch` 不接受的名字（含 `^`、`~`、`:`、`?`、`*`、`[`、`\`、`..`、`@{`、空白或控制字符；以 `-` 开头或以 `.` 结尾；有空的分量，即以 `/` 开头或结尾或含 `//`；有以 `.` 开头或以 `.lock` 结尾的分量；`HEAD`）；单独的 `@`（在修订表达式里 git 把它当作 `HEAD`）与含 Unicode 空白或不可见字符的名字（git 接受，但不同的名字会显示得一模一样）；完整 SHA、所钉提交的缩写 SHA 与 `refs/…`。
 
 ## 2. 每个 PR 都运行的检查（`./tbook check`）
 
@@ -28,7 +28,7 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 | --- | --- |
 | 形式结论必须有 `lean`；开放条目不得有 `lean` | 错误 |
 | 所钉提交可从 `site.toml` 的 trureturing 分支到达 | 错误；无法判定时：GitHub Actions 中为错误，本地或 `--offline` 下为警告 |
-| 锁文件的 `branch` 与 `site.toml` 的 trureturing 分支相同；该分支是分支名（不是 SHA，也不是 `refs/…`） | 错误，提示 `./tbook pin` |
+| 锁文件的 `branch` 与 `site.toml` 的 trureturing 分支相同；该分支是合法的分支名（`git check-ref-format --branch` 接受，且不是 `@`、SHA、`refs/…`，见 §1） | 错误，提示 `./tbook pin`；分支名不合法时指出原因 |
 | GID 语法（与 trureturing Blueprint 相同的地址格式；声明名是 Lean 名，分量可含希腊字母等类字母符号、下标与 `'` `!` `?`，其他分量写成 `«…»`；不得含空白或逗号） | 错误 |
 | 每个被引用的 GID 都在锁文件中 | 错误，提示 `./tbook pin --refresh` |
 | 形式结论引用的声明种类为 `theorem` | 错误 |
@@ -47,7 +47,8 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 - 工作流只在可信的 ref 上恢复和保存 `.cache/trureturing`：`ci.yml` 在默认分支的 push（及手动运行）与 tag 上（包括 tag 工作流通过 `workflow_call` 调用时），`pages.yml` 与 `trureturing-bump.yml` 在默认分支上（定时运行总在默认分支上），`release.yml` 在 tag 上。PR 与其他分支的运行不使用这份缓存。
 - `tbook` 自身也做纵深防御：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，不从 `.cache/trureturing` 读取状态片和分支结论（仍会写入），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次都问 compare API（用 `GITHUB_TOKEN`）。所以 PR 的检查需要网络；`--offline` 下这些项目只是警告。
 - 本地运行时，缓存是开发者自己的，照常读取。
-- 工具链缓存（`.github/actions/setup` 中的 pip 缓存、Playwright 的 Chromium、`.cache/fonts`）同理：每次运行都恢复，但只在 PR 以外的事件中保存（`actions/cache/restore` + `actions/cache/save`，不用会在 PR 中保存的 `actions/cache` 与 setup-python 自带缓存）。PR 的作用域里从不写入，它只能恢复可信运行在默认分支上保存的内容，无法给自己后来的运行植入二进制或包。npm 缓存由 `npm ci` 按 `package-lock.json` 的完整性校验，不受影响。
+- 工具链缓存（`.github/actions/setup` 中的 pip 缓存、Playwright 的 Chromium、`.cache/fonts`）在 PR 事件（`github.event_name` 以 `pull_request` 开头）中既不恢复也不保存，PR 的运行每次从 PyPI、Playwright 的下载站和 GitHub 重新下载。只是不保存还不够：PR 的运行执行的是 PR 自己的工作流和 action 文件，第一次推送可以去掉保存条件（或另加一个 `actions/cache/save` 步骤），把篡改过的包或 Chromium 存进该 PR 的缓存作用域；第二次推送恢复原样，最终 diff 干净，恢复步骤却会先在 PR 自己的作用域里找到那份缓存，找不到才去目标分支和默认分支。跳过恢复的条件写在最终版本的文件里，早先推送的改动左右不了它。其他事件照常恢复和保存（`actions/cache/restore` + `actions/cache/save`；不用会在 PR 中保存的 `actions/cache` 与 setup-python 自带缓存），作用域是所在分支，找不到时回落到默认分支。
+- npm 缓存（setup-node 的 `cache: npm`）在 PR 中照常恢复和保存，这是安全的：`npm ci` 只按 `package-lock.json` 为每个包记录的 sha512 完整性值从缓存取 tarball，字节对不上就丢弃并重新下载，植入的条目只会被忽略，不会被安装。单元测试检查锁文件中每个包都带有这个值，且安装用的是 `npm ci`；也检查在 PR 事件中运行的工作流（目前只有 `ci.yml`）没有别的步骤恢复缓存：`actions/cache` 步骤在 PR 中都被跳过，`setup-*` 动作除 npm 外不启用缓存。
 
 ## 3. 深度验证（`lean-verify` 工作流）
 

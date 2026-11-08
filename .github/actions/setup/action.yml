@@ -10,11 +10,18 @@
 # Node packages from package-lock.json (KaTeX, Slidev, Playwright). Java, needed by epubcheck,
 # is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
 #
-# Caches (pip, Playwright's Chromium, fetched fonts) are restored in every run but saved only
-# outside pull-request events. A pull request's runs restore what its own earlier runs saved,
-# and those ran the pull request's code: a Chromium binary or a package planted there would be
-# used by its later runs. Never saved there, a pull request only restores what trusted runs
-# saved on the default branch. (npm's cache is safe: npm ci checks package-lock integrity.)
+# Caches. The pip cache, Playwright's Chromium and the fetched fonts are restored and saved only
+# outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
+# request's runs download them from PyPI, the Playwright CDN and GitHub. Not saving is not enough:
+# a pull request's runs execute its own copy of this file, so one push can drop the save gate and
+# leave a planted package or Chromium binary in the pull request's cache scope, and the next push,
+# with a clean final diff, would restore it (restore looks in the pull request's scope before its
+# base and default branches'). Other events use their own branch's scope, then the default branch's.
+#
+# npm's cache (setup-node, cache: npm) is used in every event, pull requests included: npm ci reads
+# a tarball from it only under the sha512 integrity that package-lock.json records, and refetches
+# one whose bytes do not match, so a planted entry is ignored, never installed
+# (tools/tests/test_verification.py: test_npm_cache_is_checked_against_the_lockfile).
 name: tbook setup
 description: Python, Node, mdBook, fonts and (optionally) Chromium for building trureturing books.
 
@@ -46,6 +53,7 @@ runs:
 
     - name: Restore the pip cache
       id: pip-cache
+      if: ${{ !startsWith(github.event_name, 'pull_request') }}
       uses: actions/cache/restore@v5
       with:
         path: ~/.cache/pip
@@ -78,7 +86,7 @@ runs:
 
     - name: Restore Playwright browsers
       id: browsers-cache
-      if: inputs.browsers == 'true'
+      if: inputs.browsers == 'true' && !startsWith(github.event_name, 'pull_request')
       uses: actions/cache/restore@v5
       with:
         path: ~/.cache/ms-playwright
@@ -113,7 +121,7 @@ runs:
 
     - name: Restore fetched fonts
       id: fonts-cache
-      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != ''
+      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && !startsWith(github.event_name, 'pull_request')
       uses: actions/cache/restore@v5
       with:
         path: .cache/fonts

@@ -8,9 +8,10 @@ Whatever the ref, the commit must be on the site.toml branch: trureturing's CI e
 freeze rule (frozen ⇒ kernel-verified, no ``sorry``) only there, while GitHub also serves
 pull-request heads and other unmerged commits. A commit that is not on the branch is
 refused; one whose ancestry cannot be determined is refused in GitHub Actions and pinned
-with a warning elsewhere (``./tbook check`` verifies it again). The branch must be a branch
-name, not a commit SHA or a full ref (``lean.branch_problem``); the lock records it, and
-``./tbook check`` requires the lock's branch to be site.toml's.
+with a warning elsewhere (``./tbook check`` verifies it again). The branch must be a valid
+branch name, not a commit SHA, a full ref or a revision expression such as ``<sha>^0``
+(``lean.branch_problem``); the lock records it, and ``./tbook check`` requires the lock's
+branch to be site.toml's.
 
 The lock records, per GID, the fully qualified Lean name, its kind, its module's frozen
 ``statement_id`` and (best effort) the source line and header. When the commit moves,
@@ -80,7 +81,7 @@ def cited_gids(books: list[config.Book]) -> list[str]:
 
 
 def _check_branch(branch: str, commit: str = "") -> None:
-    """site.toml's trureturing branch must name a branch (not a commit SHA or a full ref)."""
+    """site.toml's trureturing branch must name a branch (not a commit SHA, a full ref or a revision)."""
     problem = lean.branch_problem(branch, commit)
     if problem:
         raise lean.LeanError(f"site.toml [trureturing] branch {branch!r} {problem}: trureturing enforces its freeze "

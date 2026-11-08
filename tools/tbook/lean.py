@@ -23,7 +23,8 @@ restores may have been saved by an earlier run of the same pull request, i.e. by
 The freeze rule is enforced by trureturing's CI on its integration branch (``dev``), so a
 pinned commit must be reachable from that branch (``Ledger.branch_contains``): raw URLs
 also serve commits that were never merged (pull-request heads, other branches). The
-branch must be a branch name, not a commit SHA (``branch_problem``).
+branch must be a valid branch name, not a commit SHA, a full ref or a revision expression
+such as ``<sha>^0`` (``branch_problem``).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ import json
 import os
 import re
 import subprocess
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -450,21 +452,73 @@ def cache_trusted() -> bool:
     return os.environ.get("GITHUB_EVENT_NAME", "") not in PULL_REQUEST_EVENTS
 
 
+# Characters ``git check-ref-format --branch`` refuses, with what they mean to git and to GitHub's API.
+BRANCH_FORBIDDEN = {
+    "^": "revision syntax: GitHub reads <sha>^0 as that commit",
+    "~": "revision syntax: GitHub reads <sha>~0 as that commit",
+    ":": "owner:branch names a branch of another repository",
+    "?": "a wildcard", "*": "a wildcard", "[": "a wildcard", "\\": "an escape",
+}
+
+
+def branch_name_problem(name: str) -> tuple[str, bool]:
+    """What keeps ``name`` from being a branch name ('' if nothing), and whether git refuses it too.
+
+    The rules of ``git check-ref-format --branch``: no ASCII control character or space, none of
+    ``^ ~ : ? * [ \\``, no ``..`` or ``@{``, not ``HEAD``, no leading ``-``, no empty component (a
+    leading or trailing ``/``, ``//``), no component that starts with ``.`` or ends with ``.lock``, no
+    trailing ``.``. Refused beyond git: a bare ``@`` (git's shorthand for HEAD), and Unicode whitespace
+    or invisible characters, with which two different names print alike.
+    """
+    for ch in name:
+        if ord(ch) < 0x20 or ord(ch) == 0x7F or ch == " ":
+            return "it contains whitespace or a control character", True
+        if ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf", "Zs", "Zl", "Zp"):
+            return f"it contains whitespace or an invisible character, U+{ord(ch):04X}", False
+    for ch, meaning in BRANCH_FORBIDDEN.items():
+        if ch in name:
+            return f"it contains {ch!r}, {meaning}", True
+    if ".." in name:
+        return "it contains '..', a revision range", True
+    if "@{" in name:
+        return "it contains '@{', reflog and upstream syntax: dev@{1} is an earlier commit of dev", True
+    if name == "HEAD":
+        return "HEAD names a repository's current commit", True
+    if name == "@":
+        return "'@' is git's shorthand for HEAD", False
+    if name.startswith("-"):
+        return "it starts with '-'", True
+    parts = name.split("/")
+    if "" in parts:
+        return "it has an empty component: a leading or trailing '/', or '//'", True
+    if any(part.startswith(".") for part in parts):
+        return "a component starts with '.'", True
+    if any(part.endswith(".lock") for part in parts):
+        return "a component ends with '.lock'", True
+    if name.endswith("."):
+        return "it ends with '.'", True
+    return "", False
+
+
 def branch_problem(branch: str, commit: str = "") -> str:
     """Why ``branch`` (site.toml ``[trureturing].branch``) cannot stand for trureturing's integration
     branch, as a phrase that follows the name ('' if it can).
 
-    Ancestry is asked as ``compare/<branch>...<commit>``, where GitHub also reads commit SHAs: with the
-    pinned commit (or an abbreviation of it) in place of the branch, the answer is ``identical``. Refused
-    here: a full ref (``refs/…``), a full SHA, and a hex name that abbreviates ``commit``. Other hex names
-    are caught when GitHub's answer shows that it read them as a commit (``github_branch_contains``).
+    Ancestry is asked as ``compare/<branch>...<commit>``, where GitHub reads more than branch names:
+    with the pinned commit, an abbreviation of it, or ``<sha>^0`` in place of the branch, the answer is
+    ``identical``; ``owner:branch`` names another repository's branch. Refused here: every name
+    ``git check-ref-format --branch`` refuses, and a few more (``branch_name_problem``); a full ref
+    (``refs/…``); a full SHA, and a hex name that abbreviates ``commit``. Other hex names are caught
+    when GitHub's answer shows that it read them as a commit (``github_branch_contains``).
     """
-    name = branch.strip()
-    if not name:
+    if not branch.strip():
         return "is empty"
-    if name.startswith("refs/"):
+    why, by_git = branch_name_problem(branch)
+    if why:
+        return f"is not a branch name ({why}{'; git check-ref-format --branch refuses it' if by_git else ''})"
+    if branch.startswith("refs/"):
         return "is a full ref; write the branch name alone (e.g. dev), without refs/heads/"
-    if HEXISH_RE.match(name) and (len(name) == 40 or commit.lower().startswith(name.lower())):
+    if HEXISH_RE.match(branch) and (len(branch) == 40 or commit.lower().startswith(branch.lower())):
         return "is a commit SHA, not a branch"
     return ""
 
