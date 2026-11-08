@@ -23,3 +23,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 *.swp
+
+# Temporary git worktrees created by agent tooling
+/.claude/worktrees/
