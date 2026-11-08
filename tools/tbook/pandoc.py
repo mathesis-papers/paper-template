@@ -23,8 +23,9 @@ Staging (:func:`stage`):
 * chapters are separate pages in HTML but one document here, so names that are only unique
   per chapter are scoped: footnote labels become ``[^<chapter id>--<label>]``
   (:func:`scope_footnotes`), and every heading without an explicit id gets one
-  (:func:`heading_slugs` — its mdBook id, formulas counted as the text KaTeX shows, or
-  ``<chapter id>--<slug>`` when another chapter already uses that slug); ``{-}`` is read as
+  (:func:`heading_slugs` — its mdBook id, formulas counted as the text KaTeX shows and
+  footnote references as their numbers in the chapter, or ``<chapter id>--<slug>`` when
+  another chapter already uses that slug); ``{-}`` is read as
   ``.unnumbered``, and a heading right under a line of text gets a blank line before it so
   Pandoc reads it as one;
 * fenced and indented code blocks, HTML comments and inline code are never rewritten
@@ -324,13 +325,16 @@ SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 # Pandoc footnote labels: no whitespace, "^", "[" or "]".
 FOOTNOTE_REF_RE = re.compile(r"\[\^(?P<label>[^\s^\[\]]+)\]")
 FOOTNOTE_DEF_RE = re.compile(r"^ {0,3}\[\^(?P<label>[^\s^\[\]]+)\]:")
+# A footnote reference that is not escaped (``\[^a]`` is text; ``\\[^a]`` is a backslash and a
+# reference), with the escaped backslashes before it.
+_NOTE_REF_RE = re.compile(r"(?<!\\)(?P<esc>(?:\\\\)*)\[\^(?P<label>[^\s^\[\]]+)\]")
 # Inline link or image (text kept) and raw HTML tags: what heading slugs strip; a trailing
 # brace block that Pandoc cannot parse ({weird stuff}) stays text in Pandoc, but mdBook
 # reads it as attributes and drops it from the id.
 _HEADING_LINK_RE = re.compile(r"!?\[((?:[^\[\]\\]|\\.)*)\]\([^)]*\)")
 _HEADING_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
 _UNPARSED_ATTRS_RE = re.compile(r"\{[^{}]*\}\s*$")
-_MATH_MARK = 0xE000  # private-use placeholders for the formulas of a heading (_mdbook_plain)
+_MARK = 0xE000  # private-use placeholders for a heading's formulas and footnote numbers (_mdbook_plain)
 _ATTR_BLOCK_RE = re.compile(r"\{([^{}\n]*)\}")
 _ATTR_ID_RE = re.compile(r"(?:^|\s)#([^\s{}#.=\"']+)")
 # Files a Pandoc image can embed (a reference definition to anything else is a plain link).
@@ -515,57 +519,111 @@ def scope_footnotes(md: str, prefix: str) -> str:
                      for i, line in enumerate(lines))
 
 
+def footnote_numbers(md: str) -> dict[str, int]:
+    """The number mdBook shows for each footnote reference of a chapter: label → number.
+
+    mdBook (0.5) numbers the labels in the order of their first reference, in source order
+    (body, headings and footnote definitions alike), keyed by the label as written; a
+    reference counts when a definition in the chapter matches its label ignoring case. A
+    reference without a definition, in code or a comment, or escaped (``\\[^a]``) is text.
+    """
+    lines = md.split("\n")
+    mask = _code_mask(lines)
+    defined = {m.group("label").casefold() for i, line in enumerate(lines)
+               if not mask[i] and (m := FOOTNOTE_DEF_RE.match(line))}
+    numbers: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        if mask[i]:
+            continue
+        own = FOOTNOTE_DEF_RE.match(line)  # a definition's own label is not a reference
+        for m in mdscan.find_outside_code(_NOTE_REF_RE, line):
+            if (not own or m.start() >= own.end()) and m.group("label").casefold() in defined:
+                numbers.setdefault(m.group("label"), len(numbers) + 1)
+    return numbers
+
+
 def _heading_plain(text: str) -> str:
-    """Heading Markdown as the plain text its automatic id is made from (approximately)."""
-    text = FOOTNOTE_REF_RE.sub("", text)
+    """Heading Markdown as the plain text its automatic id is made from (approximately).
+
+    Footnote references stay as written: Pandoc's id keeps the label (``注释[^a]`` → ``注释a``),
+    and :func:`_mdbook_plain` puts mdBook's numbers in first.
+    """
     text = _HEADING_LINK_RE.sub(r"\1", text)
     text = _HEADING_TAG_RE.sub("", text)
     text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)  # _emphasis_ (intraword "_" stays)
     return re.sub(r"\\(.)", r"\1", text)
 
 
-def _mdbook_plain(text: str, math: dict[tuple[str, bool], str] | None) -> str:
-    """:func:`_heading_plain` with each formula replaced by the text KaTeX shows for it
-    (``math``: ``(tex, display)`` → text); without an entry the TeX source stands in."""
+def _mdbook_plain(text: str, math: dict[tuple[str, bool], str] | None,
+                  notes: dict[str, int] | None = None) -> str:
+    """:func:`_heading_plain` of the heading as mdBook shows it: each formula as the text KaTeX
+    shows for it (``math``: ``(tex, display)`` → text; without an entry the TeX source stands
+    in), each reference to a footnote of the chapter as its number (``notes``:
+    :func:`footnote_numbers`), with a space between two references side by side. A reference
+    to no footnote of the chapter stays text, as in mdBook."""
+    shown: list[str] = []  # what each placeholder stands for, so it is never re-parsed
+
+    def mark(s: str) -> str:
+        shown.append(s)
+        return chr(_MARK + len(shown) - 1)
+
     spans = mathrender.find_math(text)[0] if math else []
-    if not spans:
-        return _heading_plain(text)
     parts, cursor = [], 0
-    for k, span in enumerate(spans):  # placeholders, so the formula text is never re-parsed
-        parts += [text[cursor:span.start], chr(_MATH_MARK + k)]
+    for span in spans:
+        katex = math.get((span.tex, span.display))
+        if katex is None:
+            katex = _heading_plain(text[span.start:span.end])
+        parts += [text[cursor:span.start], mark(katex)]
         cursor = span.end
-    plain = _heading_plain("".join(parts) + text[cursor:])
-    for k, span in enumerate(spans):
-        shown = math.get((span.tex, span.display))
-        if shown is None:
-            shown = _heading_plain(text[span.start:span.end])
-        plain = plain.replace(chr(_MATH_MARK + k), shown)
+    text = "".join(parts) + text[cursor:]
+    if notes:
+        last = -1  # where the previous reference ended
+
+        def number(m: re.Match) -> str:
+            nonlocal last
+            n = notes.get(m.group("label"))
+            if n is None:
+                return m.group(0)
+            side_by_side = not m.group("esc") and m.start() == last
+            last = m.end()
+            return m.group("esc") + (" " if side_by_side else "") + mark(str(n))
+
+        text = mdscan.sub_outside_code(_NOTE_REF_RE, number, text)
+    plain = _heading_plain(text)
+    for k, s in enumerate(shown):
+        plain = plain.replace(chr(_MARK + k), s)
     return plain
 
 
-def _slug_pair(text: str, shown: str, math: dict[tuple[str, bool], str] | None) -> tuple[str, str]:
+def _slug_pair(text: str, shown: str, math: dict[tuple[str, bool], str] | None,
+               notes: dict[str, int] | None = None) -> tuple[str, str]:
     """(mdBook's id, Pandoc's ``gfm_auto_identifiers`` id) of a heading before de-duplication.
 
     mdBook makes its id from the text of the rendered heading (``shown``, which lacks a trailing
-    ``{…}`` that only mdBook reads as attributes; formulas as KaTeX shows them); Pandoc from
-    the text it reads, formulas as TeX.
+    ``{…}`` that only mdBook reads as attributes; formulas as KaTeX shows them, footnote
+    references as their numbers in the chapter, ``notes``); Pandoc from the text it reads,
+    formulas as TeX, footnote references as their labels and a run of spaces as one.
     """
-    mdbook = "".join("-" if ch.isspace() else ch for ch in _mdbook_plain(shown, math).strip().lower()
+    mdbook = "".join("-" if ch.isspace() else ch for ch in _mdbook_plain(shown, math, notes).strip().lower()
                      if ch.isalnum() or ch in "-_" or ch.isspace())
-    gfm = "".join("-" if ch.isspace() else ch for ch in _heading_plain(text).lower()
+    gfm = "".join("-" if ch.isspace() else ch for ch in re.sub(r"[ \t]+", " ", _heading_plain(text)).lower()
                   if ch.isspace() or ch.isalnum() or ch in "-_"
                   or unicodedata.category(ch) in ("Mn", "Mc", "Me", "Pc"))
     return mdbook, gfm
 
 
-def heading_slugs(text: str, math: dict[tuple[str, bool], str] | None = None) -> list[str]:
+def heading_slugs(text: str, math: dict[tuple[str, bool], str] | None = None,
+                  notes: dict[str, int] | None = None) -> list[str]:
     """The automatic ids of a heading before de-duplication: mdBook's (the HTML edition,
     which authors link to) first, then Pandoc's ``gfm_auto_identifiers`` when it differs.
 
     ``math`` maps ``(tex, display)`` to the text KaTeX shows (:func:`tbook.mathrender.formula_texts`):
     mdBook's id of ``关于 $\\beta$ 的估计`` is ``关于-β-的估计``. Without it the TeX stands in.
+    ``notes`` numbers the footnotes of the chapter (:func:`footnote_numbers`): with ``a`` the
+    first, mdBook's id of ``注释[^a]`` is ``注释1`` and Pandoc's ``注释a``. Without it every
+    footnote reference is text, as one without a definition is.
     """
-    pair = _slug_pair(text, text, math)
+    pair = _slug_pair(text, text, math, notes)
     return [s for i, s in enumerate(pair) if s and s not in pair[:i]]
 
 
@@ -630,7 +688,8 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
     ``render_math(items)`` returns the text the HTML edition shows for each ``(tex, display)``
     formula in a heading (:func:`tbook.mathrender.formula_texts`), or None when it cannot;
     mdBook's id of a heading with math is made from that text. Without it the TeX source
-    stands in, and fragments copied from the HTML edition do not reach such headings.
+    stands in, and fragments copied from the HTML edition do not reach such headings. A
+    footnote reference counts as mdBook's number for it in the chapter (:func:`footnote_numbers`).
     """
     parsed = [(posixpath.normpath(path), md, find_headings(normalize_setext(md))) for path, md in chapters]
     for _, _, heads in parsed:
@@ -640,6 +699,7 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
     for path, md, heads in parsed:
         cid = chapter_ids[path]
         own = explicit_ids(md)
+        notes = footnote_numbers(md)
         lines = out.by_line.setdefault(path, {})
         # Automatic ids of this chapter, each tool de-duplicating its own as it does.
         mdbook_ids: set[str] = set()
@@ -650,7 +710,7 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
         for h in heads:
             if h.attrs and h.attrs.id:
                 continue
-            mdbook, gfm = _slug_pair(h.text, _mdbook_text(h), math)
+            mdbook, gfm = _slug_pair(h.text, _mdbook_text(h), math, notes)
             mdbook = _unique(mdbook, mdbook_ids) if mdbook else ""
             gfm = _unique(gfm, pandoc_ids) if gfm else ""
             if h is title:

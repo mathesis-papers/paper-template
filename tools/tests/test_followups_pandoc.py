@@ -7,8 +7,8 @@ top-level code example is content, not a closing fence (:func:`tbook.mdscan.fenc
 example is rewritten by one target and shown as written by another.
 
 The PDF/EPUB stager also agrees with mdBook on headings: ids follow mdBook's (formulas as
-KaTeX shows them, ``{-}`` and other attribute forms), a heading right under a paragraph line
-is a heading, and indented code blocks stay as written.
+KaTeX shows them, footnote references as their numbers, ``{-}`` and other attribute forms), a
+heading right under a paragraph line is a heading, and indented code blocks stay as written.
 
 Run: PYTHONPATH=tools .venv/bin/python -m unittest discover -s tools/tests -p 'test_followups_pandoc.py'
 """
@@ -365,16 +365,140 @@ class MathHeadingSlugTest(unittest.TestCase):
                 self.assertNotIn("dangling", pandoc_stderr(staged))
 
 
+# Recorded with mdBook 0.5.4: each chapter's heading ids, in order. mdBook shows a reference to
+# a footnote defined in the chapter as its number, and the number is part of the id. Numbers
+# follow the first reference to each label as written, in source order (body, headings and
+# footnote definitions alike); two references side by side get a space between them; a
+# reference without a definition, in code, in a comment or escaped is text.
+FOOTNOTE_HEADINGS = [
+    ("first reference", "# 甲\n\n正文。\n\n## 注释[^a]\n\n内容。\n\n[^a]: 脚注。\n", ["甲", "注释1"]),
+    ("second reference", "# 甲\n\n正文[^x]。\n\n## 注释[^y]\n\n内容。\n\n[^x]: X。\n[^y]: Y。\n", ["甲", "注释2"]),
+    ("repeated reference", "# 甲\n\n## 注释[^a]\n\n## 再注[^a]\n\n[^a]: A。\n", ["甲", "注释1", "再注1"]),
+    ("referenced in the body first", "# 甲\n\n正文[^a]与[^b]。\n\n## 注释[^b]\n\n[^a]: A。\n[^b]: B。\n",
+     ["甲", "注释2"]),
+    ("two in one heading", "# 甲\n\n## 注释[^a][^b]\n\n## 又[^b] 与 [^c]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n",
+     ["甲", "注释1-2", "又2-与-3"]),
+    ("side by side", "# 甲\n\n## Notes[^a][^b][^c] end\n\n## [^a][^c]注释\n\n## 注释[^a]  [^b]\n\n"
+                     "## 注释[^a]x[^b]\n\n## 注[^a]释\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n",
+     ["甲", "notes1-2-3-end", "1-3注释", "注释1--2", "注释1x2", "注1释"]),
+    ("word label", "# 甲\n\n## Notes[^note]\n\n[^note]: N.\n", ["甲", "notes1"]),
+    ("numbers are not labels", "# 甲\n\n正文[^2]。\n\n## 注释[^1]\n\n[^1]: one\n[^2]: two\n", ["甲", "注释2"]),
+    ("only a footnote", "# 甲\n\n## [^a]\n\n[^a]: A。\n", ["甲", "1"]),
+    ("in the title", "# 甲[^a]\n\n## 注释[^a]\n\n[^a]: A。\n", ["甲1", "注释1"]),
+    ("nested inline markup", "# 甲\n\n## *强调[^a]* 与 **粗[^b]**\n\n## *x[^a][^b]*[^c] _y_[^d]\n\n"
+                             "## <span>注[^c]</span> `码[^d]`\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n",
+     ["甲", "强调1-与-粗2", "x1-23-y4", "注3-码d"]),
+    ("definitions first", "# 甲\n\n[^b]: B。\n\n[^a]: A。\n\n## 注释[^a]\n\n正文[^b]。\n", ["甲", "注释1"]),
+    ("references in definitions count where they are written",
+     "# 甲\n\n[^z]: Z 见[^c]。\n\n## 一[^a]\n\n[^a]: A 见[^b]。\n\n    续行[^d]。\n\n## 二[^e]\n\n"
+     "[^b]: B。\n[^c]: C。\n[^d]: D。\n[^e]: E。\n", ["甲", "一2", "二5"]),
+    ("code, comments and escapes are not references",
+     "# 甲\n\n`正文[^x]` <!-- [^y] -->\n\n```\n[^z]\n```\n\n## 注释[^a] `码[^x]`\n\n## 转义\\[^x] 与 \\\\[^y]\n\n"
+     "[^a]: A。\n[^x]: X。\n[^y]: Y。\n[^z]: Z。\n", ["甲", "注释1-码x", "转义x-与-2"]),
+    ("no definition", "# 甲\n\n## 注释[^nope]\n\n## 注释[^a][^nope] 与 [^nope][^a]\n\n```\n[^b]: 代码里的定义\n```\n\n"
+                      "## 注释[^b]\n\n[^a]: A。\n", ["甲", "注释nope", "注释1nope-与-nope1", "注释b"]),
+    ("label case", "# 甲\n\n正文[^a]。\n\n## 注释[^A]\n\n## 再注[^a]\n\n[^a]: A。\n", ["甲", "注释2", "再注1"]),
+    ("attributes and setext", "# 甲\n\n## 注释[^a] {.unnumbered}\n\n注释[^b]\n-------\n\n[^a]: A。\n[^b]: B。\n",
+     ["甲", "注释1", "注释2"]),
+    ("de-duplication", "# 甲\n\n## 注释[^a]\n\n## 注释1\n\n[^a]: A。\n", ["甲", "注释1", "注释1-1"]),
+    ("lists, quotes and tables", "# 甲\n\n- 项[^a]\n\n> 引[^b]\n\n| t |\n|---|\n| 表[^c] |\n\n## 注释[^d]\n\n"
+                                 "[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n", ["甲", "注释4"]),
+]
+
+
+def footnote_case(name: str) -> str:
+    return next(md for n, md, _ in FOOTNOTE_HEADINGS if n == name)
+
+
+class FootnoteHeadingIdsTest(unittest.TestCase):
+    """A footnote reference in a heading is part of mdBook's id as its number in the chapter
+    (``## 注释[^a]`` → ``注释1``), so a fragment copied from the HTML page reaches the heading
+    in the PDF/EPUB too; Pandoc's own slug keeps the label (``注释a``) and stays a fallback."""
+
+    def test_ids_and_fragments_follow_mdbook(self):
+        for name, md, want in FOOTNOTE_HEADINGS:
+            with self.subTest(name):
+                ids = tp.assign_heading_ids([("ch01.md", md)], {"ch01.md": "ch-ch01"}, {"ch-ch01"})
+                self.assertEqual(list(ids.by_line["ch01.md"].values()), want[1:])
+                self.assertEqual([ids.anchors["ch01.md"].get(frag) for frag in want], ["ch-ch01", *want[1:]])
+
+    def test_pandoc_slug_keeps_the_label(self):
+        ids = tp.assign_heading_ids([("ch01.md", footnote_case("two in one heading"))], {"ch01.md": "ch-ch01"},
+                                    {"ch-ch01"})
+        self.assertEqual(ids.anchors["ch01.md"]["注释ab"], "注释1-2")
+        self.assertEqual(ids.anchors["ch01.md"]["又b-与-c"], "又2-与-3")
+
+    def test_footnote_numbers(self):
+        self.assertEqual(tp.footnote_numbers(footnote_case("references in definitions count where they are written")),
+                         {"c": 1, "a": 2, "b": 3, "d": 4, "e": 5})
+        self.assertEqual(tp.footnote_numbers(footnote_case("label case")), {"a": 1, "A": 2})
+        self.assertEqual(tp.footnote_numbers("# 甲\n\n正文[^nope]。\n"), {})
+
+    def test_heading_slugs(self):
+        self.assertEqual(tp.heading_slugs("注释[^a][^b]", notes={"a": 1, "b": 2}), ["注释1-2", "注释ab"])
+        self.assertEqual(tp.heading_slugs("_x_[^a]", notes={"a": 3}), ["x3", "xa"])
+        # Without the chapter's footnotes every reference is text, as for an undefined one.
+        self.assertEqual(tp.heading_slugs("注释[^a]"), ["注释a"])
+        # mdBook keeps every space; Pandoc reads a run of spaces or tabs as one.
+        self.assertEqual(tp.heading_slugs("a  b \t c  d"), ["a--b---c--d", "a-b-c--d"])
+
+    @unittest.skipUnless(have_pandoc(), "pandoc is required")
+    def test_fallback_is_pandocs_own_slug(self):
+        for name, md, _ in FOOTNOTE_HEADINGS:
+            with self.subTest(name):
+                out = subprocess.run([tp.pandoc_path(), "-f", tp.READER, "-t", "html"], input=md,
+                                     capture_output=True, text=True, check=True).stdout
+                used: set[str] = set()
+                slugs = [tp._unique(tp._slug_pair(h.text, h.text, None)[1], used)
+                         for h in tp.find_headings(tp.normalize_setext(md))]
+                self.assertEqual(slugs, re.findall(r'<h[1-6][^>]* id="([^"]+)"', out))
+
+    def test_link_from_another_chapter_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = stage_chapters(Path(tmp), {
+                "ch01.md": "# 第一章 甲\n\n见[注](ch02.md#注释1)与[又](ch02.md#注释2-3)。\n",
+                "ch02.md": "# 第二章 乙\n\n正文。\n\n## 注释[^a]\n\n内容[^b]。\n\n## 注释[^b][^c]\n\n"
+                           "[^a]: 脚注。\n[^b]: 又一个。\n[^c]: 第三个。\n",
+            })
+            md = staged.book_md.read_text(encoding="utf-8")
+            self.assertIn("## 注释[^ch-ch02--a] {#注释1}", md)
+            self.assertIn("## 注释[^ch-ch02--b][^ch-ch02--c] {#注释2-3}", md)
+            self.assertIn("见[注](#注释1)与[又](#注释2-3)。", md)
+            if have_pandoc():
+                self.assertNotIn("dangling", pandoc_stderr(staged))
+
+    @unittest.skipUnless(MDBOOK, "mdBook is required")
+    def test_table_is_what_mdbook_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "book.toml").write_text('[book]\ntitle = "t"\n\n[output.html.search]\nenable = false\n',
+                                            encoding="utf-8")
+            files = [f"c{k:02d}.md" for k in range(len(FOOTNOTE_HEADINGS))]
+            (root / "src" / "SUMMARY.md").write_text(
+                "# Summary\n\n" + "".join(f"- [{f}]({f})\n" for f in files), encoding="utf-8")
+            for f, (_, md, _) in zip(files, FOOTNOTE_HEADINGS):
+                (root / "src" / f).write_text(md, encoding="utf-8")
+            subprocess.run([MDBOOK, "build", str(root)], check=True, capture_output=True)
+            for f, (name, _, want) in zip(files, FOOTNOTE_HEADINGS):
+                page = (root / "book" / f.replace(".md", ".html")).read_text(encoding="utf-8")
+                main = page[page.index("<main>"):page.index("</main>")]
+                self.assertEqual(re.findall(r'<h[1-6][^>]* id="([^"]+)"', main), want, name)
+
+
 @unittest.skipUnless(HAVE_KATEX and MDBOOK and have_pandoc(), "node, katex, mdBook and pandoc are required")
 class FragmentsMatchMdbookTest(unittest.TestCase):
     """Every heading id of the HTML edition, linked from another chapter, reaches the same
-    heading in the PDF/EPUB (``{-}``, unparsable tails, math, headings under a paragraph)."""
+    heading in the PDF/EPUB (``{-}``, unparsable tails, math, headings under a paragraph,
+    footnote references)."""
 
     SLUG = "tbook-test-fragments"
     CHAPTERS = {
         "ch01.md": ("# 甲\n\n## 小结 {-}\n\n段落文字\n## 紧贴标题\n\n## 关于 $\\beta$ 的估计\n\n"
                     "## 区间 $[0, 1]$ 与 $x^2$ 和 $\\operatorname{Tr}(A)$\n\n## 结语 {weird stuff}\n\n## 小结\n"),
-        "ch02.md": "# 乙\n\n## 小结\n\n## 关于 $\\beta$ 的估计\n\n## 关于 beta 的估计\n\n## 丁 {.x -}\n",
+        "ch02.md": ("# 乙\n\n## 小结\n\n## 关于 $\\beta$ 的估计\n\n## 关于 beta 的估计\n\n## 丁 {.x -}\n\n"
+                    "正文[^x]。\n\n## 注释[^a][^b] {-}\n\n## 关于 $x$[^note] 与 `码[^a]`\n\n## 未定义[^nope]\n\n"
+                    "[^a]: 甲。\n[^b]: 乙。\n[^x]: 丙。\n[^note]: 丁。\n"),
         "ch03.md": "# 丙\n",
     }
 
@@ -392,6 +516,7 @@ class FragmentsMatchMdbookTest(unittest.TestCase):
                                          .read_text(encoding="utf-8"))
                         for name in ("ch01.md", "ch02.md")}
             self.assertIn("关于-β-的估计", html_ids["ch01.md"])  # KaTeX's text, as mdBook sees it
+            self.assertIn("注释2-3", html_ids["ch02.md"])  # footnote numbers, as mdBook shows them
             links = [f"[{name} {k}]({name}#{frag})" for name, frags in html_ids.items() for k, frag in enumerate(frags)]
             staged = stage_chapters(root / "pdf", {**self.CHAPTERS, "ch03.md": "# 丙\n\n" + "\n".join(links) + "\n"})
             md = staged.book_md.read_text(encoding="utf-8")
