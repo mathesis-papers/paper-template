@@ -27,6 +27,9 @@ from tbook import config, cover, lean, mathrender, paths
 from tbook import pandoc as tp
 from tbook.model import load_edition
 
+HAVE_KATEX = bool(shutil.which("node")) and (paths.ROOT / "node_modules" / "katex" / "package.json").exists()
+
+
 def _png(width: int = 4, height: int = 4) -> bytes:
     """A valid RGB PNG (cyan pixels) built with zlib, so the fixture needs no binary blobs."""
     import struct
@@ -278,7 +281,10 @@ class StagingTest(unittest.TestCase):
         self.assertEqual(ids, ["summary", "ch-b--summary"])
         self.assertIn("[the summary of B](#ch-b--summary)", self.md)
         self.assertIn("[this summary](#summary)", self.md)
-        self.assertIn("## Bound $x^2$ for $\\norm{x}$ {#bound-x2-for-normx}", self.md)
+        # mdBook's id is made from the text KaTeX shows ("Bound x2 for ∥x∥"); without Node
+        # the TeX stands in.
+        bound = "bound-x2-for-x" if HAVE_KATEX else "bound-x2-for-normx"
+        self.assertIn("## Bound $x^2$ for $\\norm{x}$ {#" + bound + "}", self.md)
 
     def test_plain_file_links_point_to_the_site(self):
         # Pandoc embeds images only: a relative link to a CSV is dead in the PDF and breaks the EPUB.

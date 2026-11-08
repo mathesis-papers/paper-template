@@ -15,7 +15,7 @@ read the same sources with Pandoc, so all targets agree on what is a formula):
 * neither crosses a blank line; ``\\$`` (a ``$`` after an odd number of backslashes) is a
   literal dollar; ``\\|`` inside a formula stays ``\\|`` (the norm bar), in table rows too:
   Pandoc keeps it, and the formula is rendered before mdBook splits the row into cells;
-* nothing inside fenced code blocks, inline code spans, HTML comments, ``<code>``/``<pre>``
+* nothing inside fenced or indented code blocks, inline code spans, HTML comments, ``<code>``/``<pre>``
   /``<script>``/``<style>`` elements, HTML tags (attribute values), autolinks or link
   destinations is math. A candidate span that would contain such a region is not math.
 
@@ -180,7 +180,10 @@ def _mask(text: str) -> tuple[bytearray, list[bool]]:
     in_html = False
     # Fenced code (also in block quotes and list items) exactly as every other scanner sees it:
     # a "> ```" line shown inside a top-level code example does not close the example.
-    for line, hidden in zip(lines, mdscan.fenced_code_lines(lines)):
+    # Indented code blocks too (outside list items and footnotes, as for the Pandoc stager).
+    fenced = mdscan.fenced_code_lines(lines)
+    indented = mdscan.indented_code_lines(lines, fenced)
+    for line, hidden in zip(lines, (f or c for f, c in zip(fenced, indented))):
         end = offset + len(line)
         if hidden:
             mask[offset:end] = b"\x01" * (end - offset)
@@ -421,6 +424,26 @@ def render_formulas(items: list[tuple[str, bool]]) -> list[dict]:
         if not (isinstance(a.get("html"), str) or isinstance(a.get("error"), str)):
             raise MathError("katex-render answered without html or error")
     return answers
+
+
+_ANY_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def visible_text(markup: str) -> str:
+    """The text of rendered HTML as the browser holds it: tags dropped, references decoded.
+
+    mdBook makes a heading's id from this text, so ``## 关于 $\\beta$ 的估计`` has the id
+    ``关于-β-的估计`` in the HTML edition (KaTeX's ``aria-label`` is an attribute, not text).
+    """
+    return html.unescape(_ANY_TAG_RE.sub("", markup))
+
+
+def formula_texts(items: list[tuple[str, bool]]) -> list[str]:
+    """The text the HTML edition shows for each ``(tex, display)``: KaTeX's, or the TeX source
+    when KaTeX cannot render it (the fallback ``<code>`` shows the source). One Node process;
+    raises :class:`MathError` when Node or the katex package is missing."""
+    return [visible_text(a["html"]) if isinstance(a.get("html"), str) else tex
+            for a, (tex, _) in zip(render_formulas(items), items)]
 
 
 def render_files(files: list[Path], *, where=None) -> MathReport:
