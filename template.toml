@@ -42,5 +42,8 @@ owned = [
 ]
 # 托管路径中的例外：即使位于托管目录内，也属于下游。
 exclude = [
-  "skills/local/",
+  # 下游自己的 skill 放在 skills/local-<name>/（前缀匹配），模板更新不会触碰。
+  "skills/local-",
+  # 下游自己的文档放在 docs/project/。
+  "docs/project/",
 ]
