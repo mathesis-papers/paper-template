@@ -40,6 +40,8 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 
 `.github/workflows/trureturing-bump.yml` 每周运行 `./tbook pin` 并开 PR，正文是 pin 报告与 `./tbook check` 输出。合并前必须由人或 agent 完成上面第 1 步的复核；有 “statement digest changed” 时，在 PR 中逐条写下复核结论。
 
+标题前缀说明 PR 的状态：`[refused]`（目标提交不在所跟随的分支上，或在 CI 中无法核对）、`[unresolved]`（有引用无法解析）、`[pin failed]`（pin 在写出报告前就失败了，见工作流日志）——这三种是草稿 PR，只有一个空提交，不改锁文件，按第 1 步的对应条目处理后重新运行工作流；`[check fails]`（锁文件已更新但 `./tbook check` 失败，同样是草稿）；`[review statements]`（有陈述摘要变化，须逐条复核）。
+
 ## 禁止
 
 - 手改 `trureturing.lock.json`。

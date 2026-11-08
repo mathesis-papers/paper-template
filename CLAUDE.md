@@ -18,7 +18,7 @@
 1. **定理必须经 Lean 验证。** `theorem / lemma / proposition / corollary` 必须带 `lean="<GID>"`，GID 在所钉提交上必须存在于 trureturing 的 `Golden/Frozen/state/<module>.lean.json` 且种类为 `theorem`。未证结论只能写成 `conjecture` 或 `problem`。需要新定理时，先在 trureturing 中形式化并冻结（`skills/theorem-formalize`）。
 2. **陈述忠实。** 书中陈述与 Lean 陈述一致；不夸大（存在性 ≠ 算法，反例 ≠ 最小反例）。`proof` 块只做解释。颜色有语义：绿色只给 Lean 已验证，琥珀色只给“现在/当前选择”，红色标开放问题。
 3. **多语言逐条对齐。** 各语言版本章节文件名与顺序相同，每章环境序列（种类、`#id`、`lean`）与媒体序列相同。先改权威版本，再同步其他版本；英文自然准确，不逐字硬译。
-4. **锁文件只由工具写。** `./tbook pin` 更新所钉提交；`./tbook pin --refresh` 解析新增引用。升级提交时复核“陈述摘要变化”的定理（`skills/trureturing-pin`）。
+4. **锁文件只由工具写。** `./tbook pin` 更新所钉提交；`./tbook pin --refresh` 解析新增引用。升级提交时复核“陈述摘要变化”的定理（`skills/trureturing-pin`）。所钉提交必须在 `site.toml` 的 trureturing 分支（默认 `dev`）上，`./tbook pin` 与 `./tbook check` 都会核对；不要钉未合入的 PR 提交。
 5. **托管文件不在书库里改。** `template.toml` 的 `[managed].paths` 下的文件归模板所有；改进请回馈模板仓库（`skills/template-update`）。书库自己的 skill 放 `skills/local-<name>/`，自己的文档放 `docs/project/`。
 6. **只用相对链接。** 站点挂在 `/<repo>/` 下，以 `/` 开头的站内链接会断。
 7. **提交前验证。** 至少运行 `./tbook check`（0 错误）；改动影响输出时运行对应的 `./tbook build …`，用 `./tbook serve` 在中英文、深浅主题、手机宽度下实际查看。改动工具时运行 `PYTHONPATH=tools python3 -m unittest discover -s tools/tests`。
@@ -29,7 +29,7 @@
 ```bash
 ./tbook doctor                      # 工具链体检
 ./tbook check                       # 结构、多语言对齐、Lean 引用
-./tbook pin [--refresh|<sha>]       # 钉 trureturing 提交并解析声明
+./tbook pin [--refresh|<sha>|<branch>|<tag>]  # 钉 trureturing 提交并解析声明
 ./tbook new-book <slug> --title zh=… --title en=…
 ./tbook new-chapter <slug> <name> --title zh=… --title en=…
 ./tbook build [html|pdf|epub|slides|viz|films|site|all] [--book <slug>] [--lang zh]

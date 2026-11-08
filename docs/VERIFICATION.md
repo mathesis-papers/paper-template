@@ -39,7 +39,7 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 状态片的来源依次为：本地 trureturing checkout（`$TRURETURING_DIR` 或 `../trureturing`，用 `git show <commit>:<path>`）、缓存 `.cache/trureturing/<commit>/`、`raw.githubusercontent.com/<repo>/<commit>/<path>`。因为路径中带着完整 SHA，读到的内容不可变。
 
-分支可达性的判定依次为：缓存 `.cache/trureturing/<commit>/.tbook-on-branch.json` 中的肯定结果；本地 checkout 的 `git merge-base --is-ancestor <commit> <ref>`，`<ref>` 依次取指向该仓库的远程的跟踪分支、`origin/<branch>`、本地 `<branch>`；联网时 GitHub compare API `repos/<repo>/compare/<branch>...<commit>`（状态为 `behind` 或 `identical` 才算在分支上）。GitHub 的回答优先于可能过期的 checkout；只有肯定结果会被缓存。访问 API 时依次使用 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`（未设置时匿名，每小时 60 次）。
+分支可达性的判定依次为：缓存 `.cache/trureturing/<commit>/.tbook-on-branch.json` 中的肯定结果；本地 checkout 的 `git merge-base --is-ancestor <commit> <ref>`，`<ref>` 依次取指向该仓库的远程的跟踪分支、`origin/<branch>`、本地 `<branch>`；联网时 GitHub compare API `repos/<repo>/compare/<branch>...<commit>`（状态为 `behind` 或 `identical` 才算在分支上）。GitHub 的回答优先于可能过期的 checkout；只有肯定结果会被缓存。访问 API 时依次使用 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`（未设置时匿名，每小时 60 次）。CI 中没有 trureturing checkout，各工作流的检查步骤因此把 `github.token` 作为 `GITHUB_TOKEN` 传入（`trureturing-bump.yml` 用作业的 `GH_TOKEN`）。
 
 ## 3. 深度验证（`lean-verify` 工作流）
 
@@ -62,4 +62,4 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 ## 6. 读者如何自行核对
 
-每个定理框的 `LEAN ✓` 徽章与页脚链接指向所钉提交上的 Lean 源文件（含行号；行号按 `namespace`/`section` 解析出的完整名定位，无法唯一确定时不带行号，而不是猜一个）；书末“形式化验证账本”列出全部对应关系与状态片链接。读者可以克隆 trureturing，检出该提交，运行 `lake build` 并对声明执行 `#print axioms`。
+每个定理框的 `LEAN ✓` 徽章与页脚链接指向所钉提交上的 Lean 源文件（含行号；行号按 `namespace`/`section` 解析出的完整名定位，无法唯一确定时不带行号，而不是猜一个）；书末“形式化验证账本”列出全部对应关系与状态片链接。构建只在锁文件把一条形式结论所引的每个 GID 都解析为 Lean `theorem` 时才显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`，页脚与账本不给链接，也不计入“LEAN ✓ n”等统计（这样的书通不过 `./tbook check`，不会发布）。读者可以克隆 trureturing，检出该提交，运行 `lake build` 并对声明执行 `#print axioms`。

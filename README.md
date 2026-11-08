@@ -26,7 +26,7 @@
 
 `./tbook check` 在所钉的 trureturing 提交上读取 `Golden/Frozen/state/<module>.lean.json`——trureturing 冻结律下“已被内核验证并冻结”的唯一判据——确认该声明存在且是 `theorem`；缺少 Lean 引用的定理、引用了 Lean 的开放问题、过期或被手改的锁文件、中英版本不一致，都会让 CI 失败。`lean-verify` 工作流再生成一个依赖所钉 trureturing 的 Lake 工程，逐条检查公理闭包。详见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
 
-渲染后，每个定理框带绿色 `LEAN ✓` 徽章与指向所钉提交上 Lean 源（含行号）的链接，书末自动生成“形式化验证账本”。
+渲染后，每个定理框带绿色 `LEAN ✓` 徽章与指向所钉提交上 Lean 源（含行号）的链接，书末自动生成“形式化验证账本”；锁文件不能确认的形式结论显示红色 `UNVERIFIED`，不给链接（`./tbook check` 会报错，不能发布）。
 
 ## 快速开始
 
@@ -89,7 +89,7 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 | --- | --- |
 | `./tbook doctor` | 工具链体检 |
 | `./tbook check` | 结构、多语言对齐、Lean 引用 |
-| `./tbook pin [<sha>\|--refresh]` | 钉 trureturing 提交，解析引用 |
+| `./tbook pin [<sha>\|<branch>\|<tag>\|--refresh]` | 钉 trureturing 提交（须在 `site.toml` 的分支上），解析引用 |
 | `./tbook new-book` / `new-chapter` | 新书、新章节 |
 | `./tbook build [html\|pdf\|epub\|slides\|viz\|films\|site\|all]` | 构建 |
 | `./tbook serve` | 本地预览站点 |

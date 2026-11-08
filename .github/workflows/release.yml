@@ -151,6 +151,10 @@ jobs:
           restore-keys: trureturing-state-
 
       - name: Check
+        env:
+          # check asks GitHub's compare API whether the pinned trureturing commit is on the site.toml branch
+          # (no trureturing checkout here); in GitHub Actions an unanswered question is an error.
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tbook check
 
       - name: Build

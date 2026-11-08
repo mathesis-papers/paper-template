@@ -66,13 +66,14 @@ $$
 | `proof` | 证明思路（不编号） | 可选 |
 
 - 一个结论由多条 Lean 声明共同给出时：`lean="GID1 GID2"`。
-- `title` 可含行内数学：`title="$\beta$ 不保持加法"`。
+- `title` 可含行内数学：`title="$\beta$ 不保持加法"`。反斜杠与花括号原样保留；值里的双引号写 `\"`，`\\` 读作一个反斜杠（TeX 的 `\\` 要写成 `\\\\`）。
+- `title` 中可以引用别的条目：`title="[@thm-deficit-three-valued] 的推广"` 显示为“定理1.3 的推广”（PDF/EPUB 中带链接）。id 不存在时 `./tbook check` 报错。
 - 环境可以嵌套（例如 `remark` 里放 `example`），但不要把 `proof` 放进定理内部——写在定理之后。
 
 ### 选择正确的 GID
 
 1. 在 trureturing 中找到声明所在文件 `D5/…/Module.lean`，模块路径就是 `D5/…/Module`。
-2. 声明名写完整 Lean 名或其唯一后缀：`deficit_three_valued` 或 `Deficit.deficit_three_valued`。模块的命名空间不一定等于模块路径（如 `DeficitThreeValued.lean` 的命名空间是 `D5.S1.Deficit`），后缀匹配会处理这一点。
+2. 声明名写完整 Lean 名或其唯一后缀：`deficit_three_valued` 或 `Deficit.deficit_three_valued`。模块的命名空间不一定等于模块路径（如 `DeficitThreeValued.lean` 的命名空间是 `D5.S1.Deficit`），后缀匹配会处理这一点。`of_ρ_eq_self`、`mk₂`、`isSome?` 这样的名字照原样写；不是 Lean 标识符的分量写成 `«…»`。
 3. 确认 `Golden/Frozen/state/D5/…/Module.lean.json` 存在。不存在 → 模块未冻结，不能引用。
 4. 新增 GID 后运行 `./tbook pin --refresh`。
 
@@ -82,7 +83,8 @@ $$
 - 块级 `$$` 各占一行，前后空行；多行推导用 `aligned`。
 - 不用 `\(`、`\)`、`\[`、`\]`。
 - 字面美元号写 `\$`。
-- 自定义宏：HTML 端支持 KaTeX 预设宏（见 `tools/node/katex-render.mjs`）；PDF 端由 Pandoc 转换，尽量只用标准 LaTeX 数学命令。
+- 预设宏（`\norm`、`\floor`、`\ceil`、`\Tr`、`\tr`、`\diag`、`\ketbra`、`\dyad`、`\vv`、`\nicefrac` 等）只在 `tools/tbook/mathrender.py` 的 `TEX_MACROS` 中定义：HTML 端交给 KaTeX，PDF/EPUB 端由 Pandoc 作为 `\newcommand` 展开，三端渲染一致（环境标题中也可用）。其他宏请写成标准 LaTeX 数学命令。
+- `\|` 是范数竖线，表格单元格里也一样；绝对值写 `|x|`。
 
 ## 4. 引用与链接
 
@@ -91,7 +93,13 @@ $$
 | `[@thm-deficit-three-valued]` | “定理1.3”，链接到该定理（跨章节可用） |
 | ``[`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`` | 指向所钉提交上 Lean 源文件对应行的永久链接 |
 | `[第二章](ch02-refutation-observation.md)` | 章节链接（HTML 为页面链接，PDF/EPUB 为内部跳转） |
+| `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章 |
 | `![图注](../assets/figure.svg)` | 图片；放在 `assets/` 的图各语言共享 |
+| `![图注][fig]` + `[fig]: ../assets/figure.svg` | 引用式图片，同上 |
+| `![图注](<../assets/有 空格.svg>)` | 路径含空格时用尖括号 |
+| `[数据表](../assets/data.csv)` | 文件下载：HTML 指向复制进 `_book/` 的文件；PDF/EPUB 不能内嵌非图片文件，改为指向网站上的同一文件（需要 `site.toml` 的 `base_url` 或可推断的 repo，否则只保留文字并警告） |
+
+脚注 `[^1]` 在每章内独立（PDF/EPUB 合并全书时自动加章节前缀）；`@` 只在 `[@id]` 中表示引用，正文里的 `@name` 是普通文字。
 
 ## 5. 媒体
 
@@ -119,6 +127,7 @@ $$
 ## 7. 诚实标注
 
 - 只有 `LEAN ✓` 的条目是已验证结论；正文中不要手写“已证明”“已验证”来修饰未引用 Lean 的命题。
+- 构建只在锁文件确认每条 GID 都是已冻结的 Lean 定理时显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`，不给 Lean 链接，也不计入“LEAN ✓ n”等统计（`./tbook check` 会报错，不能发布）。
 - 不把存在性写成可构造，不把一个反例写成最小反例，不把示意图的数值写成实验或模拟结果。
 - 引用文献中的结论而 trureturing 尚未形式化时，写成 `remark` 并注明“文献结果，未在本书形式化”，不要用 `theorem`。
 
@@ -132,5 +141,8 @@ $$
 | `no frozen declaration named …` / `ambiguous` | 检查名字；歧义时写更长的后缀 |
 | `is a Lean def, but theorem-like environments must cite theorems` | 定义请用 `definition` 环境 |
 | `item N differs between editions` | 对齐各语言版本的环境序列 |
-| `[@x] refers to no environment` | 检查 id 拼写；id 只在同一语言版本内解析 |
+| `[@x] refers to no environment` | 检查 id 拼写；id 只在同一语言版本内解析（正文与环境标题中的 `[@x]` 都会检查） |
+| `cannot parse this fenced div opening line` | 检查 `::: {…}` 中的引号是否成对；值内的 `"` 写成 `\"` |
+| `pinned commit … is not on branch 'dev'` | 所钉提交未合入 `site.toml` 的 trureturing 分支（默认 `dev`）：改钉该分支上的提交（`./tbook pin`） |
+| `could not verify that pinned commit …` | 设置 `TRURETURING_DIR` 指向含该提交的 checkout（必要时先 `git fetch`），或联网让 GitHub API 回答（设置 `GITHUB_TOKEN` 可免匿名限额）；GitHub Actions 中这是错误 |
 | `not listed in SUMMARY.md` | 加入 SUMMARY 或删除文件 |
