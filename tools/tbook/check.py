@@ -208,7 +208,8 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
                extra_cited: list[tuple[Path, int, str]] | None = None,
                cited_elsewhere: set[str] | None = frozenset()) -> None:
     """Re-verify every cited GID against the lock and the frozen state at the pinned commit, and
-    the pinned commit against the site.toml branch.
+    the pinned commit against the site.toml branch, which must be a branch name and the lock's branch.
+    (In a pull request's GitHub Actions run the Ledger reads nothing from ``.cache/trureturing``.)
 
     ``extra_cited`` holds citations outside the chapters (visualizations, films, slides); they are
     verified the same way but do not impose the theorem-kind rule here: tbook.viz, tbook.film and
@@ -241,11 +242,20 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
     if lock.repo != site.trureturing_repo:
         _err(issues, paths.LOCK_FILE, 0,
              f"lock pins {lock.repo} but site.toml uses {site.trureturing_repo}; run ./tbook pin")
-    ledger = lean.Ledger(lock.repo, offline=offline)
     branch = site.trureturing_branch
-    anc = ledger.branch_contains(lock.commit, branch)
+    if lock.branch and lock.branch != branch:  # the lock (and the site manifest) would name an unchecked branch
+        _err(issues, paths.LOCK_FILE, 0,
+             f"lock was pinned against branch {lock.branch!r} but site.toml uses {branch!r}; run ./tbook pin "
+             f"(or ./tbook pin --refresh to keep commit {lock.commit[:12]} if it is on {branch!r})")
+    ledger = lean.Ledger(lock.repo, offline=offline)
+    problem = lean.branch_problem(branch, lock.commit)
+    anc = lean.Ancestry(None, "") if problem else ledger.branch_contains(lock.commit, branch)
     where = f"branch {branch!r} of {lock.repo}"
-    if anc.on_branch is False:
+    if problem:
+        _err(issues, paths.SITE_TOML, 0,
+             f"[trureturing] branch {branch!r} {problem}: trureturing enforces its freeze rule on a branch "
+             "(default 'dev'), and only a branch can show that the pinned commit was merged")
+    elif anc.on_branch is False:
         _err(issues, paths.LOCK_FILE, 0,
              f"pinned commit {lock.commit[:12]} is not on {where} ({anc.detail}); trureturing enforces the freeze "
              f"rule only on {branch}, so its frozen state at other commits proves nothing. Pin a commit on "
@@ -299,17 +309,22 @@ def _cited_by_other_books(books: list[config.Book]) -> set[str] | None:
 
 def check_cache(issues: list[Issue]) -> None:
     """``.cache/`` holds downloaded trureturing state and verification results; committed files there
-    would let a pull request feed ``./tbook check`` fabricated frozen state."""
+    would let a pull request feed ``./tbook check`` fabricated frozen state.
+
+    git is asked about the literal ``.cache``: a resolved path would follow a committed ``.cache`` symlink
+    to its target (say an ignored ``node_modules/<package>``) and find nothing committed there."""
+    name = paths.CACHE.relative_to(paths.ROOT).as_posix()
     try:
-        r = subprocess.run(["git", "-C", str(paths.ROOT), "ls-files", "--", paths.rel(paths.CACHE)],
-                           capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(paths.ROOT), "ls-files", "--", name], capture_output=True, text=True)
     except OSError:  # no git: not a checkout of the repository
         return
     tracked = r.stdout.splitlines() if r.returncode == 0 else []
     if tracked:
-        _err(issues, paths.CACHE, 0,
-             f"{len(tracked)} file(s) under {paths.rel(paths.CACHE)}/ are committed (e.g. {tracked[0]}); it is a local "
-             f"cache and is never trusted from the repository: git rm -r --cached {paths.rel(paths.CACHE)}")
+        what = (f"{name} itself is committed (a symlink or a file)" if name in tracked
+                else f"{len(tracked)} file(s) under {name}/ are committed (e.g. {tracked[0]})")
+        # named, not resolved: a symlink's target would hide what is committed
+        _err(issues, None if paths.CACHE.is_symlink() else paths.CACHE, 0,
+             f"{what}; it is a local cache and is never trusted from the repository: git rm -r --cached {name}")
 
 
 def check_theme(issues: list[Issue]) -> None:

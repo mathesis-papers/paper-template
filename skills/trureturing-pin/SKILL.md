@@ -7,7 +7,7 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 
 ## 适用范围
 
-**用**：想引用 trureturing 新冻结的声明；`trureturing-bump` 工作流开了 PR；`./tbook check` 报告锁文件与上游不一致；新增引用后锁文件缺条目。
+**用**：想引用 trureturing 新冻结的声明；`trureturing-bump` 工作流开了 PR；`./tbook check` 报告锁文件与上游不一致，或锁文件的分支与 `site.toml` 不同；新增引用后锁文件缺条目。
 
 **权威**：`tools/tbook/pin.py` 的行为与 `./tbook check` 的输出。
 
@@ -22,6 +22,10 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 加 `--dry-run` 只看报告不写锁文件；加 `--report build/pin.md` 把报告写成文件（PR 正文用，目录不存在时自动创建）。
 
 无论哪种写法，目标提交都必须能从 `site.toml` 的分支（默认 `dev`）到达：trureturing 只在该分支上执行冻结律，GitHub 却也按 SHA 提供未合入的提交（PR head、其他分支）。不在分支上的提交会被拒绝（报告中的 **Refused**，锁文件不写）；无法判定时（没有含该提交的本地 checkout，且 GitHub API 不可用或加了 `--offline`），在 GitHub Actions 中（未加 `--offline`）拒绝，其他情况写入锁文件并在 **Warnings** 中提示，之后由 `./tbook check` 再次核对。本地 checkout 的 `origin/dev` 过期时先 `git -C ../trureturing fetch`。只支持分支（`refs/heads/*`）与 tag（`refs/tags/*`），不支持 `refs/pull/*`。
+
+`site.toml` 的 `[trureturing].branch` 必须是分支名：写成 SHA（完整的，或所钉提交的缩写）或 `refs/…` 时，pin 直接报错，`./tbook check` 也报错（GitHub compare API 会把 SHA 当作比较基准，`compare/<sha>...<sha>` 恒为 `identical`，什么也证明不了）。锁文件的 `branch` 记录钉版时核对的分支；`./tbook check` 要求它与 `site.toml` 相同。确有理由更换分支时（例如 trureturing 改了集成分支），改 `site.toml` 后运行 `./tbook pin`（钉到新分支的最新提交），或在当前提交也在新分支上时运行 `./tbook pin --refresh`；报告首行下方会写出 `Branch: <旧> → <新>`。
+
+在 PR 的 GitHub Actions 运行里，`./tbook check` 与 `./tbook pin` 不读 `.cache/trureturing`（同一 PR 先前的运行可能写入伪造的缓存），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次问 compare API，所以那里离不开网络与 `GITHUB_TOKEN`（`docs/VERIFICATION.md` §2）。
 
 ## 步骤
 
@@ -46,6 +50,7 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 
 - 手改 `trureturing.lock.json`。
 - 钉未合入所跟随分支的提交（例如自己尚未合并的形式化 PR 的 head）。
-- 提交 `.cache/` 下的文件（`./tbook check` 报错）。
+- 提交 `.cache/` 下的文件，或把 `.cache` 作为符号链接提交（`./tbook check` 报错）。
+- 为让 PR 通过而修改 `site.toml` 的 `[trureturing].branch`，或把它写成 SHA。
 - 为让检查通过而删除 `lean` 属性或把定理改成注释。
 - 在未复核陈述变化的情况下合并 bump PR。

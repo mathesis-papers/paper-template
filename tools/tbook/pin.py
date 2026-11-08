@@ -8,7 +8,9 @@ Whatever the ref, the commit must be on the site.toml branch: trureturing's CI e
 freeze rule (frozen ⇒ kernel-verified, no ``sorry``) only there, while GitHub also serves
 pull-request heads and other unmerged commits. A commit that is not on the branch is
 refused; one whose ancestry cannot be determined is refused in GitHub Actions and pinned
-with a warning elsewhere (``./tbook check`` verifies it again).
+with a warning elsewhere (``./tbook check`` verifies it again). The branch must be a branch
+name, not a commit SHA or a full ref (``lean.branch_problem``); the lock records it, and
+``./tbook check`` requires the lock's branch to be site.toml's.
 
 The lock records, per GID, the fully qualified Lean name, its kind, its module's frozen
 ``statement_id`` and (best effort) the source line and header. When the commit moves,
@@ -28,6 +30,8 @@ from .model import load_book_models, media_cited_gids
 class PinReport:
     commit: str
     previous: str
+    branch: str = ""  # site.toml's trureturing branch, which the lock records
+    previous_branch: str = ""  # the branch the previous lock recorded
     added: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     changed: list[tuple[str, str]] = field(default_factory=list)  # (gid, what)
@@ -39,6 +43,8 @@ class PinReport:
 
     def markdown(self) -> str:
         lines = [f"trureturing pin: `{self.previous[:12] or '—'}` → `{self.commit[:12]}`", ""]
+        if self.previous_branch and self.branch and self.previous_branch != self.branch:
+            lines += [f"Branch: `{self.previous_branch}` → `{self.branch}` (site.toml)", ""]
         if self.refused:
             return "\n".join(lines + ["**Refused (lock not written):**", "", f"- {self.refused}"])
         if self.warnings:
@@ -73,6 +79,14 @@ def cited_gids(books: list[config.Book]) -> list[str]:
     return sorted(gids)
 
 
+def _check_branch(branch: str, commit: str = "") -> None:
+    """site.toml's trureturing branch must name a branch (not a commit SHA or a full ref)."""
+    problem = lean.branch_problem(branch, commit)
+    if problem:
+        raise lean.LeanError(f"site.toml [trureturing] branch {branch!r} {problem}: trureturing enforces its freeze "
+                             "rule on a branch (default 'dev'), and only a branch can show that a commit was merged")
+
+
 def _target(ref: str | None, old: lean.Lock | None, *, refresh: bool, offline: bool, branch: str, repo: str,
             ledger) -> tuple[str, bool]:
     """(commit to pin, whether it is the head of ``branch`` by construction)."""
@@ -98,11 +112,14 @@ def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
         dry_run: bool = False) -> PinReport:
     site = config.load_site()
     branch = site.trureturing_branch
+    _check_branch(branch)
     old = lean.Lock.load()
     ledger = lean.Ledger(site.trureturing_repo, offline=offline)
     commit, head = _target(ref, old, refresh=refresh, offline=offline, branch=branch,
                            repo=site.trureturing_repo, ledger=ledger)
-    report = PinReport(commit=commit, previous=old.commit if old else "")
+    _check_branch(branch, commit)
+    report = PinReport(commit=commit, previous=old.commit if old else "", branch=branch,
+                       previous_branch=old.branch if old else "")
     if head:
         ledger.record_on_branch(commit, branch, f"head of {branch}")
     else:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -24,7 +25,7 @@ from pathlib import Path
 from unittest import mock
 
 from tbook import check, config, lean, model, paths, pin
-from test_core import (COMMIT, EN_SUMMARY, GID_3V, GID_DEF, GID_INT, MOD_3V, OLD_COMMIT, TRU,
+from test_core import (COMMIT, EN_SUMMARY, GID_3V, GID_DEF, GID_INT, MOD_3V, OLD_COMMIT, SITE, TRU,
                        ZH_SUMMARY, CoreRepo, FakeLedger, lock_decls, make_lock, media_stub, messages, name_key,
                        states, write)
 
@@ -684,6 +685,303 @@ class LockCheckTests(unittest.TestCase):
             kind = [(i.path.relative_to(repo.root).as_posix(), i.line)
                     for i in issues if "must cite theorems" in i.message]
             self.assertEqual(kind, [("books/demo/zh/ch02.md", 9), ("books/demo/en/ch02.md", 9)])
+
+
+# --------------------------------------------------------------------------- re-review 0: pull requests and .cache
+
+RAW = f"https://raw.githubusercontent.com/{TRU}"
+API_TOKENS = ("TRURETURING_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+GID_RH = "D5/S1/Deficit/DeficitThreeValued.riemann_hypothesis"
+
+
+def state_url(commit: str, module: str) -> str:
+    return f"{RAW}/{commit}/{lean.STATE_DIR}/{module}.lean.json"
+
+
+def raw_states(commit: str) -> dict[str, dict]:
+    """FakeGitHub answers: the real frozen state of every module at ``commit``."""
+    return {state_url(commit, module): data for module, data in states().items()}
+
+
+def plant_cache(commit: str, branch: str = "dev") -> None:
+    """What an earlier run of a pull request (its own code) can save into .cache/trureturing for the next run:
+    frozen state with a fabricated theorem under the module's unchanged statement_id, and a positive answer
+    to "is the commit on the branch?"."""
+    st = states()
+    st[MOD_3V]["declarations"].append(
+        {"declaration_name_key": name_key("D5", "S1", "Deficit", "riemann_hypothesis"), "kind": "theorem"})
+    for module, data in st.items():
+        write(paths.CACHE / "trureturing" / commit / lean.STATE_DIR / f"{module}.lean.json", json.dumps(data))
+    write(paths.CACHE / "trureturing" / commit / lean.ANCESTRY_FILE, json.dumps({f"{TRU}@{branch}": "planted"}))
+
+
+def gha_if(expr: str, *, event: str, ref: str, default_branch: str | None = "main", **outputs: str) -> bool:
+    """Evaluate a workflow step's ``if:`` written with the subset of GitHub's expression syntax used by the
+    cache steps: ``==``, ``!=``, ``&&``, ``||``, parentheses, ``format``, ``startsWith``."""
+    py = expr.strip().removeprefix("${{").removesuffix("}}")
+    py = re.sub(r"format\(('[^']*'),\s*([\w.]+)\)", r"\1.format(\2)", py)
+    py = re.sub(r"startsWith\(([\w.]+),\s*('[^']*')\)", r"\1.startswith(\2)", py)
+    py = py.replace("&&", " and ").replace("||", " or ")
+    values = {"github.event.repository.default_branch": default_branch or "", "github.event_name": event,
+              "github.ref": ref, **{f"steps.target.outputs.{k}": v for k, v in outputs.items()}}
+    for name in sorted(values, key=len, reverse=True):
+        py = py.replace(name, repr(values[name]))
+    bare = re.sub(r"'[^']*'", "''", py).replace(".format(", "(").replace(".startswith(", "(")
+    if re.search(r"[A-Za-z_]\w*\.\w", bare):
+        raise AssertionError(f"unsupported expression: {expr!r} -> {py!r}")
+    return bool(eval(py, {"__builtins__": {}}))  # noqa: S307 - a test reading its own workflows
+
+
+def trureturing_cache_steps(workflow: Path) -> list[str]:
+    """The ``if:`` conditions ('' when absent) of the steps that restore or save ``.cache/trureturing``."""
+    steps = re.split(r"\n(?=\s+- name:)", workflow.read_text(encoding="utf-8"))
+    out = []
+    for step in steps:
+        if not re.search(r"^\s+path:\s*\.cache/trureturing\s*$", step, re.M):
+            continue
+        m = re.search(r"^(\s+)if:\s*(>-?)?\s*(.*?)$((?:\n\1\s+.*)*)", step, re.M)
+        out.append(" ".join([m.group(3), *m.group(4).split()]).strip() if m else "")
+    return out
+
+
+class PullRequestCacheTests(unittest.TestCase):
+    """A pull request's runs restore caches that its earlier runs saved, and those ran the pull request's own
+    code: no pull-request run may trust .cache/trureturing (re-review finding 0)."""
+
+    WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+
+    def setUp(self):
+        self.repo = CoreRepo().__enter__()
+        self.addCleanup(self.repo.__exit__, None, None, None)
+        for key in (*API_TOKENS, "GITHUB_EVENT_NAME"):
+            os.environ.pop(key, None)
+        os.environ["GITHUB_ACTIONS"] = "true"
+
+    def net(self, answers):
+        fake = FakeGitHub(answers)
+        patcher = mock.patch.object(lean.urllib.request, "urlopen", fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def test_cache_is_read_outside_pull_requests(self):
+        plant_cache(COMMIT)
+        for event in (None, "push", "schedule", "workflow_dispatch"):
+            if event:
+                os.environ["GITHUB_EVENT_NAME"] = event
+            self.assertTrue(lean.cache_trusted(), event)
+            led = lean.Ledger(TRU, offline=True)
+            self.assertEqual(lean.resolve(led, COMMIT, GID_RH).kind, "theorem", "whatever the cache says")
+            self.assertEqual(led.branch_contains(COMMIT, "dev"), lean.Ancestry(True, "planted (cached)"))
+
+    def test_pull_request_runs_ask_github(self):
+        gh = self.net({**raw_states(COMMIT), compare_path("dev", COMMIT): {"status": "behind", "behind_by": 3}})
+        os.environ["GITHUB_TOKEN"] = "gh"
+        for event in ("pull_request", "pull_request_target"):
+            plant_cache(COMMIT)
+            gh.requests.clear()
+            os.environ["GITHUB_EVENT_NAME"] = event
+            self.assertFalse(lean.cache_trusted(), event)
+            led = lean.Ledger(TRU)
+            with self.assertRaisesRegex(lean.LeanError, "no frozen declaration named 'riemann_hypothesis'"):
+                lean.resolve(led, COMMIT, GID_RH)
+            self.assertEqual(lean.resolve(led, COMMIT, GID_3V).statement_id, "sha256:3v")
+            anc = led.branch_contains(COMMIT, "dev")
+            self.assertEqual(anc, lean.Ancestry(True, f"GitHub compare dev...{COMMIT[:12]}: behind"))
+            self.assertEqual([r.full_url for r in gh.requests],
+                             [state_url(COMMIT, MOD_3V), f"https://api.github.com/{compare_path('dev', COMMIT)}"])
+            self.assertEqual(gh.requests[1].get_header("Authorization"), "Bearer gh", "github.token in CI")
+            offline = lean.Ledger(TRU, offline=True)
+            self.assertEqual([(type(s).__name__, s.readable) for s in offline.sources], [("CacheSource", False)],
+                             "kept, to be written, but not read")
+            with self.assertRaisesRegex(lean.LeanError, "the cache is not read in a pull-request run and network disabled"):
+                offline.state(COMMIT, MOD_3V)
+            self.assertIsNone(offline.branch_contains(COMMIT, "dev").on_branch)
+            # still written (by a later run on a trusted ref it is read again): the fetched state replaced
+            # the planted one
+            stored = paths.CACHE / "trureturing" / COMMIT / lean.STATE_DIR / f"{MOD_3V}.lean.json"
+            self.assertEqual(json.loads(stored.read_text(encoding="utf-8")), states()[MOD_3V])
+
+    def check_lean(self, lock: lean.Lock) -> list[model.Issue]:
+        issues: list[model.Issue] = []
+        check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock, config.load_site(),
+                         issues, offline=False)
+        return issues
+
+    def test_check_job_on_a_pull_request(self):
+        self.repo.book()
+        os.environ["GITHUB_TOKEN"] = "gh"
+        os.environ["GITHUB_EVENT_NAME"] = "pull_request"
+        # passes: frozen state from raw.githubusercontent.com, ancestry from the compare API
+        gh = self.net({**raw_states(COMMIT), compare_path("dev", COMMIT): {"status": "identical"}})
+        self.assertEqual(self.check_lean(make_lock()), [])
+        self.assertEqual(sorted(r.full_url for r in gh.requests),
+                         sorted([f"https://api.github.com/{compare_path('dev', COMMIT)}", *raw_states(COMMIT)]))
+        # an off-branch commit whose state and ancestry an earlier run of the pull request planted
+        plant_cache(OLD_COMMIT)
+        lock = make_lock()
+        lock.commit = OLD_COMMIT
+        self.net({**raw_states(OLD_COMMIT),
+                  compare_path("dev", OLD_COMMIT): {"status": "diverged", "ahead_by": 1, "behind_by": 4}})
+        errors = messages(self.check_lean(lock), "error")
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn(f"pinned commit {OLD_COMMIT[:12]} is not on branch 'dev'", errors[0])
+        # nothing is read back: with GitHub unreachable a pull-request run cannot verify, cache or not
+        with mock.patch.object(lean.urllib.request, "urlopen", side_effect=urllib.error.URLError("down")):
+            errors = messages(self.check_lean(make_lock()), "error")
+        self.assertIn(f"could not verify that pinned commit {COMMIT[:12]} is on branch 'dev'", errors[0])
+        self.assertEqual(len(errors), 1 + 3, "and every citation is unverified")
+        # the same planted cache outside a pull request (a developer's machine, a run on main): read
+        os.environ.pop("GITHUB_EVENT_NAME")
+        with mock.patch.object(lean.urllib.request, "urlopen", side_effect=urllib.error.URLError("down")):
+            self.assertEqual(self.check_lean(lock), [])
+
+    def test_workflows_cache_only_on_trusted_refs(self):
+        trusted = [dict(event="push", ref="refs/heads/main"), dict(event="workflow_dispatch", ref="refs/heads/main"),
+                   dict(event="push", ref="refs/tags/v1.2.0"), dict(event="push", ref="refs/tags/demo-v1.0.0"),
+                   dict(event="schedule", ref="refs/heads/main", default_branch=None)]
+        untrusted = [dict(event="pull_request", ref="refs/pull/7/merge"),
+                     dict(event="pull_request_target", ref="refs/heads/main"),
+                     dict(event="push", ref="refs/heads/feature"),
+                     dict(event="workflow_dispatch", ref="refs/heads/feature")]
+        runs = {"ci.yml": trusted[:4], "pages.yml": trusted[:2], "release.yml": trusted[2:4],
+                "trureturing-bump.yml": [trusted[1], trusted[4]]}
+        for name, ok in runs.items():
+            text = (self.WORKFLOWS / name).read_text(encoding="utf-8")
+            on = re.search(r"^on:\n((?:  .*\n|\n)*)", text, re.M).group(1)
+            events = set(re.findall(r"^  ([a-z_]+):", on, re.M))
+            if "workflow_call" in events:  # runs with its caller's event, whatever that is
+                events |= {ctx["event"] for ctx in untrusted}
+            conditions = trureturing_cache_steps(self.WORKFLOWS / name)
+            self.assertEqual(len(conditions), 1, name)
+            cond = conditions[0]
+            self.assertTrue(cond, f"{name}: the .cache/trureturing step needs an if:")
+            out = {"same": "false"} if "steps.target" in cond else {}
+            for ctx in ok:
+                self.assertIn(ctx["event"], events, name)
+                self.assertTrue(gha_if(cond, **ctx, **out), f"{name}: {ctx}")
+            for ctx in untrusted:
+                if ctx["event"] in events:
+                    self.assertFalse(gha_if(cond, **ctx, **out), f"{name}: {ctx}")
+        self.assertEqual(trureturing_cache_steps(self.WORKFLOWS.parent / "actions" / "setup" / "action.yml"), [])
+
+
+# --------------------------------------------------------------------------- re-review 1: a committed .cache symlink
+
+
+class CommittedCacheSymlinkTests(unittest.TestCase):
+    def test_symlink_is_reported_by_its_own_name(self):
+        with CoreRepo() as repo:
+            git(repo.root, "init", "-q")
+            write(repo.root / ".gitignore", "/.cache/\n/node_modules/\n")
+            pkg = repo.root / "node_modules" / "evil-pkg"
+            write(pkg / "trureturing" / COMMIT / lean.ANCESTRY_FILE, json.dumps({f"{TRU}@dev": "planted"}))
+            os.symlink("node_modules/evil-pkg", repo.root / ".cache")
+            check.check_cache(issues := [])
+            self.assertEqual(issues, [], "an untracked symlink is a local choice")
+            git(repo.root, "add", ".gitignore", ".cache")
+            self.assertEqual(git(repo.root, "ls-files", "-s", "--", ".cache").split()[0], "120000")
+            check.check_cache(issues := [])
+            self.assertEqual([i.severity for i in issues], ["error"], "a committed .cache symlink")
+            self.assertIn(".cache", issues[0].format())
+            self.assertNotIn("evil-pkg", issues[0].format(), "named as committed, not by its target")
+            self.assertIn("git rm -r --cached .cache", issues[0].message)
+            git(repo.root, "rm", "-q", "--cached", ".cache")
+            os.unlink(repo.root / ".cache")
+            outside = Path(tempfile.mkdtemp(prefix="tbook-cache-"))
+            self.addCleanup(__import__("shutil").rmtree, outside, True)
+            os.symlink(outside, repo.root / ".cache")
+            check.check_cache(issues := [])
+            self.assertEqual(issues, [], "an untracked symlink outside the repository")
+
+
+# --------------------------------------------------------------------------- re-review 2: lock.branch and site.toml
+
+
+class LockBranchTests(unittest.TestCase):
+    def run_lean(self, ledger, lock=None):
+        with mock.patch.object(lean, "Ledger", lambda repo, **kw: ledger):
+            issues: list[model.Issue] = []
+            check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock or make_lock(),
+                             config.load_site(), issues, offline=True)
+            return issues
+
+    def test_lock_branch_must_match_site_toml(self):
+        with CoreRepo(site=SITE_FAKE_BRANCH) as repo:
+            repo.book()
+            os.environ.pop("GITHUB_ACTIONS", None)
+            led = FakeLedger(on_branch=True)
+            issues = self.run_lean(led)
+            self.assertEqual([(i.severity, i.path) for i in issues], [("error", paths.LOCK_FILE)])
+            self.assertIn("lock was pinned against branch 'dev' but site.toml uses 'fake'; run ./tbook pin",
+                          issues[0].message)
+            self.assertEqual(led.ancestry_calls, [(COMMIT, "fake")], "verified against site.toml's branch")
+            legacy = make_lock()
+            legacy.branch = ""
+            self.assertEqual(self.run_lean(FakeLedger(on_branch=True), legacy), [], "no branch recorded")
+            with mock.patch.object(lean, "Ledger", lambda r, **kw: FakeLedger(on_branch=True)):
+                make_lock().save()
+                report = pin.pin(refresh=True, offline=True)
+            self.assertTrue(report.written, report.markdown())
+            self.assertIn("Branch: `dev` → `fake`", report.markdown())
+            self.assertEqual(lean.Lock.load().branch, "fake", "--refresh re-verifies on the new branch")
+            self.assertEqual(self.run_lean(FakeLedger(on_branch=True), lean.Lock.load()), [])
+
+    def test_commit_sha_is_not_a_branch(self):
+        for branch in (COMMIT, COMMIT[:7], COMMIT[:12].upper(), "refs/heads/dev"):
+            with self.subTest(branch=branch), CoreRepo(site=SITE.replace('branch = "dev"', f'branch = "{branch}"')) as repo:
+                repo.book()
+                os.environ.pop("GITHUB_ACTIONS", None)
+                lock = make_lock()
+                lock.branch = branch
+                led = FakeLedger(on_branch=True)
+                errors = messages(self.run_lean(led, lock), "error")
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn(f"[trureturing] branch {branch!r}", errors[0])
+                self.assertEqual(led.ancestry_calls, [], "no ancestry question against a non-branch")
+                self.assertTrue(lean.branch_problem(branch, COMMIT))
+                with mock.patch.object(lean, "Ledger", lambda r, **kw: FakeLedger(on_branch=True)):
+                    with self.assertRaisesRegex(lean.LeanError, "branch"):
+                        pin.pin(COMMIT, offline=True, dry_run=True)
+        self.assertEqual(lean.branch_problem("dev", COMMIT), "")
+        self.assertEqual(lean.branch_problem("facade", COMMIT), "", "hex letters, but not the pinned commit")
+        self.assertEqual(lean.branch_problem("release/1", COMMIT), "")
+
+    def test_ledger_refuses_a_sha_as_branch(self):
+        with CoreRepo():
+            for key in API_TOKENS:
+                os.environ.pop(key, None)
+            h = History()
+            self.addCleanup(h.cleanup)
+            h.track("origin", UPSTREAM)
+            desc = "9" * 40  # an unmerged descendant of the pinned commit, written as the "branch"
+            gh = FakeGitHub({compare_path(COMMIT, COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}},
+                             compare_path(COMMIT[:7], COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}},
+                             compare_path(desc[:10], COMMIT): {"status": "behind", "base_commit": {"sha": desc}},
+                             compare_path("facade", COMMIT): {"status": "behind", "base_commit": {"sha": "1" * 40}},
+                             compare_path(h.b[:10], h.a): {"status": "behind", "base_commit": {"sha": h.b}}})
+            with mock.patch.object(lean.urllib.request, "urlopen", gh):
+                led = lean.Ledger(TRU)
+                for branch in (COMMIT, COMMIT[:7]):
+                    anc = led.branch_contains(COMMIT, branch)
+                    self.assertIsNone(anc.on_branch, branch)
+                    self.assertIn("is a commit SHA, not a branch", anc.detail)
+                self.assertEqual(gh.requests, [], "refused before asking GitHub")
+                anc = lean.github_branch_contains(TRU, COMMIT, COMMIT)
+                self.assertIsNone(anc.on_branch, "compare/<sha>...<sha> is 'identical'")
+                anc = led.branch_contains(COMMIT, desc[:10])
+                self.assertIsNone(anc.on_branch, "GitHub took the name for a commit")
+                self.assertIn("as a commit, not a branch", anc.detail)
+                self.assertTrue(led.branch_contains(COMMIT, "facade").on_branch, "a branch named in hex letters")
+                anc = lean.Ledger(TRU, checkout=h.dir).branch_contains(h.a, h.b[:10])
+                self.assertIsNone(anc.on_branch, "the checkout has no such branch, GitHub read it as a commit")
+                self.assertIn("as a commit, not a branch", anc.detail)
+            cached = json.loads((paths.CACHE / "trureturing" / COMMIT / lean.ANCESTRY_FILE).read_text(encoding="utf-8"))
+            self.assertEqual(list(cached), [f"{TRU}@facade"], "only the real branch's answer is cached")
+            self.assertFalse((paths.CACHE / "trureturing" / h.a / lean.ANCESTRY_FILE).exists())
+
+
+SITE_FAKE_BRANCH = SITE.replace('branch = "dev"', 'branch = "fake"')
 
 
 if __name__ == "__main__":
