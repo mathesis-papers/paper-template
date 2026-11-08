@@ -214,7 +214,7 @@ def load_edition(edition: config.Edition) -> EditionModel:
         scan_issues: list[mdscan.ScanIssue] = []
         blocks = mdscan.parse_blocks(text, scan_issues)
         for si in scan_issues:
-            issues.append(Issue("error", path, si.line, si.message))
+            issues.append(Issue(si.severity, path, si.line, si.message))
         doc = ChapterDoc(chapter=chapter, path=path, text=text, blocks=blocks)
         prefix = chapter_prefix(summary, chapter)
         for node in mdscan.walk(blocks):

@@ -408,7 +408,7 @@ def chapter_markdown(doc: ChapterDoc, ctx: RenderContext) -> str:
     envs_by_div = {id(e.div): e for e in doc.envs + doc.media if e.div is not None}
 
     def text_fn(node: mdscan.Text) -> str:
-        return "\n".join(transform_line(line, doc, ctx) for line in node.lines)
+        return "\n".join(mdscan.map_text(node, lambda line: transform_line(line, doc, ctx)))
 
     def div_fn(div: mdscan.Div, inner: str) -> str:
         env = envs_by_div.get(id(div))

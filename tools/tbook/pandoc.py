@@ -375,37 +375,13 @@ class Stage:
 
 
 def _code_mask(lines: list[str]) -> list[bool]:
-    """True for lines inside fenced code blocks (also in block quotes and list items),
-    indented code blocks or HTML comments (never rewritten); fences are found exactly as
-    :func:`tbook.mdscan.parse_blocks` finds them (:func:`tbook.mdscan.fence_end`), indented
-    code as the math scanner finds it (:func:`tbook.mdscan.indented_code_lines`)."""
-    mask = [False] * len(lines)
-    indented = mdscan.indented_code_lines(lines)
-    comment = False
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        if comment:
-            mask[i] = True
-            if "-->" in line:
-                comment = False
-            i += 1
-            continue
-        end = mdscan.fence_end(lines, i)
-        if end is not None:
-            mask[i:end + 1] = [True] * (end + 1 - i)
-            i = end + 1
-            continue
-        if indented[i]:
-            mask[i] = True
-            i += 1
-            continue
-        stripped = line.lstrip()
-        if stripped.startswith("<!--") and "-->" not in stripped[4:]:
-            comment = True
-            mask[i] = True
-        i += 1
-    return mask
+    """True for lines that are never rewritten: fenced and indented code blocks (also in block
+    quotes, list items, footnote and definition bodies), HTML comment blocks and lines wholly
+    inside an inline comment that spans lines — the block model of
+    :func:`tbook.mdscan.parse_blocks` and the math scanner (:attr:`tbook.mdscan.BlockScan.hidden`).
+    The other lines go through :func:`tbook.mdscan.map_closed` with the scan's ``carry``, so the
+    part of a line inside such a comment is left alone too."""
+    return mdscan.scan_blocks(lines).hidden
 
 
 def normalize_setext(md: str) -> str:
@@ -501,7 +477,8 @@ def scope_footnotes(md: str, prefix: str) -> str:
     indented code, HTML comments and inline code are left alone.
     """
     lines = md.split("\n")
-    mask = _code_mask(lines)
+    scan = mdscan.scan_blocks(lines)
+    mask = scan.hidden
     labels = {m.group("label") for i, line in enumerate(lines)
               if not mask[i] and (m := FOOTNOTE_DEF_RE.match(line))}
     if not labels:
@@ -511,7 +488,10 @@ def scope_footnotes(md: str, prefix: str) -> str:
         label = m.group("label")
         return f"[^{prefix}--{label}]" if label in labels else m.group(0)
 
-    return "\n".join(line if mask[i] else mdscan.sub_outside_code(FOOTNOTE_REF_RE, repl, line)
+    def scoped(line: str) -> str:
+        return mdscan.sub_outside_code(FOOTNOTE_REF_RE, repl, line)
+
+    return "\n".join(line if mask[i] else mdscan.map_closed(scoped, line, scan.carry[i])
                      for i, line in enumerate(lines))
 
 
@@ -781,7 +761,8 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
     """
     md = normalize_setext(md)
     lines = md.split("\n")
-    mask = _code_mask(lines)
+    scan = mdscan.scan_blocks(lines)
+    mask = scan.hidden
     title_done = False
     out: list[str] = []
     for i, line in enumerate(lines):
@@ -806,7 +787,8 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
                 out.append("")
             out.append(format_heading(min(6, level + depth), text, attrs))
             continue
-        out.append(linker.rewrite_line(line, chapter_path) if linker else line)
+        out.append(mdscan.map_closed(lambda s: linker.rewrite_line(s, chapter_path), line, scan.carry[i])
+                   if linker else line)
     if not title_done:
         attrs = mdscan.Attrs(id=chapter_id, classes=list(classes), kv=dict(kv))
         out = [format_heading(min(6, 1 + depth), title, attrs), ""] + out

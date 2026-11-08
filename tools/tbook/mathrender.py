@@ -60,7 +60,6 @@ RENDERER = paths.TOOLS / "node" / "katex-render.mjs"
 FALLBACK_CLASS = "katex-fallback"
 BLOCK_CLASS = "tr-math"
 
-COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 RAW_ELEMENT_RE = re.compile(r"<(code|pre|script|style|textarea|kbd|samp|math|svg)\b[^>]*>.*?</\1\s*>", re.S | re.I)
 TAG_RE = re.compile(
     r"""</?[A-Za-z][A-Za-z0-9-]*"""
@@ -178,18 +177,18 @@ def _mask(text: str) -> tuple[bytearray, list[bool]]:
     html_lines: list[bool] = []
     offset = 0
     in_html = False
-    # Fenced code (also in block quotes and list items) exactly as every other scanner sees it:
-    # a "> ```" line shown inside a top-level code example does not close the example.
-    # Indented code blocks too (outside list items and footnotes, as for the Pandoc stager).
-    fenced = mdscan.fenced_code_lines(lines)
-    indented = mdscan.indented_code_lines(lines, fenced)
-    for line, hidden in zip(lines, (f or c for f, c in zip(fenced, indented))):
+    # Code and HTML comments exactly as every other scanner sees them (tbook.mdscan.scan_blocks):
+    # fenced and indented code blocks in any container (a "> ```" line shown inside a top-level
+    # code example does not close the example), comment blocks, and inline comments, also those
+    # that go on over the following lines of their paragraph.
+    scan = mdscan.scan_blocks(lines)
+    for line, hidden, carry in zip(lines, scan.hidden, scan.carry):
         end = offset + len(line)
         if hidden:
             mask[offset:end] = b"\x01" * (end - offset)
             in_html = False
         else:
-            for a, b in mdscan.code_spans(line):
+            for a, b in mdscan.hidden_spans(line, carry):
                 mask[offset + a:offset + b] = b"\x01" * (b - a)
             if not line.strip():
                 in_html = False
@@ -197,7 +196,7 @@ def _mask(text: str) -> tuple[bytearray, list[bool]]:
                 in_html = True
         html_lines.append(in_html and not hidden)
         offset = end + 1
-    for pattern in (COMMENT_RE, RAW_ELEMENT_RE, TAG_RE, AUTOLINK_RE, LINK_DEST_RE):
+    for pattern in (RAW_ELEMENT_RE, TAG_RE, AUTOLINK_RE, LINK_DEST_RE):
         for m in pattern.finditer(text):
             if mask[m.start()]:
                 continue
