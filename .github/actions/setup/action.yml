@@ -9,6 +9,12 @@
 # Python packages come from requirements.txt (pandoc via pypandoc_binary, typst, epubcheck);
 # Node packages from package-lock.json (KaTeX, Slidev, Playwright). Java, needed by epubcheck,
 # is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
+#
+# Caches (pip, Playwright's Chromium, fetched fonts) are restored in every run but saved only
+# outside pull-request events. A pull request's runs restore what its own earlier runs saved,
+# and those ran the pull request's code: a Chromium binary or a package planted there would be
+# used by its later runs. Never saved there, a pull request only restores what trusted runs
+# saved on the default branch. (npm's cache is safe: npm ci checks package-lock integrity.)
 name: tbook setup
 description: Python, Node, mdBook, fonts and (optionally) Chromium for building trureturing books.
 
@@ -37,12 +43,24 @@ runs:
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
-        cache: pip
-        cache-dependency-path: requirements.txt
+
+    - name: Restore the pip cache
+      id: pip-cache
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ hashFiles('requirements.txt') }}
 
     - name: Install Python packages
       shell: bash
       run: python -m pip install -r requirements.txt
+
+    - name: Save the pip cache
+      if: steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/pip
+        key: ${{ steps.pip-cache.outputs.cache-primary-key }}
 
     - name: Set up Node
       uses: actions/setup-node@v5
@@ -58,9 +76,10 @@ runs:
         PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       run: npm ci --no-audit --no-fund
 
-    - name: Cache Playwright browsers
+    - name: Restore Playwright browsers
+      id: browsers-cache
       if: inputs.browsers == 'true'
-      uses: actions/cache@v5
+      uses: actions/cache/restore@v5
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
@@ -69,6 +88,13 @@ runs:
       if: inputs.browsers == 'true'
       shell: bash
       run: npx playwright install --with-deps chromium
+
+    - name: Save Playwright browsers
+      if: inputs.browsers == 'true' && steps.browsers-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.browsers-cache.outputs.cache-primary-key }}
 
     - name: Install mdBook
       if: inputs.mdbook == 'true'
@@ -85,9 +111,10 @@ runs:
           fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core
         fc-cache -f >/dev/null
 
-    - name: Cache fetched fonts
+    - name: Restore fetched fonts
+      id: fonts-cache
       if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != ''
-      uses: actions/cache@v5
+      uses: actions/cache/restore@v5
       with:
         path: .cache/fonts
         key: fonts-${{ hashFiles('tools/fetch-fonts.sh', 'theme/typst/fonts.sha256') }}
@@ -98,6 +125,13 @@ runs:
       run: |
         # The build falls back to system fonts, so a failed download is a warning, not an error.
         bash tools/fetch-fonts.sh || echo "::warning title=Fonts::tools/fetch-fonts.sh failed; PDFs fall back to system fonts"
+
+    - name: Save fetched fonts
+      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && steps.fonts-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/save@v5
+      with:
+        path: .cache/fonts
+        key: ${{ steps.fonts-cache.outputs.cache-primary-key }}
 
     - name: Toolchain versions
       shell: bash

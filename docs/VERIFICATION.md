@@ -47,6 +47,7 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 - 工作流只在可信的 ref 上恢复和保存 `.cache/trureturing`：`ci.yml` 在默认分支的 push（及手动运行）与 tag 上（包括 tag 工作流通过 `workflow_call` 调用时），`pages.yml` 与 `trureturing-bump.yml` 在默认分支上（定时运行总在默认分支上），`release.yml` 在 tag 上。PR 与其他分支的运行不使用这份缓存。
 - `tbook` 自身也做纵深防御：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，不从 `.cache/trureturing` 读取状态片和分支结论（仍会写入），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次都问 compare API（用 `GITHUB_TOKEN`）。所以 PR 的检查需要网络；`--offline` 下这些项目只是警告。
 - 本地运行时，缓存是开发者自己的，照常读取。
+- 工具链缓存（`.github/actions/setup` 中的 pip 缓存、Playwright 的 Chromium、`.cache/fonts`）同理：每次运行都恢复，但只在 PR 以外的事件中保存（`actions/cache/restore` + `actions/cache/save`，不用会在 PR 中保存的 `actions/cache` 与 setup-python 自带缓存）。PR 的作用域里从不写入，它只能恢复可信运行在默认分支上保存的内容，无法给自己后来的运行植入二进制或包。npm 缓存由 `npm ci` 按 `package-lock.json` 的完整性校验，不受影响。
 
 ## 3. 深度验证（`lean-verify` 工作流）
 

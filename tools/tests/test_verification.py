@@ -715,15 +715,17 @@ def plant_cache(commit: str, branch: str = "dev") -> None:
     write(paths.CACHE / "trureturing" / commit / lean.ANCESTRY_FILE, json.dumps({f"{TRU}@{branch}": "planted"}))
 
 
-def gha_if(expr: str, *, event: str, ref: str, default_branch: str | None = "main", **outputs: str) -> bool:
+def gha_if(expr: str, *, event: str, ref: str, default_branch: str | None = "main",
+           context: dict[str, str] | None = None, **outputs: str) -> bool:
     """Evaluate a workflow step's ``if:`` written with the subset of GitHub's expression syntax used by the
-    cache steps: ``==``, ``!=``, ``&&``, ``||``, parentheses, ``format``, ``startsWith``."""
+    cache steps: ``==``, ``!=``, ``!``, ``&&``, ``||``, parentheses, ``format``, ``startsWith``. ``context``
+    gives further names (``inputs.browsers``, ``steps.<id>.outputs.cache-hit``…)."""
     py = expr.strip().removeprefix("${{").removesuffix("}}")
     py = re.sub(r"format\(('[^']*'),\s*([\w.]+)\)", r"\1.format(\2)", py)
     py = re.sub(r"startsWith\(([\w.]+),\s*('[^']*')\)", r"\1.startswith(\2)", py)
-    py = py.replace("&&", " and ").replace("||", " or ")
+    py = re.sub(r"!(?!=)", " not ", py.replace("&&", " and ").replace("||", " or "))
     values = {"github.event.repository.default_branch": default_branch or "", "github.event_name": event,
-              "github.ref": ref, **{f"steps.target.outputs.{k}": v for k, v in outputs.items()}}
+              "github.ref": ref, **{f"steps.target.outputs.{k}": v for k, v in outputs.items()}, **(context or {})}
     for name in sorted(values, key=len, reverse=True):
         py = py.replace(name, repr(values[name]))
     bare = re.sub(r"'[^']*'", "''", py).replace(".format(", "(").replace(".startswith(", "(")
@@ -864,6 +866,40 @@ class PullRequestCacheTests(unittest.TestCase):
                 if ctx["event"] in events:
                     self.assertFalse(gha_if(cond, **ctx, **out), f"{name}: {ctx}")
         self.assertEqual(trureturing_cache_steps(self.WORKFLOWS.parent / "actions" / "setup" / "action.yml"), [])
+
+    def test_toolchain_caches_are_not_saved_by_pull_requests(self):
+        """The same holds for the toolchain caches of the setup action (pip, Playwright's Chromium, fonts): a
+        pull request's runs restore them but never save them, so they only restore what trusted runs saved."""
+        steps = []
+        text = (self.WORKFLOWS.parent / "actions" / "setup" / "action.yml").read_text(encoding="utf-8")
+        for chunk in re.split(r"\n(?=    - name:)", text.split("\n  steps:\n", 1)[1]):
+            step = {k: m.group(1).strip() for k in ("uses", "id", "if")
+                    if (m := re.search(rf"^      {k}:\s*(.*)$", chunk, re.M))}
+            step["with"] = {k: m.group(1).strip() for k in ("path", "key", "cache")
+                            if (m := re.search(rf"^        {k}:\s*(.*)$", chunk, re.M))}
+            steps.append(step)
+        uses = [step.get("uses", "") for step in steps]
+        self.assertFalse([u for u in uses if re.fullmatch(r"actions/cache@v\d+", u)],
+                         "actions/cache saves in its post step, also in pull requests: use restore + save")
+        python = next(step for step in steps if step.get("uses", "").startswith("actions/setup-python@"))
+        self.assertNotIn("cache", python.get("with", {}), "setup-python's own cache saves in pull requests too")
+        restores = {step["with"]["path"]: step for step in steps if step.get("uses", "").startswith("actions/cache/restore@")}
+        saves = {step["with"]["path"]: step for step in steps if step.get("uses", "").startswith("actions/cache/save@")}
+        self.assertEqual(set(restores), {"~/.cache/pip", "~/.cache/ms-playwright", ".cache/fonts"})
+        self.assertEqual(set(saves), set(restores))
+        for path, save in saves.items():
+            restore = restores[path]
+            self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
+            cond = re.sub(r"hashFiles\([^)]*\)", "'h'", save.get("if", ""))
+            self.assertIn("github.event_name", cond, path)
+            context = {"inputs.browsers": "true", "inputs.fonts": "true",
+                       f"steps.{restore['id']}.outputs.cache-hit": ""}
+            for event in ("push", "schedule", "workflow_dispatch"):
+                self.assertTrue(gha_if(cond, event=event, ref="refs/heads/main", context=context), f"{path}: {event}")
+            for event in ("pull_request", "pull_request_target", "pull_request_review"):
+                self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context), f"{path}: {event}")
+            hit = {**context, f"steps.{restore['id']}.outputs.cache-hit": "true"}
+            self.assertFalse(gha_if(cond, event="push", ref="refs/heads/main", context=hit), f"{path}: already cached")
 
 
 # --------------------------------------------------------------------------- re-review 1: a committed .cache symlink
