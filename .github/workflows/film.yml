@@ -2,8 +2,11 @@ name: film
 # Build one book's film from source (theme/film/film.sh) and publish the videos as a GitHub Release.
 # Trigger: push a tag film-<book slug>-<NNN>-v<k> equal to the film's film.json "release_tag"
 # (e.g. film-example-monograph-001-v1), or run manually with the book and the film.
-# The book embeds https://github.com/<repo>/releases/download/<release_tag>/<asset>, so the tag and the
-# asset names (film.json "outputs") must not change after publishing; bump the version for a new cut.
+# The book embeds https://github.com/<repo>/releases/download/<published_tag>/<asset> once film.json
+# "published_tag" names the release: after this workflow has published it, set "published_tag" to the tag
+# and commit (until then the book shows the poster and "not released yet"; the job summary says so).
+# The tag and the asset names (film.json "outputs") must not change after publishing; bump the version
+# (release_tag) for a new cut.
 on:
   push:
     tags: ['film-*']
@@ -133,3 +136,22 @@ jobs:
           else
             gh release create "$TAG" --target "$GITHUB_SHA" --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" "${FILES[@]}"
           fi
+
+      - name: Remind to record the release in film.json
+        env:
+          TAG: ${{ steps.film.outputs.tag }}
+          DIR: ${{ steps.film.outputs.dir }}
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("published_tag") or "")' "$DIR/film.json")"
+          if [ "$published" = "$TAG" ]; then
+            msg="Release $TAG is published, and $DIR/film.json already has \"published_tag\": \"$TAG\"."
+          else
+            msg="Release $TAG is published. Set \"published_tag\": \"$TAG\" in $DIR/film.json and commit, so the book embeds the player (until then it shows the poster and 'not released yet')."
+          fi
+          echo "::notice title=film::$msg"
+          {
+            echo "### Next step"
+            echo
+            echo "$msg"
+          } >> "$GITHUB_STEP_SUMMARY"
