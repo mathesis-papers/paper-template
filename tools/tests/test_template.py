@@ -96,6 +96,7 @@ def migrate(root: Path) -> list[str]:
     marker = root / "books" / "MIGRATED-0.2.0.txt"
     if marker.exists():
         return ["already migrated"]
+    marker.parent.mkdir(parents=True, exist_ok=True)  # a books repository may have no book yet
     marker.write_text("0.2.0\\n", encoding="utf-8")
     return ["wrote books/MIGRATED-0.2.0.txt"]
 '''

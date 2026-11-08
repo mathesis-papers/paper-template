@@ -676,7 +676,7 @@
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
-      "sha256": "1309bb3b6102e15f63ad330a5e608edf9ea45b9bc9f6b41ec465eb584f56d371",
+      "sha256": "eff18b6b07d7790010fbb3ea28a7d79220a98b4e35a3859f4be8696e6880e65d",
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
