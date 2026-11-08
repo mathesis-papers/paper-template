@@ -34,6 +34,10 @@ MEDIA = ("viz", "film", "slides")
 NUMBERED = FORMAL + DEFINITION + OPEN + INFORMAL
 ENV_KINDS = NUMBERED + PROOF
 ALL_KINDS = ENV_KINDS + MEDIA
+# mdscan.stray_lean_links: a Lean link whose declaration nothing checks.
+STRAY_LEAN = ("this lean: link is not read by the book tools (it is written across lines, or sits in raw HTML), "
+              "so its declaration is not checked and the builds drop its destination: write it on one line, "
+              "[text](lean:GID) or [label]: lean:GID")
 
 
 def kind_of(div: mdscan.Div) -> str | None:
@@ -174,10 +178,12 @@ class EditionModel:
         (default: the text itself).
 
         The result is still Markdown (escapes as written): for tools/filters/tr-env.lua and the
-        ledger's table cells. An unknown id stays as written (``./tbook check`` reports it).
+        ledger's table cells. An unknown id stays as written (``./tbook check`` reports it). A
+        ``lean:`` link becomes its text: titles never link to Lean (``./tbook check`` reports it).
         """
-        if not env.title or "[@" not in env.title:
-            return env.title
+        title = mdscan.strip_lean_links(env.title) if env.title and "lean:" in env.title else env.title
+        if not title or "[@" not in title:
+            return title
 
         def repl(m) -> str:
             target = self.envs.get(m.group("id"))
@@ -186,7 +192,7 @@ class EditionModel:
             text = target.ref_text(self.lang)
             return ref(target, text) if ref else text
 
-        return mdscan.sub_outside_code(mdscan.REF_RE, repl, env.title)
+        return mdscan.sub_outside_code(mdscan.REF_RE, repl, title)
 
 
 def load_edition(edition: config.Edition) -> EditionModel:
@@ -242,12 +248,17 @@ def load_edition(edition: config.Edition) -> EditionModel:
             else:
                 doc.envs.append(env)
         # As the builds read them: not in code, not in HTML comments; Lean links inline
-        # (``(lean:…)``, ``(<lean:…>)``) or in reference definitions (``[x]: lean:…``).
+        # (``(lean:…)``, ``(<lean:…>)``, ``<lean:…>``) or in reference definitions (``[x]: lean:…``).
         for lineno, line in mdscan.iter_text_lines(blocks):
             for m in mdscan.find_outside_code(mdscan.REF_RE, line):
                 doc.refs.append((lineno, m.group("id")))
             for gid in mdscan.lean_link_gids(line):
                 doc.lean_links.append((lineno, gid))
+        # A Lean link the line scanner cannot read cites a declaration nothing checks; the builds drop it.
+        for node in mdscan.walk(blocks):
+            if isinstance(node, mdscan.Text):
+                for stray in mdscan.stray_lean_links(node.lines):
+                    issues.append(Issue("error", path, node.start + stray.line, STRAY_LEAN))
         model.chapters.append(doc)
     for ch in model.chapters:
         for env in ch.envs + ch.media:

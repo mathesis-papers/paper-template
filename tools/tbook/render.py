@@ -5,9 +5,12 @@ chapter's Markdown for one target:
 
 * ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`); in an
   environment title → ``定理2.1`` (a ``[定理2.1](#id)`` link for Pandoc, :func:`env_title`);
-* ``[text](lean:GID)`` (also ``<lean:GID>`` and a reference definition ``[x]: lean:GID``) → a
-  permalink to the declaration's Lean source at the pinned commit (just the text when the lock
-  does not resolve the GID; a reference definition gets ``#``);
+* ``[text](lean:GID)`` (also ``(<lean:GID>)``, any title, a reference definition ``[x]: lean:GID``
+  in or out of a block quote or list item, and the autolink ``<lean:GID>``, whose text is the GID)
+  → a permalink to the declaration's Lean source at the pinned commit (just the text when the lock
+  does not resolve the GID; a reference definition gets ``#``). A ``lean:`` link the line scanner
+  cannot read (written across lines, raw HTML) loses its destination the same way
+  (:func:`without_stray_lean`): no target ever writes a ``lean:`` URL;
 * links/images (inline, ``<…>`` destinations, reference definitions) that point into the
   book directory outside the edition (``../assets/x.svg``) → percent-encoded paths into the
   staged copy ``_book/…`` (files collected in ``ctx.book_files``); ``<…>`` destinations are
@@ -39,10 +42,11 @@ from .model import FORMAL, MEDIA, ChapterDoc, EditionModel, Env
 # Inline links/images and link reference definitions, as every reader of links sees them (tbook.mdscan).
 LINK_RE = mdscan.LINK_RE
 REFDEF_RE = mdscan.REFDEF_RE
-# ``[label]:`` followed by text on the same line. Unless REFDEF_RE accepts it, CommonMark (mdBook) reads
-# it as a paragraph, but Pandoc's Markdown takes a URL of several words (``[1]: Knuth, TAOCP.`` or
-# ``[注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is escaped so every target shows it.
-_REFDEF_LIKE_RE = re.compile(r"^(?P<indent> {0,3})\[(?!\^)(?:[^\]\\]|\\.)+\]:[ \t]*\S")
+# ``[label]:`` followed by text on the same line, at the left margin or after block-quote markers, list
+# markers or a list item's indentation. Unless REFDEF_RE accepts it, CommonMark (mdBook) reads it as a
+# paragraph, but Pandoc's Markdown takes a URL of several words (``[1]: Knuth, TAOCP.`` or
+# ``- [注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is escaped so every target shows it.
+_REFDEF_LIKE_RE = re.compile(r"^(?P<indent>" + mdscan.CONTAINER + r")\[(?!\^)" + mdscan.LINK_TEXT + r"\]:[ \t]*\S")
 EXTERNAL_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|#|/)", re.I)
 # Characters a plain (non ``<…>``) destination cannot hold, and those a decoded file path
 # must also escape to stay one path.
@@ -289,12 +293,24 @@ def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
         return _quote(_PATH_UNSAFE_RE, new) + frag
 
     def repl(m: re.Match) -> str:
+        text = inline(m.group("text"))  # an image inside a link
         new = new_url(m.group("url"))
         if new is None:
-            return m.group("text")
-        if new == m.group("url"):
+            return text
+        title = m.group("title") or ""
+        if new == m.group("url") and text == m.group("text") and not title.lstrip().startswith("("):
             return m.group(0)
-        return f"{m.group('bang')}[{m.group('text')}]({new}{m.group('title') or ''})"
+        # "(…)" titles are written "…": Pandoc's Markdown would read them as part of the destination.
+        return f"{m.group('bang')}[{text}]({new}{mdscan.quoted_title(title) if title else ''})"
+
+    def autolink(m: re.Match) -> str:
+        # ``<lean:GID>`` shows the GID; never the ``lean:`` scheme, which only mdBook would link.
+        new = new_url("lean:" + m.group("gid"))
+        text = mdscan.escape_markdown(m.group("gid"))
+        return f"[{text}]({new})" if new else text
+
+    def inline(text: str) -> str:
+        return mdscan.sub_outside_code(mdscan.LEAN_AUTOLINK_RE, autolink, mdscan.sub_outside_code(LINK_RE, repl, text))
 
     refdef = mdscan.refdef(line)
     if refdef:
@@ -305,7 +321,19 @@ def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
     like = _REFDEF_LIKE_RE.match(line) if ctx.target == "pandoc" else None
     if like and not mdscan.REF_RE.match(line, like.end("indent")):  # ``[@id]:`` becomes a link anyway
         line = f"{like.group('indent')}\\{line[like.end('indent'):]}"
-    return mdscan.sub_outside_code(LINK_RE, repl, line)
+    return inline(line)
+
+
+def without_stray_lean(lines: list[str], start: int, doc: ChapterDoc, ctx: RenderContext) -> list[str]:
+    """``lines`` (consecutive text lines from line ``start``, already rewritten) with every ``lean:``
+    destination that the line scanner cannot read (a link written across lines, raw HTML) neutralised
+    by :func:`tbook.mdscan.without_stray_lean`: no target ever writes a ``lean:`` URL. ``./tbook check``
+    reports each one (:mod:`tbook.model`); the build warns."""
+    out, strays = mdscan.without_stray_lean(lines)
+    for s in strays:
+        ctx.issues.append(f"{doc.path}:{start + s.line}: a lean: link the tools cannot read (written across "
+                          f"lines, or in raw HTML) loses its lean: destination: {lines[s.line].strip()}")
+    return out
 
 
 def _rewrite_refs(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
@@ -408,7 +436,7 @@ def chapter_markdown(doc: ChapterDoc, ctx: RenderContext) -> str:
     envs_by_div = {id(e.div): e for e in doc.envs + doc.media if e.div is not None}
 
     def text_fn(node: mdscan.Text) -> str:
-        return "\n".join(mdscan.map_text(node, lambda line: transform_line(line, doc, ctx)))
+        return "\n".join(without_stray_lean(mdscan.map_text(node, lambda line: transform_line(line, doc, ctx)), node.start, doc, ctx))
 
     def div_fn(div: mdscan.Div, inner: str) -> str:
         env = envs_by_div.get(id(div))
