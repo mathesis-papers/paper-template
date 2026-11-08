@@ -43,11 +43,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
@@ -86,7 +86,7 @@ jobs:
           python theme/film/release.py resolve "$TAG" | tee -a "$GITHUB_OUTPUT"
 
       - name: Cache the Kokoro model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/film/models
           key: kokoro-onnx-model-files-v1.0
@@ -115,7 +115,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.film.outputs.tag }}
           path: ${{ steps.files.outputs.paths }}

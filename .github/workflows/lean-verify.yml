@@ -55,7 +55,7 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Cache the Lake workspace
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/lean-verify/.lake
           key: lean-verify-${{ steps.project.outputs.commit }}-${{ hashFiles('build/lean-verify/lean-toolchain') }}
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload the log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lean-verify-log
           path: |

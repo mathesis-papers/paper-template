@@ -47,7 +47,7 @@ jobs:
           mdbook: 'true'
 
       - name: Cache trureturing frozen state
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/trureturing
           key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
@@ -133,7 +133,7 @@ jobs:
         run: ./tbook build html pdf epub
 
       - name: Upload downloads (PDF, EPUB)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: books-dist
           path: build/dist
@@ -141,7 +141,7 @@ jobs:
           retention-days: 14
 
       - name: Upload HTML
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: books-html
           path: build/html
@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload slide PDFs
         if: steps.decks.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: slides-pdf
           path: build/slides/*/*.pdf

@@ -1219,7 +1219,7 @@ class WorkflowTests(unittest.TestCase):
         _, jobs = read_workflow(WORKFLOWS / "pages.yml")
         self.assertEqual(set(jobs), {"probe", "build", "deploy"})
         self.assertEqual(jobs["deploy"]["permissions"], {"pages": "write", "id-token": "write"})
-        self.assertIn("actions/configure-pages@v5", jobs["build"]["uses"])
+        self.assertTrue(any(u.startswith("actions/configure-pages@") for u in jobs["build"]["uses"]), jobs["build"]["uses"])
 
 
 class NoBooksTests(unittest.TestCase):

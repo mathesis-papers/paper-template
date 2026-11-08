@@ -12,39 +12,39 @@
       "mode": "100644"
     },
     ".github/actions/setup/action.yml": {
-      "sha256": "d1463b4edbfee44ab5439b214da6d053fdb7075a9d2aa10b12b637fee2a8c328",
+      "sha256": "6ed0bf1d0ce943557b1dce3c3b02932167ca82c2323de2944d02f9f4d0b47f1f",
       "mode": "100644"
     },
     ".github/workflows/ci.yml": {
-      "sha256": "0658d0df4ddc42b2a3f2909a1021b74b71e30b247fc3a1e15ed64076e351c700",
+      "sha256": "6bf40de62d99bd06b4e12854b574384aac38c68ec5d9142ff80c18210cbcc7d1",
       "mode": "100644"
     },
     ".github/workflows/film.yml": {
-      "sha256": "4a0a49eca927114feff3cc5c233385b4f0897f95e5a834cad6e0f158fcb09e75",
+      "sha256": "e6e63fb9a98e2863437d9a500d6d4e4a5c97462e43d52a877d4789c05c1b38e4",
       "mode": "100644"
     },
     ".github/workflows/lean-verify.yml": {
-      "sha256": "5e03258ef6449e612e33d15a731c065ea0c48f4bc69176d076c4ca6716ae5ae5",
+      "sha256": "38b8f1aa7803e970cdb8fd4fedfae273d9f4e4ca33ed90a53e0b6826f18f61ca",
       "mode": "100644"
     },
     ".github/workflows/pages.yml": {
-      "sha256": "0ea0f33665c18059e5dca94e4994e671bf9fc8b4396873030c51171422973af4",
+      "sha256": "01df33ff64fd05c6ce73a3f7c361e3e6f2d70f3773fa3f0800169f56ad0f9d93",
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "a64ef0c7a2407e081090246f951d57005f8fe596cf89cf7a34e533d0cf194737",
+      "sha256": "251038652b8060e4da947d4b33279e3ceb95caac47c96ad033ceff12e3985586",
       "mode": "100644"
     },
     ".github/workflows/template-release.yml": {
-      "sha256": "ac0b26e7862e9fe398fb797153740443013633e33aceeb8710168e3832645157",
+      "sha256": "89e516d1d1b2d6bee0d8bdad58b12e2adec4f0f617b929148dfc1f5073d075a0",
       "mode": "100644"
     },
     ".github/workflows/template-sync.yml": {
-      "sha256": "636e56bd4507424f1c219194b75967ade099ea62954a2965969553bcf8f31169",
+      "sha256": "6d449872ec7e65618cadf52c6f98cf03734b286c40c60da2f3b2dc5af39c0dde",
       "mode": "100644"
     },
     ".github/workflows/trureturing-bump.yml": {
-      "sha256": "e8952bb794162ad219d996d40d5422fea026701d73322f09e05f10e7f59d8651",
+      "sha256": "c1737a5312ff4fa92a88ecb0179906f1e17a8faebc11ac26d383e76330926872",
       "mode": "100644"
     },
     ".gitignore": {
@@ -676,7 +676,7 @@
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
-      "sha256": "05839cc78a1ce0ad3e7ec2421c56a197f40abe111438954c64ae48da6cd82479",
+      "sha256": "f7fa3eb9679193aa4625f63b2128841045c625848ca5997752557390026abce5",
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
