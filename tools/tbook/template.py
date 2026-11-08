@@ -779,11 +779,12 @@ def _safe_relpath(p: str) -> bool:
 def never_installed(root: Path, base: Manifest | None) -> set[str]:
     """Files the base manifest lists that are absent here and that the repository never had.
 
-    "Never had" means: not in the index and in no commit of HEAD's history (renames counted as
-    deletions). A repository that adopts the template by copying tbook, tools/, template.toml and
-    template-manifest.json has none of the other managed files; they must be installed, not kept
-    "deleted locally". Empty when this cannot be known: no base, not the root of a git repository,
-    or a shallow clone (whose history may not show a deletion).
+    "Never had" means: not in the index and in no commit of HEAD's history, branches merged with a
+    merge commit included (renames counted as deletions). A squash merge leaves no such commit: a file
+    added and deleted in a squashed branch was never here. A repository that adopts the template by
+    copying tbook, tools/, template.toml and template-manifest.json has none of the other managed
+    files; they must be installed, not kept "deleted locally". Empty when this cannot be known: no
+    base, not the root of a git repository, or a shallow clone (whose history may not show a deletion).
     """
     if base is None:
         return set()
@@ -800,7 +801,12 @@ def never_installed(root: Path, base: Manifest | None) -> set[str]:
         specs = [f":(literal){p}" for p in missing[i:i + 500]]
         queries = [("ls-files", "-z", "--cached", "--", *specs)]
         if has_head:
-            queries.append(("log", "--no-renames", "--format=", "--name-only", "-z", "HEAD", "--", *specs))
+            # --full-history: every commit that touches a path, also on merged side branches (the default
+            # simplification skips a branch whose merge is TREESAME to its first parent, e.g. a file added
+            # and deleted there); -m: merge commits too, against each parent (a merge resolution adding or
+            # dropping a file).
+            queries.append(("log", "--full-history", "-m", "--no-renames", "--format=", "--name-only", "-z",
+                            "HEAD", "--", *specs))
         for query in queries:
             r = _git(root, *query)
             if r.returncode != 0:

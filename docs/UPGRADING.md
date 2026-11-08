@@ -32,6 +32,8 @@
 
 “本地删除”指书库曾经有过这个文件：清单列出、但本地不存在且 git 历史中从未出现过的文件（例如接入模板时复制来的清单所列的文件，见第 5 节）按“上游新增”安装。浅克隆或不是 git 仓库时无法判断，按清单处理。
 
+git 历史指 `HEAD` 可达的全部提交，包括以合并提交（merge commit）并入的分支：在升级 PR 的分支上删掉不需要的新托管文件，再以合并提交合入，这个文件此后保持删除。Squash 合并不保留分支上的提交，这样删掉的文件从未进入 `main` 的历史，下次升级会重新安装它（`template-sync` 也会为此再开 PR）。要让它保持删除，用合并提交合入升级 PR，或者先原样合入，再在 `main` 上单独提交删除。
+
 有冲突时命令以退出码 3 结束（`--dry-run` 预览时，若真正执行会冲突，同样返回 3）。逐个合并后删除 `.template-new` 文件。`--force` 直接采用上游（会丢弃本地改动，慎用）。`--source` 接受 git URL、本地 git 仓库或普通目录（此时不能用 `--to`）。`--to` 接受版本号、tag、分支或提交 SHA；来源是 URL 时 SHA 须写完整的 40 位，本地 git 仓库也接受缩写。摘要语言默认是 `site.toml` 中 `languages` 的第一个，`TBOOK_LANG=zh|en` 可指定。
 
 升级完成后会运行 `tools/migrations/` 中跨越版本的迁移脚本（取自新版本模板，各在一个新的 Python 进程中运行，见 `tools/migrations/README.md`），并把摘要写到 `build/template-update.md`。然后：
@@ -43,7 +45,7 @@
 
 ## 3. 自动升级 PR
 
-`.github/workflows/template-sync.yml` 每周检查模板的新版本，执行升级并开 PR（分支 `template-update/<version>`）；有冲突时 PR 标题以 `[conflicts]` 开头，`.template-new` 文件一并提交供合并。没有更新的发布时（见第 2 节，不会倒退）什么也不改，不开 PR。模板仓库至少发布过一个版本（tag `vX.Y.Z`）后它才会工作。
+`.github/workflows/template-sync.yml` 每周检查模板的新版本，执行升级并开 PR（分支 `template-update/<version>`）；有冲突时 PR 标题以 `[conflicts]` 开头，`.template-new` 文件一并提交供合并。没有更新的发布时（见第 2 节，不会倒退）什么也不改，不开 PR。在 PR 分支上删掉了不需要的新托管文件时，用合并提交合入，不要 squash（见第 2 节），否则下一次运行会重新安装它并再开 PR。模板仓库至少发布过一个版本（tag `vX.Y.Z`）后它才会工作。
 
 令牌：
 

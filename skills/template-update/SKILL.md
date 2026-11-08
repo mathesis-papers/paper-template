@@ -28,7 +28,7 @@ description: 升级或完善书库模板本身时使用：把下游书库更新�
    - 版本间的迁移脚本 `tools/migrations/v<X.Y.Z>.py` 会自动运行（取自新版本模板，各在新的 Python 进程中运行）；按其输出检查书的内容（例如语法变更）。
 5. 读 `docs/CHANGELOG.md` 中跨越的各版本说明，处理“需要手动操作”的条目。
 6. 重新安装依赖（`pip install -r requirements.txt`、`npm ci`），运行 `./tbook doctor`、`./tbook check`、`./tbook build all`。
-7. 提交（摘要见 `build/template-update.md`，可直接作 PR 正文），开 PR，CI 通过后合并。
+7. 提交（摘要见 `build/template-update.md`，可直接作 PR 正文），开 PR，CI 通过后合并。若在 PR 中删掉了不需要的新托管文件，用合并提交（merge commit）合并，不要 squash：squash 后这个文件从未进入 `main` 的历史，下次升级会重新安装它（`docs/UPGRADING.md` 第 2 节）。
 
 `template-sync` 工作流每周自动执行 1–4 步并开 PR；合并前仍需完成 4–6 步中的人工部分（冲突、迁移检查、构建核对）。
 
