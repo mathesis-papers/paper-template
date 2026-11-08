@@ -12,10 +12,12 @@
 //     deck.code and deck.version identical in every language;
 //   - every language page for page: same slide count, and on each slide the same layout, bare, chapter,
 //     hide/disabled flags, presence of a section, and the same sequence of cited Lean GIDs;
-//   - every <LeanBadge gid> / <TheoremCard gid> (in any spelling Vue resolves, e.g. <lean-badge>) is a
-//     GID present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems
-//     get the green LEAN ✓); status="open" cites no GID;
-//   - no root-relative or file: links (the site is served under /<repo>/), no index.html in the deck;
+//   - every <LeanBadge gid> / <TheoremCard gid> (in any spelling Vue resolves, e.g. <lean-badge>) outside
+//     fenced code (stripCode in slides-lib.mjs: the CommonMark rules Slidev's Markdown follows) is a GID
+//     present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems get the
+//     green LEAN ✓); status="open" cites no GID;
+//   - no root-relative or file: links outside fenced code (the site is served under /<repo>/), no
+//     index.html in the deck;
 //   - no class name or attribute on an HTML element that UnoCSS (bundled with Slidev) would turn into
 //     a utility that overrides the theme.
 // Exit status 1 when any check fails; 0 (nothing to check) when no book has a deck.
@@ -25,7 +27,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DECK_RE, GID_RE, PRIMARY_FILE, ROOT, argParser, bcp47, booksWithDecks, deckLangs, deckNames, editionFile,
-  loadLock, primaryLang, readEdition, themeRef, toPosix,
+  loadLock, primaryLang, readEdition, stripCode, themeRef, toPosix,
 } from './slides-lib.mjs';
 
 const cli = argParser(process.argv.slice(2));
@@ -47,9 +49,7 @@ function attrsOf(text) {
   return out;
 }
 
-const stripCode = (md) => md.replace(/^(\s*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[^\n]*$/gm, '');
-
-// Cited GIDs of one slide, in order: [{ tag, gid, attrs }]; problems go to `bad`.
+// Cited GIDs of one slide (outside fenced code: stripCode), in order: [{ tag, gid, attrs }]; problems go to `bad`.
 function citations(content, bad) {
   const out = [];
   for (const m of stripCode(content).matchAll(TAG_RE)) {

@@ -347,6 +347,225 @@ export async function readEdition(book, deck, lang) {
   };
 }
 
+// --------------------------------------------------------------------------- fenced code (as Slidev's Markdown)
+// Slidev renders a slide with markdown-it (CommonMark, plus footnotes): a tag inside fenced code is shown as
+// text, every other tag is rendered. codeLines() finds the fenced code line by line by the CommonMark block
+// rules, as markdown-it applies them; it is the same algorithm as code_lines() in tools/tbook/slides.py (keep
+// them in step: test_slides compares both with markdown-it). Not modelled, all rare in slides: $$ math blocks
+// (``` there is not a fence), link reference definitions over several lines, and markdown-it reading a list
+// marker 4 columns right of its list as text.
+
+const NEWLINE_RE = /\r\n?|\n/; // line ends as markdown-it reads them
+const QUOTE_RE = /^ *>/; // a block quote goes on at a > after any indentation (markdown-it)
+const FENCE_OPEN_RE = /^(?:`{3,}(?=[^`]*$)|~{3,})/; // a backtick fence's info string has no backtick
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,}) *$/;
+const HR_RE = /^(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$/;
+const SETEXT_RE = /^(?:=+|-+) *$/;
+const LIST_RE = /^(?:[-+*]|([0-9]{1,9})[.)])(?= |$)/;
+const ATX_RE = /^#{1,6}(?= |$)/;
+const SLOT_RE = /^::[ \t]*[\w.:-]+[ \t]*::[ \t]*$/; // Slidev's ::slot:: line
+const FOOTNOTE_RE = /^\[\^[^\] ]+\]:/; // a footnote (Slidev's markdown-it-footnote): its lines indent 4
+const REF_RE = new RegExp( // a link reference definition on one line
+  String.raw`^\[(?! *\])(?:[^\\\[\]]|\\.){1,999}\]: *(?:<(?:[^<>\\]|\\.)*>|[^ <][^ ]*)`
+  + String.raw`(?: +(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))? *$`);
+const BLOCK_TAGS = 'address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|'
+  + 'dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|'
+  + 'html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|'
+  + 'summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul';
+const OPEN_TAG = '<[A-Za-z][A-Za-z0-9-]*(?:\\s+[a-zA-Z_:][a-zA-Z0-9:._-]*'
+  + '(?:\\s*=\\s*(?:[^"\'=<>`\\x00-\\x20]+|\'[^\']*\'|"[^"]*"))?)*\\s*/?>';
+const CLOSE_TAG = '</[A-Za-z][A-Za-z0-9-]*\\s*>';
+// HTML blocks: [start, end (null: a blank line), may interrupt a paragraph]. ``` inside one is HTML, not code.
+const HTML_BLOCKS = [
+  [/^<(?:script|pre|style|textarea)(?=\s|>|$)/i, /<\/(?:script|pre|style|textarea)>/i, true],
+  [/^<!--/, /-->/, true],
+  [/^<\?/, /\?>/, true],
+  [/^<![A-Z]/, />/, true],
+  [/^<!\[CDATA\[/, /\]\]>/, true],
+  [new RegExp(`^</?(?:${BLOCK_TAGS})(?=\\s|/?>|$)`, 'i'), null, true],
+  [new RegExp(`^(?:${OPEN_TAG}|${CLOSE_TAG})\\s*$`), null, false],
+];
+
+// Tabs to spaces up to the next multiple of 4 columns (Python's str.expandtabs(4)).
+function expandTabs(line) {
+  let out = '';
+  let col = 0;
+  for (const ch of line) {
+    const n = ch === '\t' ? 4 - (col % 4) : 1;
+    out += ch === '\t' ? ' '.repeat(n) : ch;
+    col += n;
+  }
+  return out;
+}
+
+const blank = (s) => !/[^ ]/.test(s);
+const leadingSpaces = (s) => s.length - s.replace(/^ +/, '').length;
+
+const htmlBlock = (body) => (body[0] === '<' ? HTML_BLOCKS.find(([start]) => start.test(body)) : undefined);
+
+// Whether `body` starts a block that ends a paragraph (list items and footnotes aside).
+function startsBlock(body) {
+  const html = htmlBlock(body);
+  return FENCE_OPEN_RE.test(body) || body[0] === '>' || HR_RE.test(body) || ATX_RE.test(body) || SLOT_RE.test(body)
+    || Boolean(html && html[2]);
+}
+
+// A line indented 4 columns past the `keep` containers it continues is indented code, or text going on lazily
+// with an open paragraph. Whether a container it left ends that paragraph (and the line is code), as markdown-it
+// decides: a block quote lets it through as lazy text; a list item, or a container inside a quote it left, sees
+// it indented less than its content, so a block start ends the paragraph there.
+function lazyLineEnds(stack, keep, body) {
+  let quoted = false; // a block quote let the line through
+  for (let i = keep; i <= stack.length; i++) {
+    if (i < stack.length && stack[i] >= 0) continue; // a list item: the block inside it decides
+    if (i === stack.length && quoted) return false; // the paragraph takes what its quote let through
+    if (i > keep && (startsBlock(body) || (LIST_RE.test(body) && (quoted || i - keep > 1))
+                     || (i === stack.length && FOOTNOTE_RE.test(body)))) return true;
+    quoted = true;
+  }
+  return false;
+}
+
+// For each line of a slide's Markdown, whether it is part of a fenced code block (fences included).
+// CommonMark rules: a fence opens with at least three backticks or tildes indented at most 3 columns inside
+// its container (block quote, list item) and closes at a fence of the same character, at least as long and
+// with nothing after it, or when its container ends; it may interrupt a paragraph. A ``` line indented 4
+// columns (indented code or paragraph text) or inside an HTML block is not a fence.
+export function codeLines(text) {
+  const lines = text.split(NEWLINE_RE);
+  const mask = lines.map(() => false);
+  // open containers: -1 a block quote, otherwise a list item: the columns of its content after its container's
+  const stack = [];
+  let leaf = null; // null, 'p' (paragraph), 'c' (indented code), { char, len } (fence), { end } (HTML block)
+  let emptyItem = 0; // stack.length after a list item whose first line is blank, on the next line
+  lines.forEach((raw, n) => {
+    const line = expandTabs(raw);
+    let pos = 0;
+    let keep = 0; // containers this line continues
+    const fresh = emptyItem;
+    emptyItem = 0;
+    for (const col of stack) {
+      if (col < 0) {
+        const m = QUOTE_RE.exec(line.slice(pos));
+        if (!m) break;
+        pos += m[0].length + (line[pos + m[0].length] === ' ' ? 1 : 0);
+      } else if (!blank(line.slice(pos))) {
+        if (leadingSpaces(line.slice(pos)) < col) break;
+        pos += col;
+      }
+      keep += 1;
+    }
+    // a list item can begin with at most one blank line
+    if (fresh && keep >= fresh && blank(line.slice(pos))) keep = fresh - 1;
+    if (leaf && typeof leaf === 'object') {
+      if (keep === stack.length) {
+        const rest = line.slice(pos);
+        if ('char' in leaf) {
+          mask[n] = true;
+          const m = FENCE_CLOSE_RE.exec(rest);
+          if (m && m[1][0] === leaf.char && m[1].length >= leaf.len) leaf = null;
+          return;
+        }
+        if (leaf.end === null ? blank(rest) : leaf.end.test(rest)) leaf = null;
+        return;
+      }
+      leaf = null; // its container ended, so did the fence or HTML block
+    }
+    for (;;) { // the blocks this line starts
+      const rest = line.slice(pos);
+      const ind = leadingSpaces(rest);
+      const body = rest.slice(ind);
+      const inner = keep === stack.length;
+      if (!body) {
+        stack.length = keep;
+        leaf = null;
+        break;
+      }
+      if (ind >= 4) {
+        if (leaf !== 'p' || (!inner && lazyLineEnds(stack, keep, body))) {
+          stack.length = keep;
+          leaf = 'c';
+        }
+        break;
+      }
+      let m = FENCE_OPEN_RE.exec(body);
+      if (m) {
+        stack.length = keep;
+        leaf = { char: m[0][0], len: m[0].length };
+        mask[n] = true;
+        break;
+      }
+      if (body[0] === '>') {
+        stack.length = keep;
+        stack.push(-1);
+        keep = stack.length;
+        pos += ind + 1 + (body[1] === ' ' ? 1 : 0);
+        leaf = null;
+        continue;
+      }
+      if ((leaf === 'p' && inner && SETEXT_RE.test(body)) || HR_RE.test(body)) {
+        stack.length = keep;
+        leaf = null;
+        break;
+      }
+      m = LIST_RE.exec(body);
+      const after = m ? body.slice(m[0].length) : '';
+      const empty = blank(after);
+      if (m && !(leaf === 'p' && inner && (empty || (m[1] !== undefined && Number(m[1]) !== 1)))) {
+        stack.length = keep;
+        const gap = leadingSpaces(after);
+        stack.push(ind + m[0].length + (empty || gap > 4 ? 1 : gap));
+        keep = stack.length;
+        leaf = null;
+        if (empty) {
+          emptyItem = stack.length;
+          break;
+        }
+        pos += stack.at(-1);
+        continue;
+      }
+      m = FOOTNOTE_RE.exec(body); // ends a paragraph, but goes on with one in a quote the line left
+      if (m && (leaf !== 'p' || inner || stack.slice(keep).every((c) => c >= 0))) {
+        stack.length = keep;
+        stack.push(4);
+        keep = stack.length;
+        leaf = null;
+        pos += ind + m[0].length;
+        pos += leadingSpaces(line.slice(pos));
+        continue;
+      }
+      if (leaf !== 'p' && REF_RE.test(body)) {
+        stack.length = keep;
+        leaf = null;
+        break;
+      }
+      const html = htmlBlock(body);
+      if (html && (html[2] || leaf !== 'p')) {
+        stack.length = keep;
+        leaf = html[1] !== null && html[1].test(body) ? null : { end: html[1] };
+        break;
+      }
+      if (ATX_RE.test(body) || (ind === 0 && SLOT_RE.test(body))) {
+        stack.length = keep;
+        leaf = null;
+        break;
+      }
+      if (leaf !== 'p') { // a new paragraph; otherwise it continues (lazily, when containers ended)
+        stack.length = keep;
+        leaf = 'p';
+      }
+      break;
+    }
+  });
+  return mask;
+}
+
+// `text` with the lines of fenced code blocks emptied (codeLines).
+export function stripCode(text) {
+  const mask = codeLines(text);
+  return text.split(NEWLINE_RE).map((line, i) => (mask[i] ? '' : line)).join('\n');
+}
+
 // Publication paths, shared with tools/tbook/slides.py (keep in sync):
 //   site:  _site/<slug>/slides/<deck>/        the book's first language
 //          _site/<slug>/slides/<deck>/<lang>/ every other language

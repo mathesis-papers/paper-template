@@ -44,7 +44,7 @@ node tools/node/slides-check.mjs                                 # 同上（Node
 | `<Tex t="\beta(n)" />`、`<Tex display t="…" />` | HTML 块里的 KaTeX（HTML 块中 `$…$` 不会被处理）。 |
 | `<PageNo />` | 自带版式页面的“当前页 / 总页数”。 |
 
-GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除非写了 `kind="definition"`：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。组件写成 `<lean-badge>`、`<theorem-card>` 等 Vue 认可的其他写法时同样受检查。
+GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除非写了 `kind="definition"`：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。组件写成 `<lean-badge>`、`<theorem-card>` 等 Vue 认可的其他写法时同样受检查。代码块里的标签只作为代码显示，不受检查；代码块之外（包括两个代码块之间）的每个标签都受检查。代码块按 Slidev 所用 markdown-it 的 CommonMark 规则逐行识别：围栏缩进不超过 3 列，可在块引用、列表项与脚注中，随所在容器结束；HTML 块里的 ```` ``` ```` 不是围栏（`tools/tbook/slides.py` 的 `code_lines` 与 `tools/node/slides-lib.mjs` 的 `codeLines` 是同一算法）。
 
 ## 样式类（`styles/deck.css`）
 

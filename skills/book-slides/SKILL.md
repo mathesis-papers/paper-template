@@ -15,7 +15,7 @@ description: 为书做演示文稿时使用：按 chrono-company-slides 方案�
 
 ## 原则
 
-1. **定理卡只引用已验证的定理。** `<TheoremCard cite="thm-…" gid="…">` 的编号、GID 由 `./tbook check` 对照书核对；`<LeanBadge gid>` 与定理卡只有在锁文件把 GID 解析为 Lean `theorem` 时才是绿色 `LEAN ✓`，锁文件中没有的 GID 显示红色 `UNVERIFIED`。定义卡写 `kind="definition"`：可以引用 Lean 定义，显示青色中性的 `LEAN DEF`，不是“已验证”；不写 `kind="definition"` 却引用非定理，检查会报错。开放问题用 `status="open"`，不带 `gid`。`<lean-badge>`、`<theorem-card>` 等写法同样受检查。
+1. **定理卡只引用已验证的定理。** `<TheoremCard cite="thm-…" gid="…">` 的编号、GID 由 `./tbook check` 对照书核对；`<LeanBadge gid>` 与定理卡只有在锁文件把 GID 解析为 Lean `theorem` 时才是绿色 `LEAN ✓`，锁文件中没有的 GID 显示红色 `UNVERIFIED`。定义卡写 `kind="definition"`：可以引用 Lean 定义，显示青色中性的 `LEAN DEF`，不是“已验证”；不写 `kind="definition"` 却引用非定理，检查会报错。开放问题用 `status="open"`，不带 `gid`。`<lean-badge>`、`<theorem-card>` 等写法同样受检查。代码块里的标签只作为代码显示、不受检查；代码块之外（包括两个代码块之间）的每个标签都受检查，代码块的识别与 Slidev 的 Markdown 一致。
 2. **各语言逐页对应。** `slides.md` 是书的第一语言（`book.toml` 的 `editions` 第一项），其他语言各一个 `slides.<lang>.md`，页数相同，逐页的 `layout`、`bare`、`chapter`、`class` 与 `section` 是否存在一致；英文自然，不逐字硬译。不要建 `slides.<第一语言>.md`（会被 `slides.md` 遮蔽，检查报错），不要用 `src:` 导入别的文件的幻灯片（检查读不到，报错）。
 3. **颜色只来自令牌**；绿色只给 Lean 已验证，琥珀色只给“当前”（`.tile.now`），红色标开放问题，紫色标论证未验证，青色是中性（定义）。主题类 `.mt`、`.mb-0`、`.grow` 与 UnoCSS 工具类同名，已列入 `theme/slides/uno.config.ts` 的 `blocklist`，可以用；不要自创其他与 UnoCSS 工具类同名的类（如 `c-*`），`slides-check` 会报出不在 `blocklist` 中的冲突。
 4. **画布 1920×1080，不能溢出**：构建会逐页检查版面溢出与系统字体回退，任何一项失败都会让构建失败。
@@ -59,7 +59,7 @@ npx slidev books/<book>/slides/<deck>/slides.md                  # 本地预览�
 | 构建报 system-font fallback | 字符不在主题字体中：数学用 `<Tex>`，符号换成主题字体覆盖的字形 |
 | `TheoremCard` 编号或 GID 不符 | 以书为准：改 `label`/`gid`，或修正 `cite` |
 | 预览后出现 `<deck>/node_modules/` | Slidev 的临时文件，已被 `.gitignore` 忽略 |
-| 站点上的演示路径错误 | 构建时的子路径取自 `site.toml` 的 `base_url` 或 `GITHUB_REPOSITORY`；换了地址需重新构建 |
+| 站点上的演示路径错误 | 构建时的子路径取自 `site.toml` 的 `base_url` 或 `GITHUB_REPOSITORY`，各语言的位置取决于书的第一语言（第一语言在 `<deck>/`，其他在 `<deck>/<lang>/`）。换了地址、调整了 `editions` 的顺序或增删了语言后，`./tbook build site` 会发现已有构建过期并重新构建幻灯片 |
 
 ## 完成标准
 

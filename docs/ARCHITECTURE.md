@@ -113,7 +113,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
   - 可视化：`books/<slug>/viz/visualizations.json`（登记表）+ `viz/<id>/`（`index.html`、`style.css`、`main.js`、`thumb.jpg`）与 `viz/tests/<id>.test.mjs`；页面契约见 `templates/viz/README.md`。
   - 视频：`books/<slug>/films/<NNN>-<name>/`（`film.json`、`script.json`、`scenes.js`、`poster.jpg`）；规范见 `templates/film/README.md`，发布 tag 为 `film-<slug>-<NNN>-v<k>`。`film.json` 的 `published_tag` 记录已发布的 Release；为 `null` 时书中只显示海报与“尚未发布”，不嵌入播放器。
   - 幻灯片：`books/<slug>/slides/<deck>/slides.md`（第一语言）与 `slides.<lang>.md`，逐页对应；不得有 `slides.<第一语言>.md`（会被 `slides.md` 遮蔽），也不得用 `src:` 导入别的文件的幻灯片（检查无法读取导入的内容），二者都报错；写法见 `theme/slides/README.md`。
-- 媒体中引用的 Lean GID 与章节引用一样必须在锁文件中，由 `./tbook pin --refresh` 解析、`./tbook check` 复核：登记表的 `lean`、页面的 `data-lean-gid`、`film.json` 的 `lean`、幻灯片的 `<LeanBadge>` / `<TheoremCard>`（`<lean-badge>`、`<theorem-card>` 等 Vue 认可的写法同样受检查）。它们显示为绿色 `LEAN ✓`，因此必须是种类为 `theorem` 的声明：页面中的定义用 `data-trureturing-path="<module>.lean"` 链接；幻灯片写 `kind="definition"` 时可以引用 Lean 定义，显示中性的 `LEAN DEF` 而不是绿色 `LEAN ✓`。
+- 媒体中引用的 Lean GID 与章节引用一样必须在锁文件中，由 `./tbook pin --refresh` 解析、`./tbook check` 复核：登记表的 `lean`、页面的 `data-lean-gid`、`film.json` 的 `lean`、幻灯片的 `<LeanBadge>` / `<TheoremCard>`（`<lean-badge>`、`<theorem-card>` 等 Vue 认可的写法同样受检查；代码块之外的每个标签都受检查，代码块按 Slidev 所用 markdown-it 的 CommonMark 规则逐行识别，Python 的 `slides.code_lines` 与 Node 的 `codeLines` 是同一算法）。它们显示为绿色 `LEAN ✓`，因此必须是种类为 `theorem` 的声明：页面中的定义用 `data-trureturing-path="<module>.lean"` 链接；幻灯片写 `kind="definition"` 时可以引用 Lean 定义，显示中性的 `LEAN DEF` 而不是绿色 `LEAN ✓`。
 - `[@id]` 只能指向编号环境，不能指向媒体块。
 
 ### 3.5 数学
@@ -156,7 +156,9 @@ build/dist/<slug>/                  下载文件，文件名由 Book.artifact() 
                                     <slug>-<version>-<lang>.epub
 build/slides/<slug>/<deck>/<lang>/  Slidev 输出；PDF 在 build/slides/<slug>/<deck>-<lang>.pdf；
                                     manifest.json（schema trureturing-books.slides.v1：base、
-                                    decks.<deck>.langs.<lang>.{title,info,blurb,slides,dir,site_path,base,pdf,pdf_name}）
+                                    decks.<deck>.langs.<lang>.{title,info,blurb,slides,dir,site_path,base,pdf,pdf_name}）；
+                                    发布时 base、各语言的 site_path（随书的第一语言而变）或语言集合
+                                    与当前不符即为过期，slides.publish 先重新构建
 books/<slug>/films/<NNN>-<name>/out/  视频流水线产物（git 忽略）；入口 theme/film/film.sh <film dir> <step>
 build/lean-verify/                  ./tbook lean-project 生成的深度验证 Lake 工程
 _site/                              GitHub Pages 产物（见 §6）
