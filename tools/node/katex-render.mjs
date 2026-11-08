@@ -7,6 +7,9 @@
 //   {"id", "html", "lenient": true}   rendered, but an undefined macro is shown in red;
 //   {"id", "error"}                   KaTeX could not render the formula.
 // `--version` prints the installed KaTeX version and exits.
+// `--macros <json>` passes the macro table ({"\\name": "expansion"}). Its one source is
+// TEX_MACROS in tools/tbook/mathrender.py, which also hands it to Pandoc as \newcommand
+// definitions, so HTML, PDF and EPUB expand the same macros.
 //
 // Adapted from trureturing-mdbook (scripts/katex_render.js, Apache-2.0,
 // https://github.com/the-omega-institute/trureturing-mdbook): the same package macro set
@@ -31,28 +34,26 @@ if (process.argv.includes("--version")) {
   process.exit(0);
 }
 
-// Commands from LaTeX packages that upstream quotes use (amsmath, dsfont, physics,
-// mathtools-style delimiters, esvect, nicefrac) and that KaTeX does not define.
-const MACROS = {
-  "\\Tr": "\\operatorname{Tr}",
-  "\\tr": "\\operatorname{tr}",
-  "\\trace": "\\operatorname{Tr}",
-  "\\diag": "\\operatorname{diag}",
-  "\\Tilde": "\\tilde",
-  "\\wt": "\\widetilde",
-  "\\mathds": "\\mathbb",
-  "\\mathpzc": "\\mathcal",
-  "\\ketbra": "\\lvert #1\\rangle\\langle #2\\rvert",
-  "\\dyad": "\\lvert #1\\rangle\\langle #1\\rvert",
-  "\\floor": "\\left\\lfloor #1\\right\\rfloor",
-  "\\ceil": "\\left\\lceil #1\\right\\rceil",
-  "\\norm": "\\left\\lVert #1\\right\\rVert",
-  "\\vv": "\\vec{#1}",
-  "\\nicefrac": "{}^{#1}\\!/\\!{}_{#2}",
-  "\\mbox": "\\text{#1}",
-  "\\emph": "\\textit{#1}",
-  "\\normalfont": "",
-};
+// Macros from --macros (TEX_MACROS in tools/tbook/mathrender.py); none without it.
+function macrosFromArgs(argv) {
+  const at = argv.indexOf("--macros");
+  if (at < 0) return {};
+  let table;
+  try {
+    table = JSON.parse(argv[at + 1] ?? "");
+  } catch (error) {
+    process.stderr.write(`katex-render: --macros is not valid JSON: ${error.message}\n`);
+    process.exit(2);
+  }
+  if (!table || typeof table !== "object" || Array.isArray(table)
+      || !Object.values(table).every((v) => typeof v === "string")) {
+    process.stderr.write("katex-render: --macros must be a JSON object of strings\n");
+    process.exit(2);
+  }
+  return table;
+}
+
+const MACROS = macrosFromArgs(process.argv);
 
 function render(tex, display, lenient) {
   // A fresh copy of the macros: \gdef in one formula must not leak into the next.

@@ -2,7 +2,7 @@
 
 The HTML edition ships no client-side math: every formula is rendered at build time by
 the pinned KaTeX package, in ONE Node process per edition
-(``tools/node/katex-render.mjs``, JSON lines ``{id, tex, display}`` →
+(``tools/node/katex-render.mjs --macros <json>``, JSON lines ``{id, tex, display}`` →
 ``{id, html}`` / ``{id, error}``), and spliced into the Markdown before mdBook runs.
 
 Which ``$`` are math follows Pandoc's ``tex_math_dollars`` (the PDF and EPUB pipelines
@@ -13,7 +13,8 @@ read the same sources with Pandoc, so all targets agree on what is a formula):
   text); a closer that fails these tests is skipped and the search continues;
 * ``$$…$$`` is display math and may span lines;
 * neither crosses a blank line; ``\\$`` (a ``$`` after an odd number of backslashes) is a
-  literal dollar; in a table row ``\\|`` inside a formula is ``|`` (GFM unescapes it);
+  literal dollar; ``\\|`` inside a formula stays ``\\|`` (the norm bar), in table rows too:
+  Pandoc keeps it, and the formula is rendered before mdBook splits the row into cells;
 * nothing inside fenced code blocks, inline code spans, HTML comments, ``<code>``/``<pre>``
   /``<script>``/``<style>`` elements, HTML tags (attribute values), autolinks or link
   destinations is math. A candidate span that would contain such a region is not math.
@@ -30,6 +31,12 @@ ASCII punctuation of its text nodes written as character references so that Mark
 opening bracket right before) an inline formula is bound to it with a nowrap span, so a
 line never starts with "，" or ")" (:func:`glue`). A formula KaTeX cannot render is
 kept as its TeX source in ``<code class="katex-fallback">`` and reported as a warning.
+
+Macros: :data:`TEX_MACROS` (commands from LaTeX packages that KaTeX and Pandoc's texmath do
+not define) is the one macro table of the book. KaTeX receives it as its ``macros`` option;
+the Pandoc pipeline (:mod:`tbook.pandoc`) writes it as ``\\newcommand`` definitions
+(:func:`newcommands`) that Pandoc's ``latex_macros`` expands, so a formula renders the same
+in HTML, PDF and EPUB.
 
 Adapted from trureturing-mdbook (scripts/math_scan.py and scripts/render_katex.py,
 Apache-2.0, https://github.com/the-omega-institute/trureturing-mdbook).
@@ -75,7 +82,6 @@ HTML_LINE_RE = re.compile(
     re.I,
 )
 BLANK_LINE_RE = re.compile(r"\n[ \t>]*\n")
-TABLE_ROW_RE = re.compile(r"[ ]{0,3}\|")
 # What may stand before ``$$`` / after the closing ``$$`` for the formula to be a block:
 # indentation (fewer than 4 spaces, or it would become an indented code block) and
 # block-quote markers.
@@ -93,6 +99,40 @@ CLOSING_PUNCT = frozenset(",.;:?)%\u2019\u201d\u2026\u3001\u3002\uff0c\uff0e\uff
 OPENING_PUNCT = frozenset("(\u2018\u201c\uff08\uff3b\uff5b\u300c\u300e\u3010\u3008\u300a\u3014\u3016")
 NOBR_CLASS = "tr-nobr"
 _SPAN_TAG_RE = re.compile(r"<(/?)span\b[^>]*>")
+
+# Commands from LaTeX packages that upstream quotes use (amsmath, dsfont, physics,
+# mathtools-style delimiters, esvect, nicefrac) and that neither KaTeX nor Pandoc's texmath
+# define. ``#n`` is the n-th argument (KaTeX syntax; :func:`newcommands` counts them).
+TEX_MACROS: dict[str, str] = {
+    "\\Tr": "\\operatorname{Tr}",
+    "\\tr": "\\operatorname{tr}",
+    "\\trace": "\\operatorname{Tr}",
+    "\\diag": "\\operatorname{diag}",
+    "\\Tilde": "\\tilde",
+    "\\wt": "\\widetilde",
+    "\\mathds": "\\mathbb",
+    "\\mathpzc": "\\mathcal",
+    "\\ketbra": "\\lvert #1\\rangle\\langle #2\\rvert",
+    "\\dyad": "\\lvert #1\\rangle\\langle #1\\rvert",
+    "\\floor": "\\left\\lfloor #1\\right\\rfloor",
+    "\\ceil": "\\left\\lceil #1\\right\\rceil",
+    "\\norm": "\\left\\lVert #1\\right\\rVert",
+    "\\vv": "\\vec{#1}",
+    "\\nicefrac": "{}^{#1}\\!/\\!{}_{#2}",
+    "\\mbox": "\\text{#1}",
+    "\\emph": "\\textit{#1}",
+    "\\normalfont": "",
+}
+_MACRO_ARG_RE = re.compile(r"#([1-9])")
+
+
+def newcommands(macros: dict[str, str] | None = None) -> str:
+    """:data:`TEX_MACROS` as LaTeX ``\\newcommand`` lines, one per macro (for Pandoc)."""
+    lines = []
+    for name, body in (TEX_MACROS if macros is None else macros).items():
+        args = max((int(n) for n in _MACRO_ARG_RE.findall(body)), default=0)
+        lines.append(f"\\newcommand{{{name}}}" + (f"[{args}]" if args else "") + f"{{{body}}}")
+    return "\n".join(lines)
 
 
 class MathError(RuntimeError):
@@ -228,9 +268,9 @@ def find_math(text: str) -> tuple[list[MathSpan], list[tuple[int, str]]]:
         line = line_of(i)
         if html_lines[line - 1]:
             body = html.unescape(body)
-        elif TABLE_ROW_RE.match(text, starts[line - 1]):
-            # GFM removes the backslash of "\|" in table cells before inline parsing.
-            body = body.replace("\\|", "|")
+        # "\|" in a table row stays the norm bar: the formula is replaced by KaTeX HTML (whose
+        # "|" are character references) before mdBook ever splits the row, and Pandoc, which
+        # reads the same source for PDF/EPUB, keeps "\|" in the math as well.
         block = False
         prefix = ""
         if display:
@@ -369,9 +409,10 @@ def render_formulas(items: list[tuple[str, bool]]) -> list[dict]:
         raise MathError(f"KaTeX renderer missing: {paths.rel(RENDERER)}")
     payload = "".join(json.dumps({"id": k, "tex": tex, "display": display}, ensure_ascii=False) + "\n"
                       for k, (tex, display) in enumerate(items))
+    macros = json.dumps(TEX_MACROS, ensure_ascii=False)
     try:
-        proc = subprocess.run([node_binary(), str(RENDERER)], input=payload, capture_output=True,
-                              text=True, encoding="utf-8", cwd=paths.ROOT)
+        proc = subprocess.run([node_binary(), str(RENDERER), "--macros", macros], input=payload,
+                              capture_output=True, text=True, encoding="utf-8", cwd=paths.ROOT)
     except OSError as exc:
         raise MathError(f"cannot start node: {exc}") from exc
     if proc.returncode != 0:

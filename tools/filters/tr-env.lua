@@ -28,7 +28,8 @@ Output per FORMAT:
 `tr-title` is parsed as Markdown inlines (it may contain $math$). Strings that are not
 carried by the div (title punctuation, the Lean footer label, badge tooltips) come from
 document metadata set by tools/tbook/pandoc.py: tr-punct-open, tr-punct-close,
-tr-lean-label, tr-badge-lean-title, tr-badge-open-title.
+tr-lean-label, tr-badge-lean-title, tr-badge-open-title, and tr-tex-macros (the book's
+\newcommand definitions, applied to math in titles).
 ]]
 
 local stringify = pandoc.utils.stringify
@@ -55,12 +56,21 @@ local function is_html()
   return FORMAT:match("^html") ~= nil or FORMAT:match("^epub") ~= nil or FORMAT == "chunkedhtml"
 end
 
--- Markdown inlines from an attribute value (titles may contain math or emphasis).
+-- Markdown inlines from an attribute value (titles may contain math or emphasis). Read
+-- like book.md: no citations (a leftover "[@x]" or "@x" stays text), and the book's TeX
+-- macros (tr-tex-macros, \newcommand lines) are defined first so latex_macros expands them.
 local function parse_inlines(text)
   if text == nil or text == "" then return pandoc.Inlines({}) end
-  local ok, doc = pcall(pandoc.read, text, "markdown-auto_identifiers")
-  if ok and doc.blocks[1] and (doc.blocks[1].t == "Para" or doc.blocks[1].t == "Plain") then
-    return doc.blocks[1].content
+  local source = text
+  if META.tex_macros ~= nil and META.tex_macros ~= "" then
+    source = META.tex_macros .. "\n\n" .. text
+  end
+  local ok, doc = pcall(pandoc.read, source, "markdown-auto_identifiers-citations")
+  if ok then
+    for _, block in ipairs(doc.blocks) do
+      if block.t == "Para" or block.t == "Plain" then return block.content end
+      if block.t ~= "RawBlock" then break end
+    end
   end
   return pandoc.Inlines({ pandoc.Str(text) })
 end
@@ -282,6 +292,7 @@ function Pandoc(doc)
   META.lean_label = meta_str(doc.meta, "tr-lean-label", "Lean")
   META.badge_lean_title = meta_str(doc.meta, "tr-badge-lean-title", "")
   META.badge_open_title = meta_str(doc.meta, "tr-badge-open-title", "")
+  META.tex_macros = meta_str(doc.meta, "tr-tex-macros", "")
   -- Bottom-up traversal renders nested environments (e.g. a proof inside a remark) first.
   return doc:walk({ Div = Div })
 end

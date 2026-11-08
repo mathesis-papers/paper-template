@@ -24,7 +24,8 @@
    Node process (:mod:`tbook.mathrender`); nothing is rendered in the browser.
 
 3. **Build**: ``mdbook build -d <out_dir>`` with the mdBook binary from ``$MDBOOK`` or
-   ``PATH`` (0.5.x).
+   ``PATH`` (0.5.x). mdBook writes "Suggest an edit" links as ``…/<edition dir>/src/<chapter>.md``;
+   :func:`fix_edit_links` drops the staged ``src/`` (and the link of the generated ledger).
 
 4. **Search**: mdBook's index splits words on whitespace only, so Chinese text is one
    unsearchable "word" per sentence; :func:`augment_search_index` adds CJK character
@@ -194,6 +195,16 @@ def section_labels(book: config.Book) -> bool:
     return bool(book.raw.get("html", {}).get("section-labels", False))
 
 
+def edit_url_prefix(site: config.Site, edition: config.Edition) -> str:
+    """``<repo>/edit/<branch>/<edition dir>/`` ('' without a repository or outside it)."""
+    if not site.repo:
+        return ""
+    rel_dir = paths.rel(edition.dir)
+    if os.path.isabs(rel_dir):  # an edition outside the repository has no edit link
+        return ""
+    return f"https://github.com/{site.repo}/edit/{default_branch(site)}/{rel_dir}/"
+
+
 def book_toml(site: config.Site, book: config.Book, edition: config.Edition,
               css: list[str], js: list[str]) -> str:
     out = [
@@ -219,10 +230,10 @@ def book_toml(site: config.Site, book: config.Book, edition: config.Edition,
     if site.repo:
         repo_url = f"https://github.com/{site.repo}"
         out.append(f"git-repository-url = {_toml_str(repo_url)}")
-        rel_dir = paths.rel(edition.dir)
-        if not os.path.isabs(rel_dir):  # an edition outside the repository has no edit link
-            out.append(f"edit-url-template = "
-                       f"{_toml_str(f'{repo_url}/edit/{default_branch(site)}/{rel_dir}/{{path}}')}")
+        prefix = edit_url_prefix(site, edition)
+        if prefix:
+            # mdBook writes {path} as "src/<chapter>.md"; fix_edit_links drops the "src/".
+            out.append(f"edit-url-template = {_toml_str(prefix + '{path}')}")
     out += [
         "",
         "[output.html.print]",
@@ -602,6 +613,32 @@ def augment_search(out_dir: Path) -> int:
     return total
 
 
+def fix_edit_links(out_dir: Path, prefix: str, generated: set[str]) -> int:
+    """Point every "Suggest an edit" link at the chapter's file in the repository.
+
+    mdBook fills ``{path}`` of ``edit-url-template`` with ``<src>/<chapter>.md``
+    (``src/ch01.md``), but the staged ``src/`` mirrors the edition directory itself, whose
+    chapters live at ``books/<slug>/<lang>/ch01.md``: the ``src/`` is dropped. Pages of
+    ``generated`` chapters (the verification ledger) have no source file, so their link is
+    removed. Returns the number of pages changed.
+    """
+    if not prefix:
+        return 0
+    staged = prefix + "src/"
+    drop = re.compile(r'<a href="' + re.escape(staged) + r'(?:' + "|".join(re.escape(g) for g in sorted(generated))
+                      + r')"[^>]*>.*?</a>\s*', re.S) if generated else None
+    changed = 0
+    for page in sorted(out_dir.rglob("*.html")):
+        text = page.read_text(encoding="utf-8")
+        if f'href="{staged}' not in text:
+            continue
+        if drop:
+            text = drop.sub("", text)
+        page.write_text(text.replace(f'href="{staged}', f'href="{prefix}'), encoding="utf-8")
+        changed += 1
+    return changed
+
+
 def _warn(label: str, messages: list[str]) -> None:
     gh = os.environ.get("GITHUB_ACTIONS") == "true"
     for msg in messages:
@@ -622,6 +659,8 @@ def build_edition(site, book, edition, model, lock, out_dir: Path) -> Path:
         _warn(edition.key, [f"{len(errors)} model error(s) in {edition.key}; run ./tbook check"])
     _warn(edition.key, stage.warnings)
     _warn(edition.key, run_mdbook(stage.root, out_dir))
+    generated = {ledger.LEDGER_FILE} | ({"404.md"} if "404.md" not in stage.chapters else set())
+    fix_edit_links(out_dir, edit_url_prefix(site, edition), generated)
     augment_search(out_dir)
     return out_dir
 
