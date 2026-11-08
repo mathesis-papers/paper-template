@@ -22,6 +22,8 @@ description: 构建或排查书的导出产物时使用：mdBook HTML、Typst PD
 ./tbook serve                                # 在 Pages 子路径下本地预览 _site/
 ```
 
+`--book` 与 `--lang` 都可重复；所选的书都没有 `--lang` 指定的语言版本时，构建报错退出，不会静默跳过。
+
 下载文件在 `build/dist/<slug>/`：`<slug>-<version>-<lang>-screen.pdf`、`…-print.pdf`、`<slug>-<version>-<lang>.epub`。
 
 ## 三种产物

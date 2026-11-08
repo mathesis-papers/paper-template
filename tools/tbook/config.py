@@ -49,6 +49,17 @@ def pick(text: Localized, lang: str, fallback: list[str] | None = None) -> str:
     return next(iter(text.values()), "")
 
 
+def duplicates(items: list[str]) -> list[str]:
+    """Items that occur more than once, in order of their second occurrence."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item in seen and item not in out:
+            out.append(item)
+        seen.add(item)
+    return out
+
+
 # --------------------------------------------------------------------------- i18n
 
 
@@ -62,28 +73,86 @@ def _deep_merge(base: dict, extra: dict) -> dict:
     return out
 
 
+I18N_META = ("name", "bcp47", "short")
+
+
+def _load_toml(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("rb") as fh:
+            return tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"{paths.rel(path)}: {exc}") from None
+
+
 @lru_cache(maxsize=None)
 def i18n(lang: str) -> dict[str, Any]:
     """Strings for ``lang``: theme/i18n/<lang>.toml overridden by i18n/<lang>.toml.
 
     An unknown language falls back to English so a new edition still builds; ``check``
-    reports the missing table.
+    reports the missing table. It borrows the English strings but not English's ``[meta]``:
+    until i18n/<lang>.toml names the language, it is labelled by its code (``lang="ja"``,
+    ``JA``), never as English.
     """
-    table: dict[str, Any] = {}
     base = paths.I18N_THEME / f"{lang}.toml"
-    if not base.exists():
-        base = paths.I18N_THEME / "en.toml"
-    with base.open("rb") as fh:
-        table = tomllib.load(fh)
+    known = base.exists()
+    table = _load_toml(base if known else paths.I18N_THEME / "en.toml")
+    if not known:
+        table["meta"] = {"name": lang, "bcp47": lang, "short": lang.upper()}
     local = paths.I18N_LOCAL / f"{lang}.toml"
     if local.exists():
-        with local.open("rb") as fh:
-            table = _deep_merge(table, tomllib.load(fh))
+        table = _deep_merge(table, _load_toml(local))
     return table
 
 
 def has_i18n(lang: str) -> bool:
     return (paths.I18N_THEME / f"{lang}.toml").exists() or (paths.I18N_LOCAL / f"{lang}.toml").exists()
+
+
+def i18n_problems(languages: list[str]) -> list[tuple[Path, str]]:
+    """``(file, message)`` for each defect of the i18n tables of ``languages``, for ``check``.
+
+    A language without theme/i18n/<lang>.toml is named by i18n/<lang>.toml alone, so its
+    ``[meta]`` must set name, bcp47 and short. No two languages may share a BCP 47 tag or a
+    short label: ``lang="…"`` attributes and the edition switcher tell them apart by these.
+    Languages with no table at all are skipped (``has_i18n`` reports them).
+    """
+    langs = [lang for lang in dict.fromkeys(languages) if has_i18n(lang)]
+    problems: list[tuple[Path, str]] = []
+
+    def where(lang: str) -> Path:
+        local = paths.I18N_LOCAL / f"{lang}.toml"
+        return local if local.exists() else paths.I18N_THEME / f"{lang}.toml"
+
+    def built_in(lang: str) -> bool:
+        return (paths.I18N_THEME / f"{lang}.toml").exists()
+
+    for lang in langs:
+        if built_in(lang):
+            continue
+        meta = _load_toml(where(lang)).get("meta")
+        meta = meta if isinstance(meta, dict) else {}
+        missing = [key for key in I18N_META if not isinstance(meta.get(key), str) or not meta[key].strip()]
+        if missing:
+            problems.append((where(lang), (
+                f"[meta] must set {', '.join(missing)} for the {lang!r} edition: there is no "
+                f"theme/i18n/{lang}.toml, so this file names the language, e.g. name = \"<its own name>\", "
+                f"bcp47 = \"{lang}\", short = \"{lang.upper()}\"")))
+    for key in ("bcp47", "short"):
+        groups: dict[str, list[str]] = {}
+        for lang in langs:
+            value = s(lang, f"meta.{key}").strip()
+            if value:
+                groups.setdefault(value.casefold(), []).append(lang)
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            # built-in tables are distinct by construction: blame the languages named locally
+            for lang in [lang for lang in group if not built_in(lang)] or group[1:]:
+                others = ", ".join(repr(o) for o in group if o != lang)
+                problems.append((where(lang), (
+                    f"meta.{key} = {s(lang, f'meta.{key}')!r} for {lang!r} is also the {key} of {others}; "
+                    "every language needs its own")))
+    return problems
 
 
 def s(lang: str, dotted: str) -> str:
@@ -174,6 +243,8 @@ def load_site() -> Site:
     for lang in languages:
         if not LANG_RE.match(lang):
             raise ConfigError(f"site.toml: invalid language code {lang!r}")
+    if duplicates(languages):
+        raise ConfigError(f"site.toml: languages lists {duplicates(languages)[0]!r} twice")
     return Site(
         root=paths.ROOT,
         repo=repo,
@@ -312,6 +383,8 @@ def load_book(slug_or_dir: str | Path) -> Book:
     for lang in languages:
         if not LANG_RE.match(lang):
             raise ConfigError(f"{where}: invalid edition language {lang!r}")
+    if duplicates(languages):
+        raise ConfigError(f"{where}: book.editions lists {duplicates(languages)[0]!r} twice")
     pdf_variants = outputs.get("pdf", list(PDF_VARIANTS))
     if pdf_variants is True:
         pdf_variants = list(PDF_VARIANTS)
