@@ -179,4 +179,9 @@ def parse_summary(path: Path) -> Summary:
 
 
 def _unescape(s: str) -> str:
-    return re.sub(r"\\(.)", r"\1", s)
+    """Undo the escapes a link text needs in SUMMARY.md: ``\\[``, ``\\]`` and ``\\\\`` only.
+
+    Other backslashes are kept, so TeX in a title survives (``[附录 B：$\\varphi$-边界](b.md)``).
+    Inverse of ``tbook.html._escape_title``.
+    """
+    return re.sub(r"\\([\[\]\\])", r"\1", s)

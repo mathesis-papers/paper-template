@@ -4,9 +4,14 @@ Given an :class:`~tbook.model.EditionModel`, :func:`chapter_markdown` rewrites a
 chapter's Markdown for one target:
 
 * ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`);
-* ``[text](lean:GID)`` → a permalink to the declaration's Lean source at the pinned commit;
-* links/images that point into the book directory outside the edition (``../assets/x.svg``)
-  → paths into the staged copy ``_book/…`` (files collected in ``ctx.book_files``);
+* ``[text](lean:GID)`` → a permalink to the declaration's Lean source at the pinned commit
+  (just the text when the lock does not resolve the GID);
+* links/images (inline, ``<…>`` destinations, reference definitions) that point into the
+  book directory outside the edition (``../assets/x.svg``) → percent-encoded paths into the
+  staged copy ``_book/…`` (files collected in ``ctx.book_files``); ``<…>`` destinations are
+  written as plain percent-encoded ones, which every target reads the same way;
+* for mdBook, links to a ``README.md`` chapter → ``index.md`` (mdBook publishes it as
+  ``index.html``);
 * environment divs → target markup (HTML ``<section>`` for mdBook; an enriched fenced div
   for Pandoc, which ``tools/filters/tr-env.lua`` renders to Typst or EPUB XHTML);
 * media divs (``viz``/``film``/``slides``) → whatever ``tbook.<kind>.render_embed`` returns.
@@ -21,6 +26,7 @@ import html
 import importlib
 import posixpath
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -28,8 +34,19 @@ from typing import Callable
 from . import config, lean, mdscan
 from .model import FORMAL, MEDIA, ChapterDoc, EditionModel, Env
 
-LINK_RE = re.compile(r"(?P<bang>!?)\[(?P<text>(?:`[^`]*`|\\.|[^\]\\])*)\]\((?P<url>[^)\s]+)(?P<title>\s+\"[^\"]*\")?\)")
+# ``url`` is the destination as written: ``<…>`` (may contain spaces) or a plain one.
+LINK_RE = re.compile(r"(?P<bang>!?)\[(?P<text>(?:`[^`]*`|\\.|[^\]\\])*)\]\((?P<url><[^<>\n]*>|[^)\s]+)(?P<title>\s+\"[^\"]*\")?\)")
+# A link reference definition ``[label]: url "title"`` (footnotes ``[^x]:`` are excluded by the caller).
+REFDEF_RE = re.compile(r"^(?P<lead> {0,3}\[(?:[^\]\\]|\\.)+\]:[ \t]*)(?P<url><[^<>\n]*>|\S+)(?P<rest>.*)$")
 EXTERNAL_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|#|/)", re.I)
+# Characters a plain (non ``<…>``) destination cannot hold, and those a decoded file path
+# must also escape to stay one path.
+_DEST_UNSAFE_RE = re.compile(r"[\s<>()]")
+_PATH_UNSAFE_RE = re.compile(r"[\s<>()%#?\\]")
+
+
+def _quote(pattern: re.Pattern, text: str) -> str:
+    return pattern.sub(lambda m: urllib.parse.quote(m.group(), safe=""), text)
 
 
 @dataclass
@@ -57,12 +74,27 @@ class RenderContext:
         return "#" + env.id
 
 
+def is_readme(path: str) -> bool:
+    """mdBook's index preprocessor publishes a chapter ``README.md`` (any case) as ``index.md``."""
+    stem, ext = posixpath.splitext(posixpath.basename(path))
+    return stem.lower() == "readme" and ext.lower() == ".md"
+
+
+def mdbook_chapter_path(path: str) -> str:
+    """The path mdBook publishes chapter ``path`` under: ``a/README.md`` → ``a/index.md``.
+
+    mdBook does not rewrite links to a README chapter, so every link into one (``[@id]``,
+    plain links, the ledger) must use this path or it points at a missing ``README.html``.
+    """
+    return posixpath.join(posixpath.dirname(path), "index.md") if is_readme(path) else path
+
+
 def mdbook_env_href(model: EditionModel) -> Callable[[Env, ChapterDoc], str]:
     def href(env: Env, frm: ChapterDoc) -> str:
         target = model.chapter_of(env.id)
         if target is None or target is frm:
             return "#" + env.id
-        rel = posixpath.relpath(target.chapter.path, posixpath.dirname(frm.chapter.path) or ".")
+        rel = posixpath.relpath(mdbook_chapter_path(target.chapter.path), posixpath.dirname(frm.chapter.path) or ".")
         return f"{rel}#{env.id}"
 
     return href
@@ -72,30 +104,54 @@ def mdbook_env_href(model: EditionModel) -> Callable[[Env, ChapterDoc], str]:
 
 
 def lean_view(gid: str, lock: lean.Lock | None) -> dict:
+    """What the book shows for ``gid``. Links only when the lock resolves it (``resolved``):
+    an unresolved GID is shown as text, never as a link that suggests the declaration exists."""
     view = {"gid": gid, "name": "", "kind": "", "url": "", "state_url": "", "blueprint_url": "",
-            "line": 0, "signature": "", "statement_id": ""}
+            "line": 0, "signature": "", "statement_id": "", "resolved": False}
     try:
         g = lean.parse_gid(gid)
     except lean.LeanError:
         return view
     view["name"] = g.lean_module + "." + g.name if not g.name.startswith(g.lean_module) else g.name
-    if lock:
-        res = lock.get(gid)
-        if res:
-            view.update(name=res.name, kind=res.kind, line=res.line, signature=res.signature,
-                        statement_id=res.statement_id)
-        view["url"] = lock.source_url(gid)
-        view["state_url"] = lock.state_url(gid)
-        view["blueprint_url"] = lock.blueprint_url(gid)
+    res = lock.get(gid) if lock else None
+    if res:
+        view.update(name=res.name, kind=res.kind, line=res.line, signature=res.signature,
+                    statement_id=res.statement_id, resolved=True,
+                    url=lock.source_url(gid), state_url=lock.state_url(gid),
+                    blueprint_url=lock.blueprint_url(gid))
     return view
+
+
+def lean_verified(views: list[dict]) -> bool:
+    """True when every cited declaration resolves in the lock to a Lean theorem (the green badge)."""
+    return bool(views) and all(v["resolved"] and v["kind"] in lean.FORMAL_KINDS for v in views)
+
+
+def _s(lang: str, key: str, fallback: str, default: str = "") -> str:
+    return config.s(lang, key) or config.s(lang, fallback) or default
+
+
+def unverified_badge(lang: str) -> tuple[str, str]:
+    """Badge text and tooltip for a formal result the lock does not back (``check`` rejects it)."""
+    return (_s(lang, "badge.unverified", "slides.badge_unverified", "UNVERIFIED"),
+            _s(lang, "badge.unverified_title", "slides.badge_unverified_title"))
 
 
 def env_view(env: Env, ctx: RenderContext) -> dict:
     lang = ctx.lang
     badge = ""
     badge_title = ""
+    status = env.status
+    leans = [lean_view(g, ctx.lock) for g in env.lean]
+    unverified = False
     if env.kind in FORMAL:
-        badge, badge_title = config.s(lang, "badge.lean"), config.s(lang, "badge.lean_title")
+        if lean_verified(leans):
+            badge, badge_title = config.s(lang, "badge.lean"), config.s(lang, "badge.lean_title")
+        else:
+            # The build never claims what the lock cannot back: red UNVERIFIED, as the slides do.
+            unverified = True
+            status = "open"
+            badge, badge_title = unverified_badge(lang)
     elif env.status == "open":
         badge, badge_title = config.s(lang, "badge.open"), config.s(lang, "badge.open_title")
     return {
@@ -106,10 +162,11 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
         "ref_text": env.ref_text(lang),
         "heading": env.heading(lang),
         "title": env.title,
-        "status": env.status,
+        "status": status,
+        "unverified": unverified,
         "badge": badge,
         "badge_title": badge_title,
-        "lean": [lean_view(g, ctx.lock) for g in env.lean],
+        "lean": leans,
         "attrs": dict(env.attrs.kv),
     }
 
@@ -122,35 +179,50 @@ def _rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
     edition_dir = ctx.edition.dir.resolve()
     chapter_dir = doc.path.parent.resolve()
 
-    def repl(m: re.Match) -> str:
-        url = m.group("url")
+    def new_url(raw: str) -> str | None:
+        """The destination to write for ``raw`` (as written); None drops the link, keeping its text."""
+        angle = raw.startswith("<") and raw.endswith(">")
+        url = raw[1:-1] if angle else raw
         if url.startswith("lean:"):
-            gid = url[5:]
-            target = lean_view(gid, ctx.lock)["url"] or url
-            return f"{m.group('bang')}[{m.group('text')}]({target}{m.group('title') or ''})"
-        if EXTERNAL_RE.match(url):
-            return m.group(0)
+            return lean_view(url[5:], ctx.lock)["url"] or None
+        plain = _quote(_DEST_UNSAFE_RE, url) if angle else raw
         path_part, _, frag = url.partition("#")
-        if not path_part:
-            return m.group(0)
-        target = (chapter_dir / path_part).resolve()
+        if EXTERNAL_RE.match(url) or not path_part:
+            return plain
+        frag = "#" + (_quote(_DEST_UNSAFE_RE, frag) if angle else frag) if frag else ""
+        path = urllib.parse.unquote(path_part)
+        target = (chapter_dir / path).resolve()
         try:
-            target.relative_to(edition_dir)
-            return m.group(0)  # inside the edition: staged as is
+            inside = target.relative_to(edition_dir).as_posix()
         except ValueError:
-            pass
+            inside = None
+        if inside is not None:  # inside the edition: staged as is
+            if (ctx.target == "mdbook" and is_readme(inside)
+                    and any(posixpath.normpath(d.chapter.path) == inside for d in ctx.model.chapters)):
+                return _quote(_PATH_UNSAFE_RE, mdbook_chapter_path(path)) + frag
+            return plain
         try:
             inside_book = target.relative_to(book_dir)
         except ValueError:
             ctx.issues.append(f"{doc.path}: link leaves the book directory: {url}")
-            return m.group(0)
+            return plain
         ctx.book_files.add(target)
         staged_chapter_dir = posixpath.dirname(doc.chapter.path) or "."
         new = posixpath.relpath(posixpath.join(ctx.book_prefix, inside_book.as_posix()), staged_chapter_dir)
-        if frag:
-            new += "#" + frag
+        return _quote(_PATH_UNSAFE_RE, new) + frag
+
+    def repl(m: re.Match) -> str:
+        new = new_url(m.group("url"))
+        if new is None:
+            return m.group("text")
+        if new == m.group("url"):
+            return m.group(0)
         return f"{m.group('bang')}[{m.group('text')}]({new}{m.group('title') or ''})"
 
+    refdef = REFDEF_RE.match(line)
+    if refdef and not line.lstrip().startswith("[^"):
+        new = new_url(refdef.group("url"))
+        return f"{refdef.group('lead')}{refdef.group('url') if new is None else new}{refdef.group('rest')}"
     return mdscan.sub_outside_code(LINK_RE, repl, line)
 
 
@@ -178,7 +250,7 @@ def esc(text: str) -> str:
 
 def mdbook_env(env: Env, view: dict, inner: str) -> str:
     """HTML wrapper understood by theme/mdbook/tr-book.css (blank lines keep Markdown inside)."""
-    classes = f"tr-env tr-{env.kind} tr-status-{env.status}"
+    classes = f"tr-env tr-{env.kind} tr-status-{view['status']}" + (" tr-unverified" if view.get("unverified") else "")
     head = [f'<span class="tr-env-label">{esc(view["ref_text"])}</span>']
     if env.kind == "proof":
         head = [f'<span class="tr-env-label">{esc(view["label"])}</span>']
@@ -187,8 +259,10 @@ def mdbook_env(env: Env, view: dict, inner: str) -> str:
         head.append(f'<span class="tr-env-title">{esc(open_p)}{esc(view["title"])}'
                     f'{esc(config.s(env_lang(view), "punct.title_close"))}</span>')
     if view["badge"]:
-        first = view["lean"][0]["url"] if view["lean"] else ""
+        first = view["lean"][0]["url"] if view["lean"] and not view.get("unverified") else ""
         cls = "tr-badge-lean" if view["status"] == "lean" else "tr-badge-open"
+        if view.get("unverified"):
+            cls += " tr-badge-unverified"
         if first:
             head.append(f'<a class="tr-badge {cls}" href="{esc(first)}" title="{esc(view["badge_title"])}">{esc(view["badge"])}</a>')
         else:
@@ -202,8 +276,8 @@ def mdbook_env(env: Env, view: dict, inner: str) -> str:
             name = esc(lv["name"] or lv["gid"])
             if lv["url"]:
                 links.append(f'<a class="tr-lean-decl" href="{esc(lv["url"])}" title="{esc(lv["gid"])}"><code>{name}</code></a>')
-            else:
-                links.append(f'<code class="tr-lean-decl">{name}</code>')
+            else:  # not resolved by the lock: no link (``check`` reports it)
+                links.append(f'<code class="tr-lean-decl tr-lean-unresolved" title="{esc(lv["gid"])}">{name}</code>')
         parts.append(f'<footer class="tr-env-lean">{" ".join(links)}</footer>')
     if env.kind == "proof":
         parts.append('<span class="tr-qed" aria-hidden="true">∎</span>')
