@@ -60,8 +60,6 @@ RENDERER = paths.TOOLS / "node" / "katex-render.mjs"
 FALLBACK_CLASS = "katex-fallback"
 BLOCK_CLASS = "tr-math"
 
-# A fenced code block marker, possibly inside block quotes or list items.
-FENCE_RE = re.compile(r"^[ \t]*(?:>[ \t]?)*[ \t]*(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 RAW_ELEMENT_RE = re.compile(r"<(code|pre|script|style|textarea|kbd|samp|math|svg)\b[^>]*>.*?</\1\s*>", re.S | re.I)
 TAG_RE = re.compile(
@@ -179,20 +177,11 @@ def _mask(text: str) -> tuple[bytearray, list[bool]]:
     lines = text.split("\n")
     html_lines: list[bool] = []
     offset = 0
-    fence: tuple[str, int] | None = None
     in_html = False
-    for line in lines:
+    # Fenced code (also in block quotes and list items) exactly as every other scanner sees it:
+    # a "> ```" line shown inside a top-level code example does not close the example.
+    for line, hidden in zip(lines, mdscan.fenced_code_lines(lines)):
         end = offset + len(line)
-        m = FENCE_RE.match(line)
-        hidden = fence is not None
-        if m and not (m.group("fence")[0] == "`" and "`" in m.group("info")):
-            marker = m.group("fence")
-            if fence is None:
-                fence = (marker[0], len(marker))
-                hidden = True
-            elif marker[0] == fence[0] and len(marker) >= fence[1] and not m.group("info").strip():
-                fence = None
-                hidden = True
         if hidden:
             mask[offset:end] = b"\x01" * (end - offset)
             in_html = False
