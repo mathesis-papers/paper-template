@@ -15,11 +15,13 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
 import unittest
 import urllib.error
+import urllib.parse
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -867,17 +869,24 @@ class PullRequestCacheTests(unittest.TestCase):
                     self.assertFalse(gha_if(cond, **ctx, **out), f"{name}: {ctx}")
         self.assertEqual(trureturing_cache_steps(self.WORKFLOWS.parent / "actions" / "setup" / "action.yml"), [])
 
-    def test_toolchain_caches_are_not_saved_by_pull_requests(self):
-        """The same holds for the toolchain caches of the setup action (pip, Playwright's Chromium, fonts): a
-        pull request's runs restore them but never save them, so they only restore what trusted runs saved."""
+    def setup_steps(self) -> list[dict]:
+        """The steps of the setup action: ``uses``, ``id``, ``if``, ``run`` and some ``with`` values."""
         steps = []
         text = (self.WORKFLOWS.parent / "actions" / "setup" / "action.yml").read_text(encoding="utf-8")
         for chunk in re.split(r"\n(?=    - name:)", text.split("\n  steps:\n", 1)[1]):
-            step = {k: m.group(1).strip() for k in ("uses", "id", "if")
+            step = {k: m.group(1).strip() for k in ("uses", "id", "if", "run")
                     if (m := re.search(rf"^      {k}:\s*(.*)$", chunk, re.M))}
-            step["with"] = {k: m.group(1).strip() for k in ("path", "key", "cache")
+            step["with"] = {k: m.group(1).strip() for k in ("path", "key", "cache", "cache-dependency-path")
                             if (m := re.search(rf"^        {k}:\s*(.*)$", chunk, re.M))}
             steps.append(step)
+        return steps
+
+    def test_toolchain_caches_are_not_used_by_pull_requests(self):
+        """The same holds for the toolchain caches of the setup action (pip, Playwright's Chromium, fonts): a
+        pull request's runs neither restore nor save them. Its runs execute its own workflow files, so an earlier
+        push of the pull request could save an entry in its cache scope (and drop the gate) for the next push to
+        restore; skipping the restore, its runs download from the network (re-review 3, finding 0)."""
+        steps = self.setup_steps()
         uses = [step.get("uses", "") for step in steps]
         self.assertFalse([u for u in uses if re.fullmatch(r"actions/cache@v\d+", u)],
                          "actions/cache saves in its post step, also in pull requests: use restore + save")
@@ -887,19 +896,83 @@ class PullRequestCacheTests(unittest.TestCase):
         saves = {step["with"]["path"]: step for step in steps if step.get("uses", "").startswith("actions/cache/save@")}
         self.assertEqual(set(restores), {"~/.cache/pip", "~/.cache/ms-playwright", ".cache/fonts"})
         self.assertEqual(set(saves), set(restores))
+        trusted = ("push", "schedule", "workflow_dispatch")
+        pull_requests = ("pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment")
         for path, save in saves.items():
             restore = restores[path]
             self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
-            cond = re.sub(r"hashFiles\([^)]*\)", "'h'", save.get("if", ""))
-            self.assertIn("github.event_name", cond, path)
-            context = {"inputs.browsers": "true", "inputs.fonts": "true",
-                       f"steps.{restore['id']}.outputs.cache-hit": ""}
-            for event in ("push", "schedule", "workflow_dispatch"):
-                self.assertTrue(gha_if(cond, event=event, ref="refs/heads/main", context=context), f"{path}: {event}")
-            for event in ("pull_request", "pull_request_target", "pull_request_review"):
-                self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context), f"{path}: {event}")
-            hit = {**context, f"steps.{restore['id']}.outputs.cache-hit": "true"}
-            self.assertFalse(gha_if(cond, event="push", ref="refs/heads/main", context=hit), f"{path}: already cached")
+            inputs = {"inputs.browsers": "true", "inputs.fonts": "true"}
+            conds = {name: re.sub(r"hashFiles\([^)]*\)", "'h'", step.get("if", ""))
+                     for step, name in ((restore, "restore"), (save, "save"))}
+            for name, cond in conds.items():
+                self.assertIn("github.event_name", cond, f"{path}: {name}")
+                # in a pull request the restore step is skipped, and with it its cache-hit output
+                context = {**inputs, f"steps.{restore['id']}.outputs.cache-hit": ""}
+                for event in trusted:
+                    self.assertTrue(gha_if(cond, event=event, ref="refs/heads/main", context=context),
+                                    f"{path}: {name} on {event}")
+                for event in pull_requests:
+                    self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context),
+                                     f"{path}: {name} on {event}")
+            for key in ("inputs.browsers", "inputs.fonts"):
+                if key in conds["restore"]:
+                    off = {**inputs, key: "false"}
+                    self.assertFalse(gha_if(conds["restore"], event="push", ref="refs/heads/main", context=off), path)
+            hit = {**inputs, f"steps.{restore['id']}.outputs.cache-hit": "true"}
+            self.assertFalse(gha_if(conds["save"], event="push", ref="refs/heads/main", context=hit),
+                             f"{path}: already cached")
+
+    def test_npm_cache_is_checked_against_the_lockfile(self):
+        """setup-node's npm cache is restored (and saved) in pull requests too. That is safe because npm ci reads
+        a tarball from the cache only under the sha512 that package-lock.json records for it, and refetches one
+        whose bytes do not match: every locked package must therefore carry its integrity."""
+        steps = self.setup_steps()
+        node = next(step for step in steps if step.get("uses", "").startswith("actions/setup-node@"))
+        self.assertEqual(node["with"].get("cache"), "npm")
+        self.assertEqual(node["with"].get("cache-dependency-path"), "package-lock.json")
+        runs = [step.get("run", "") for step in steps]
+        self.assertTrue([r for r in runs if r.startswith("npm ci ")], "installs exactly what the lockfile says")
+        self.assertFalse([r for r in runs if re.search(r"\bnpm (install|i)\b", r)])
+        lock = json.loads((self.WORKFLOWS.parents[1] / "package-lock.json").read_text(encoding="utf-8"))
+        packages = {k: v for k, v in lock["packages"].items() if k}
+        self.assertTrue(packages)
+        for name, meta in packages.items():
+            self.assertFalse(meta.get("link"), name)
+            self.assertRegex(meta.get("integrity", ""), r"^sha512-[A-Za-z0-9+/]+=*$", name)
+
+    def test_pull_request_workflows_restore_no_other_cache(self):
+        """No other step of a workflow that runs in pull-request events (triggered by one, or called from one)
+        restores a cache there: actions/cache steps are skipped, and no setup-* action caches anything but npm."""
+        pr_events = {"pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment"}
+        texts = {wf.name: wf.read_text(encoding="utf-8") for wf in self.WORKFLOWS.glob("*.yml")}
+        todo = []
+        for name, text in texts.items():
+            m = re.search(r"^on:(.*)\n((?:  .*\n|\n)*)", text, re.M)
+            events = set(re.findall(r"[a-z_]+", m.group(1))) | set(re.findall(r"^  ([a-z_]+):", m.group(2), re.M))
+            if events & pr_events:
+                todo.append(name)
+        self.assertIn("ci.yml", todo)
+        seen, caches = set(), 0
+        while todo:
+            name = todo.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            todo += re.findall(r"uses:\s*\./\.github/workflows/([\w.-]+)", texts[name])
+            for step in re.split(r"\n(?=\s+- )", texts[name]):
+                uses = re.search(r"^\s+-?\s*uses:\s*(\S+)", step, re.M)
+                uses = uses.group(1) if uses else ""
+                if re.match(r"actions/cache(/restore)?@", uses):
+                    caches += 1
+                    m = re.search(r"^(\s+)if:\s*(>-?)?\s*(.*?)$((?:\n\1\s+.*)*)", step, re.M)
+                    self.assertTrue(m, f"{name}: {uses} needs an if:")
+                    cond = " ".join([m.group(3), *m.group(4).split()])
+                    for event in pr_events:
+                        self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge"), f"{name}: {event}")
+                elif re.match(r"actions/setup-\w+@", uses) and re.search(r"^\s+cache:", step, re.M):
+                    self.assertTrue(uses.startswith("actions/setup-node@"), f"{name}: {uses} caches")
+                    self.assertRegex(step, r"(?m)^\s+cache:\s*npm\s*$", name)
+        self.assertGreater(caches, 0, "ci.yml's .cache/trureturing step was examined")
 
 
 # --------------------------------------------------------------------------- re-review 1: a committed .cache symlink
@@ -1018,6 +1091,102 @@ class LockBranchTests(unittest.TestCase):
 
 
 SITE_FAKE_BRANCH = SITE.replace('branch = "dev"', 'branch = "fake"')
+
+
+# --------------------------------------------------------------------------- re-review 3: names that are not branches
+
+# (name, refused by lean.branch_problem, refused by `git check-ref-format --branch`; None: git cannot be asked).
+# branch_problem refuses everything git refuses, and also full refs, commit SHAs, a bare '@' (git's HEAD) and
+# Unicode whitespace or invisible characters.
+BRANCH_NAMES = [
+    ("dev", False, False), ("main", False, False), ("release/1", False, False), ("feature/x-y_z.1", False, False),
+    ("facade", False, False), ("a.b", False, False), ("a./b", False, False), ("a/-b", False, False),
+    ("dev@", False, False), ("@dev", False, False), ("a@b", False, False), ("x/@", False, False),
+    ("a{b", False, False), ("a]b", False, False), ("HEAD/x", False, False), ("x/HEAD", False, False),
+    ("head", False, False), ("a.lock.x", False, False), ("héllo", False, False), ("v1.2", False, False),
+    # revision syntax GitHub's compare API resolves to a commit, and another repository's branch
+    (COMMIT + "^0", True, True), (COMMIT + "~0", True, True), (COMMIT[:12] + "^0", True, True),
+    (COMMIT + "^{commit}", True, True), ("dev^0", True, True), ("dev~1", True, True), ("dev^", True, True),
+    ("mallory:dev", True, True), ("dev@{0}", True, True), ("dev@{1.day.ago}", True, True), ("@{-1}", True, True),
+    ("@{u}", True, True), ("HEAD", True, True), ("dev..main", True, True), ("dev...main", True, True),
+    # the rest of git's rules
+    ("a?b", True, True), ("a*b", True, True), ("a[b", True, True), ("a\\b", True, True), ("a b", True, True),
+    (" dev", True, True), ("dev ", True, True), ("a\tb", True, True), ("a\nb", True, True), ("a\x01b", True, True),
+    ("a\x7fb", True, True), ("-dev", True, True), ("-", True, True), (".dev", True, True), ("a/.b", True, True),
+    ("a/./b", True, True), ("a/..", True, True), ("dev.", True, True), ("a/b.", True, True), ("dev/", True, True),
+    ("/dev", True, True), ("a//b", True, True), ("dev.lock", True, True), ("a/b.lock", True, True),
+    ("a.lock/b", True, True), (".lock", True, True), ("HEAD.lock", True, True), ("", True, True),
+    ("a\x00b", True, None),
+    # refused here although git would take them as branch names
+    ("@", True, False), ("refs/heads/dev", True, False), ("refs/x", True, False), (COMMIT, True, False),
+    (COMMIT[:7], True, False), (COMMIT[:12].upper(), True, False), ("a\u00a0b", True, False),
+    ("dev\u3000", True, False), ("de\u200bv", True, False), ("a\u2028b", True, False),
+]
+
+
+class BranchNameTests(unittest.TestCase):
+    def test_branch_names_follow_git(self):
+        """branch_problem refuses every name `git check-ref-format --branch` refuses (and a few more)."""
+        for name, refused, git_refuses in BRANCH_NAMES:
+            with self.subTest(name=name):
+                self.assertEqual(bool(lean.branch_problem(name, COMMIT)), refused, lean.branch_problem(name, COMMIT))
+                self.assertTrue(refused or not git_refuses, "the table: what git refuses is refused")
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+        with tempfile.TemporaryDirectory(prefix="tbook-refname-") as tmp:
+            # outside any repository: git then takes '@{-1}' and the like literally
+            env = dict(os.environ, **GIT_ENV, GIT_CEILING_DIRECTORIES=str(Path(tmp).parent))
+            for name, _, git_refuses in BRANCH_NAMES:
+                if git_refuses is None:
+                    continue
+                with self.subTest(git=name):
+                    r = subprocess.run(["git", "check-ref-format", "--branch", name], cwd=tmp, env=env,
+                                       capture_output=True, text=True)
+                    self.assertEqual(r.returncode != 0, git_refuses, r.stderr)
+
+    def test_reasons_are_specific(self):
+        problem = lean.branch_problem(COMMIT + "^0", COMMIT)
+        self.assertIn("is not a branch name", problem)
+        self.assertIn("'^'", problem)
+        self.assertIn("git check-ref-format", problem)
+        self.assertIn("another repository", lean.branch_problem("mallory:dev", COMMIT))
+        self.assertIn("'@{'", lean.branch_problem("dev@{0}", COMMIT))
+        self.assertIn("HEAD", lean.branch_problem("HEAD", COMMIT))
+        self.assertIn("HEAD", lean.branch_problem("@", COMMIT))
+        self.assertIn("whitespace", lean.branch_problem(" dev", COMMIT))
+        self.assertIn("'.lock'", lean.branch_problem("dev.lock", COMMIT))
+        self.assertEqual(lean.branch_problem("", COMMIT), "is empty")
+        self.assertIn("full ref", lean.branch_problem("refs/heads/dev", COMMIT))
+        self.assertEqual(lean.branch_problem(COMMIT, COMMIT), "is a commit SHA, not a branch")
+
+    def test_revision_expressions_do_not_pass_check_or_pin(self):
+        """GitHub's compare API reads '<sha>^0' and '<sha>~0' as the commit itself (status 'identical'): a
+        pull-request run that let such a "branch" through would accept an unmerged commit (finding 1)."""
+        for branch in (COMMIT + "^0", COMMIT + "~0", COMMIT[:12] + "^0", "mallory:dev", "dev@{0}", "HEAD", "@"):
+            with self.subTest(branch=branch), CoreRepo(site=SITE.replace('"dev"', json.dumps(branch))) as repo:
+                repo.book()
+                for key in API_TOKENS:
+                    os.environ.pop(key, None)
+                os.environ.update(GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="pull_request", GITHUB_TOKEN="gh")
+                quoted = urllib.parse.quote(branch, safe="/")
+                gh = FakeGitHub({**raw_states(COMMIT),
+                                 compare_path(quoted, COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}}})
+                lock = make_lock()
+                lock.branch = branch
+                with mock.patch.object(lean.urllib.request, "urlopen", gh):
+                    issues: list[model.Issue] = []
+                    check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock,
+                                     config.load_site(), issues, offline=False)
+                    errors = [i for i in issues if i.severity == "error"]
+                    self.assertEqual([i.path for i in errors], [paths.SITE_TOML], messages(issues))
+                    self.assertIn(f"[trureturing] branch {branch!r} is not a branch name", errors[0].message)
+                    led = lean.Ledger(TRU)
+                    self.assertIsNone(led.branch_contains(COMMIT, branch).on_branch)
+                    self.assertIsNone(lean.github_branch_contains(TRU, branch, COMMIT).on_branch)
+                    self.assertFalse([r for r in gh.requests if "/compare/" in r.full_url], "GitHub is not asked")
+                    with self.assertRaisesRegex(lean.LeanError, r"\[trureturing\] branch .* is not a branch name"):
+                        pin.pin(COMMIT, dry_run=True)
+                self.assertFalse(paths.LOCK_FILE.exists(), "nothing written")
 
 
 if __name__ == "__main__":
