@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -628,6 +629,60 @@ class FirstLanguageTest(ScratchDeckCase):
         self.assertNotIn("scratch-book-d1-zh.pdf", index)  # built without the zh PDF
 
 
+class StaleBuildTest(ScratchDeckCase):
+    """Finding: a slides build made before the book's first language (or its languages) changed put every
+    edition at the old path; publish must rebuild it, or refuse with the reason."""
+
+    def set_editions(self, editions: list[str]) -> config.Book:
+        toml = self.book.dir / "book.toml"
+        text = toml.read_text(encoding="utf-8")
+        old, new = (f"editions = {json.dumps(langs)}" for langs in (self.book.languages, editions))
+        toml.write_text(text.replace(old, new), encoding="utf-8")
+        self.book = config.load_book(self.book.dir)
+        self.assertEqual(self.book.languages, editions)
+        return self.book
+
+    def test_first_language_change(self):
+        self.write("zh", self.head("zh"))
+        self.write("en", self.head("en"))
+        out = fake_build(self.book, self.tmp / "build")
+        base = slides.base_path(config.load_site())
+        self.assertEqual(slides._stale(self.book, out, slides.read_manifest(out), base), "")
+        # English first now: the files are renamed as check requires, the build is not
+        (self.deck / "slides.md").rename(self.deck / "slides.zh.md")
+        (self.deck / "slides.en.md").rename(self.deck / "slides.md")
+        book = self.set_editions(["en", "zh"])
+        self.assertEqual(self.issues(), [])
+        why = slides._stale(book, out, slides.read_manifest(out), base)
+        self.assertEqual(why, "d1 (en) was built for 'd1/en/', the site uses 'd1/' (en is the book's first language)")
+        site_dir = self.tmp / "_site" / "slides"
+        with mock.patch.object(slides, "build_dir", lambda b: out):
+            with self.assertRaisesRegex(RuntimeError, r"d1 \(en\) was built for 'd1/en/'.*run ./tbook build slides"):
+                slides.publish(config.load_site(), book, site_dir, build_missing=False)
+            self.assertFalse((site_dir / "d1").exists())
+
+            def rebuild(site, b, out_dir):
+                shutil.rmtree(out_dir)
+                return fake_build(b, out_dir)
+
+            with mock.patch.object(slides, "build", side_effect=rebuild) as build:
+                slides.publish(config.load_site(), book, site_dir)
+            build.assert_called_once()
+        self.assertIn("<title>en</title>", (site_dir / "d1" / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("<title>zh</title>", (site_dir / "d1" / "zh" / "index.html").read_text(encoding="utf-8"))
+        self.assertFalse((site_dir / "d1" / "en").exists())
+
+    def test_dropped_language(self):
+        """The built decks link every language they were built with: drop one and they link a missing page."""
+        self.write("zh", self.head("zh"))
+        self.write("en", self.head("en"))
+        out = fake_build(self.book, self.tmp / "build")
+        (self.deck / "slides.en.md").unlink()
+        book = self.set_editions(["zh"])
+        why = slides._stale(book, out, slides.read_manifest(out), slides.base_path(config.load_site()))
+        self.assertEqual(why, "d1 was built with en as well, which is no longer an edition of it")
+
+
 class PublishedPdfLinkTest(ScratchDeckCase):
     """Finding: with a PDF-less slides build (TBOOK_SLIDES_NO_PDF=1), chapter cards must not link PDFs
     that are never published, even when the chapters were built (with the link) before."""
@@ -698,6 +753,129 @@ class CitationSpellingTest(ScratchDeckCase):
         self.assertTrue(all("src: imports slides from another file" in m for m in msgs), msgs)
 
 
+# Fenced code as Slidev's Markdown (markdown-it) reads it: (name, Markdown, indices of the code lines).
+FENCE_CASES = [
+    ("a tag between two code blocks", '# t\n\n```js\ncode\n```\n\n<LeanBadge gid="x" />\n\n```\nmore\n```\n',
+     {2, 3, 4, 8, 9, 10}),
+    ("tildes, a longer closer", "~~~~\n~~~\n```\n~~~~~\nafter", {0, 1, 2, 3}),
+    ("the closer has the opener's character, no info, at least its length", "````\n~~~~\n```` x\n```\n`````\nafter",
+     {0, 1, 2, 3, 4}),
+    ("a backtick in the info string: not a fence", '``` a`b\n<LeanBadge gid="x" />\n```\ny', {2, 3}),
+    ("indented 4 columns: indented code, not a fence", 'text\n\n    ```\n\n<LeanBadge gid="x" />\n\n    ```\nz', set()),
+    ("an unclosed fence runs to the end", 'a\n\n```\n<LeanBadge gid="x" />', {2, 3}),
+    ("a fence in a list item ends with it", '- ```js\n  <LeanBadge gid="in" />\n  ```\n\n<LeanBadge gid="out" />\n\n'
+     '```\nx\n```', {0, 1, 2, 6, 7, 8}),
+    ("a fence in a block quote ends with it", '> ```\n> code\n\n<LeanBadge gid="out" />\n\n```\nx\n```',
+     {0, 1, 5, 6, 7}),
+    ("no lazy line in a quoted fence", "> ```\n> a\nb\n", {0, 1}),
+    ("``` inside an HTML block is HTML", '<div>\n```\n<LeanBadge gid="x" />\n```\n</div>', set()),
+    ("a component line starts an HTML block up to a blank line", "<v-click>\n```\nx\n```\n</v-click>\n\n```\ny\n```",
+     {6, 7, 8}),
+    ("CRLF and tabs", "```\r\ncode\r\n```\r\n\t```\r\nafter", {0, 1, 2}),
+    ("nested list items", "1. a\n\n   - b\n\n     ```\n     c\n     ```\nd", {4, 5, 6}),
+    ("a footnote holds its indented fence", "x[^1]\n\n[^1]: note\n\n    ```\n    c\n    ```\nd", {4, 5, 6}),
+]
+
+
+def fence_corpus(n: int = 400, seed: int = 7) -> list[str]:
+    """Random Markdown made of the constructs code_lines() models, to compare it with markdown-it."""
+    rng = random.Random(seed)
+    prefixes = ["> ", ">", ">  ", "- ", "* ", "1. ", "2) ", "10. ", "-    ", "-     ", " ", "  ", "   ", "    ", "\t"]
+    contents = ["```", "```js", "````", "~~~", "~~~ ~", "``` x`", "``", "text", '<LeanBadge gid="x" />', "<div>",
+                "</div>", "<v-click>", "</v-click>", "<!-- c", "-->", "<!-- c -->", "<pre>", "</pre>",
+                "<script>x</script>", "", "- a", "---", "===", "* * *", "# h", "| a | b |", "|---|---|",
+                "[^n]: note", "[a]: /u", '[a]: /u "t"']
+    docs = []
+    for _ in range(n):
+        lines = ["".join(rng.choice(prefixes) for _ in range(rng.choice([0, 0, 1, 1, 2, 3]))) + rng.choice(contents)
+                 for _ in range(rng.randint(1, 12))]
+        doc = "\n".join(lines)
+        parts = doc.split("[^n]")  # unique footnote labels
+        docs.append("".join(p + (f"[^{i + 1}]" if i < len(parts) - 1 else "") for i, p in enumerate(parts)))
+    return docs
+
+
+class FenceScanTest(unittest.TestCase):
+    """Finding: the code-stripping regex ran from one code block to the next, so tags between two blocks
+    were never checked. code_lines() is a line-based CommonMark scanner (slides-lib.mjs codeLines too)."""
+
+    def test_cases(self):
+        for name, text, want in FENCE_CASES:
+            got = {i for i, code in enumerate(slides.code_lines(text)) if code}
+            self.assertEqual(got, want, name)
+
+    def test_tag_between_two_code_blocks_is_cited(self):
+        found, _ = slides.citations(FENCE_CASES[0][1].replace("```\nmore", '```\n<LeanBadge gid="in-code" />'))
+        self.assertEqual([c.gid for c in found], ["x"])
+        found, _ = slides.citations(FENCE_CASES[6][1])
+        self.assertEqual([c.gid for c in found], ["out"])
+
+    def test_strip_code_keeps_the_lines(self):
+        text = "a\r\n```\r\n<b>\r\n```\r\nc"
+        self.assertEqual(slides.strip_code(text), "a\n\n\n\nc")
+
+
+@unittest.skipUnless(HAVE_NODE and (ROOT / "node_modules" / "markdown-exit").is_dir()
+                     and (ROOT / "node_modules" / "markdown-it-footnote").is_dir(),
+                     "node and node_modules (markdown-exit, markdown-it-footnote) needed")
+class NodeFenceScanTest(unittest.TestCase):
+    """code_lines() and slides-lib.mjs codeLines() agree with each other and with markdown-it (as Slidev
+    configures it: HTML on, footnotes) on the cases and on a fixed random corpus."""
+
+    def test_python_node_and_markdown_it_agree(self):
+        docs = [text for _, text, _ in FENCE_CASES] + fence_corpus()
+        script = (
+            "import { readFileSync } from 'node:fs';"
+            "import MarkdownExit from 'markdown-exit';"
+            "import footnote from 'markdown-it-footnote';"
+            f"import {{ codeLines }} from {json.dumps((ROOT / 'tools' / 'node' / 'slides-lib.mjs').as_uri())};"
+            "const md = MarkdownExit({ html: true }).use(footnote);"
+            "const out = JSON.parse(readFileSync(0, 'utf8')).map((src) => {"
+            # reference every footnote first, so markdown-it renders all of them (lines shift by 2)
+            "  const refs = [...src.matchAll(/\\[\\^([^\\] ]+)\\]:/g)].map((m) => `[^${m[1]}]`).join(' ');"
+            "  const fence = new Set();"
+            "  for (const t of md.parse(`x${refs}\\n\\n${src}`, {})) if (t.type === 'fence')"
+            "    for (let i = t.map[0] - 2; i < t.map[1] - 2; i++) fence.add(i);"
+            "  return { js: codeLines(src), md: [...fence] };"
+            "});"
+            "process.stdout.write(JSON.stringify(out));"
+        )
+        r = subprocess.run([NODE, "--input-type=module", "-e", script], input=json.dumps(docs), capture_output=True,
+                           text=True, cwd=ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for text, out in zip(docs, json.loads(r.stdout)):
+            mask = slides.code_lines(text)
+            self.assertEqual(out["js"], mask, repr(text))
+            n = len(mask) - (1 if text.endswith(("\n", "\r")) else 0)  # markdown-it has no line after the last line end
+            self.assertEqual(sorted(out["md"]), [i for i in range(n) if mask[i]], repr(text))
+
+
+class CodeBlockCitationTest(ScratchDeckCase):
+    """Finding: a LeanBadge / TheoremCard between two code blocks is checked (lock, kind, page parity)."""
+
+    def test_tags_between_code_blocks_are_checked(self):
+        self.write("zh", self.head("zh") + BETWEEN_BLOCKS)
+        self.write("en", self.head("en") + BETWEEN_BLOCKS)
+        msgs = self.issues()
+        for want in ("D5/S9/Fake/Nope.not_locked is not in trureturing.lock.json",
+                     f"{FAKE_DEF} is a Lean def; a TheoremCard must cite a theorem", "link /abs is absolute"):
+            self.assertEqual(sum(want in m for m in msgs), 2, (want, msgs))
+        self.assertEqual(len(msgs), 6, msgs)
+        self.assertNotIn("in-code", " ".join(msgs))
+        # only the zh edition cites them: the page-for-page check sees that too
+        self.write("en", self.head("en") + "\n---\n\n```\nx\n```\n\ntext\n\n```\ny\n```\n")
+        want = f"/slides.md cites [D5/S9/Fake/Nope.not_locked {FAKE_DEF}]"
+        msgs = self.issues()
+        self.assertTrue(any(m.startswith("slide 2: cites [], ") and m.endswith(want) for m in msgs), msgs)
+
+
+# A slide with tags between two code blocks (and inside them, which is not checked).
+BETWEEN_BLOCKS = ('\n---\n\n## Code\n\n```js\nconst a = \'<LeanBadge gid="in-code-1" />\';\n```\n\n'
+                  '<LeanBadge gid="D5/S9/Fake/Nope.not_locked" />\n'
+                  f'<TheoremCard label="x" gid="{FAKE_DEF}">\n\ns\n\n</TheoremCard>\n'
+                  '<a href="/abs">x</a>\n\n```\n<LeanBadge gid="in-code-2" />\n```\n')
+
+
 @unittest.skipUnless(HAVE_UNO, "node and node_modules (@slidev/parser, unocss) needed")
 class NodeScriptsTest(unittest.TestCase):
     """tools/node/slides-check.mjs and slides-new.mjs in a scratch repository root (TBOOK_ROOT)."""
@@ -755,6 +933,28 @@ class NodeScriptsTest(unittest.TestCase):
                      f'{FAKE_DEF} is a Lean def; a LeanBadge must cite a theorem',
                      "src: imports slides from another file"]:
             self.assertIn(want, r.stderr)
+
+    def test_check_tags_between_code_blocks(self):
+        """Finding: slides-check.mjs, like check(), sees tags between two code blocks (not those inside)."""
+        deck = self.book(["zh", "en"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        theme = "../../../../theme/slides"
+        (deck / "slides.md").write_text(deck_head(theme, "zh") + BETWEEN_BLOCKS, encoding="utf-8")
+        (deck / "slides.en.md").write_text(deck_head(theme, "en") + BETWEEN_BLOCKS, encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for want in ("D5/S9/Fake/Nope.not_locked is not in trureturing.lock.json",
+                     f"{FAKE_DEF} is a Lean def; a TheoremCard must cite a theorem", "link /abs is absolute"):
+            self.assertEqual(r.stderr.count(want), 2, (want, r.stderr))
+        self.assertIn("slides-check failed (6)", r.stderr)
+        self.assertNotIn("in-code", r.stderr)
+        # the same verdict as the Python check on the same files
+        with mock.patch.object(lean.Lock, "load", return_value=fake_lock()), \
+                mock.patch.object(slides, "theme_ref", lambda deck_dir: theme):
+            py = [i.message for i in slides.check(config.load_book(self.tmp / "books" / "bk"))]
+        self.assertEqual(len(py), 6, py)
+        for want in ("D5/S9/Fake/Nope.not_locked", FAKE_DEF, "/abs"):
+            self.assertEqual(sum(want in m for m in py), 2, (want, py))
 
     def test_new_deck_in_an_english_first_book(self):
         self.book(["en", "zh"])

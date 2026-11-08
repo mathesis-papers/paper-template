@@ -498,6 +498,202 @@ def count_slides(text: str) -> int:
     return sum(1 for s in split_slides(text) if not s.hidden)
 
 
+# --------------------------------------------------------------------------- fenced code (as Slidev's Markdown)
+# Slidev renders a slide with markdown-it (CommonMark, plus footnotes): a tag inside fenced code is shown as
+# text, every other tag is rendered. code_lines() finds the fenced code line by line by the CommonMark block
+# rules, as markdown-it applies them; slides-lib.mjs codeLines() is the same algorithm (keep them in step:
+# test_slides compares both with markdown-it). Not modelled, all rare in slides: $$ math blocks (``` there is
+# not a fence), link reference definitions over several lines, and markdown-it reading a list marker 4
+# columns right of its list as text.
+
+_NEWLINE_RE = re.compile(r"\r\n?|\n")  # line ends as markdown-it reads them
+_QUOTE_RE = re.compile(r" *>")  # a block quote goes on at a > after any indentation (markdown-it)
+_FENCE_OPEN_RE = re.compile(r"`{3,}(?=[^`]*$)|~{3,}")  # a backtick fence's info string has no backtick
+_FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,}) *$")
+_HR_RE = re.compile(r"(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
+_SETEXT_RE = re.compile(r"(?:=+|-+) *$")
+_LIST_RE = re.compile(r"(?:[-+*]|([0-9]{1,9})[.)])(?= |$)")
+_ATX_RE = re.compile(r"#{1,6}(?= |$)")
+_SLOT_RE = re.compile(r"::[ \t]*[\w.:-]+[ \t]*::[ \t]*$", re.A)  # Slidev's ::slot:: line
+_FOOTNOTE_RE = re.compile(r"\[\^[^\] ]+\]:")  # a footnote (Slidev's markdown-it-footnote): its lines indent 4
+_REF_RE = re.compile(  # a link reference definition on one line
+    r"""\[(?! *\])(?:[^\\\[\]]|\\.){1,999}\]: *(?:<(?:[^<>\\]|\\.)*>|[^ <][^ ]*)"""
+    r"""(?: +(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))? *$""")
+_BLOCK_TAGS = ("address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|"
+               "dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|"
+               "html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|"
+               "summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")
+_OPEN_TAG = (r"<[A-Za-z][A-Za-z0-9-]*(?:\s+[a-zA-Z_:][a-zA-Z0-9:._-]*"
+             r"(?:\s*=\s*(?:[^\"'=<>`\x00-\x20]+|'[^']*'|\"[^\"]*\"))?)*\s*/?>")
+_CLOSE_TAG = r"</[A-Za-z][A-Za-z0-9-]*\s*>"
+# HTML blocks: (start, end (None: a blank line), may interrupt a paragraph). ``` inside one is HTML, not code.
+_HTML_BLOCKS = (
+    (re.compile(r"<(?:script|pre|style|textarea)(?=\s|>|$)", re.I | re.A),
+     re.compile(r"</(?:script|pre|style|textarea)>", re.I | re.A), True),
+    (re.compile(r"<!--"), re.compile(r"-->"), True),
+    (re.compile(r"<\?"), re.compile(r"\?>"), True),
+    (re.compile(r"<![A-Z]"), re.compile(r">"), True),
+    (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>"), True),
+    (re.compile(rf"</?(?:{_BLOCK_TAGS})(?=\s|/?>|$)", re.I | re.A), None, True),
+    (re.compile(rf"(?:{_OPEN_TAG}|{_CLOSE_TAG})\s*$"), None, False),
+)
+
+
+def _html_block(body: str):
+    return next((h for h in _HTML_BLOCKS if h[0].match(body)), None) if body[:1] == "<" else None
+
+
+def _starts_block(body: str) -> bool:
+    """Whether ``body`` starts a block that ends a paragraph (list items and footnotes aside)."""
+    html = _html_block(body)
+    return bool(_FENCE_OPEN_RE.match(body) or body[0] == ">" or _HR_RE.match(body) or _ATX_RE.match(body)
+                or _SLOT_RE.match(body) or (html and html[2]))
+
+
+def _lazy_line_ends(stack: list[int], keep: int, body: str) -> bool:
+    """A line indented 4 columns past the ``keep`` containers it continues is indented code, or text going on
+    lazily with an open paragraph. Whether a container it left ends that paragraph (and the line is code), as
+    markdown-it decides: a block quote lets it through as lazy text; a list item, or a container inside a
+    quote it left, sees it indented less than its content, so a block start ends the paragraph there."""
+    quoted = False  # a block quote let the line through
+    for i in range(keep, len(stack) + 1):
+        if i < len(stack) and stack[i] >= 0:
+            continue  # a list item: the block inside it decides
+        if i == len(stack) and quoted:
+            return False  # the paragraph takes what its quote let through
+        if i > keep and (_starts_block(body) or (_LIST_RE.match(body) and (quoted or i - keep > 1))
+                         or (i == len(stack) and _FOOTNOTE_RE.match(body))):
+            return True
+        quoted = True
+    return False
+
+
+def code_lines(text: str) -> list[bool]:
+    """For each line of a slide's Markdown, whether it is part of a fenced code block (fences included).
+
+    CommonMark rules: a fence opens with at least three backticks or tildes indented at most 3 columns
+    inside its container (block quote, list item) and closes at a fence of the same character, at least
+    as long and with nothing after it, or when its container ends; it may interrupt a paragraph. A
+    ```` ``` ```` line indented 4 columns (indented code or paragraph text) or inside an HTML block is not a
+    fence. Tabs count to the next multiple of 4 columns.
+    """
+    lines = _NEWLINE_RE.split(text)
+    mask = [False] * len(lines)
+    # open containers: -1 a block quote, otherwise a list item: the columns of its content after its container's
+    stack: list[int] = []
+    leaf: Any = None  # None, "p" (paragraph), "c" (indented code), ("f", char, length), ("h", end)
+    empty_item = 0  # len(stack) after a list item whose first line is blank, on the next line
+    for n, raw in enumerate(lines):
+        line = raw.expandtabs(4)
+        pos = keep = 0  # keep: containers this line continues
+        fresh, empty_item = empty_item, 0
+        for col in stack:
+            if col < 0:
+                m = _QUOTE_RE.match(line, pos)
+                if not m:
+                    break
+                pos = m.end() + (line[m.end():m.end() + 1] == " ")
+            elif line[pos:].strip(" "):
+                if len(line) - pos - len(line[pos:].lstrip(" ")) < col:
+                    break
+                pos += col
+            keep += 1
+        if fresh and keep >= fresh and not line[pos:].strip(" "):
+            keep = fresh - 1  # a list item can begin with at most one blank line
+        if isinstance(leaf, tuple):
+            if keep == len(stack):
+                if leaf[0] == "f":
+                    mask[n] = True
+                    m = _FENCE_CLOSE_RE.match(line, pos)
+                    if m and m.group(1)[0] == leaf[1] and len(m.group(1)) >= leaf[2]:
+                        leaf = None
+                    continue
+                end = leaf[1]
+                if end is None and not line[pos:].strip(" "):
+                    leaf = None
+                elif end is not None and end.search(line, pos):
+                    leaf = None
+                continue
+            leaf = None  # its container ended, so did the fence or HTML block
+        while True:  # the blocks this line starts
+            rest = line[pos:]
+            body = rest.lstrip(" ")
+            ind = len(rest) - len(body)
+            inner = keep == len(stack)
+            if not body:
+                del stack[keep:]
+                leaf = None
+                break
+            if ind >= 4:
+                if leaf != "p" or (not inner and _lazy_line_ends(stack, keep, body)):
+                    del stack[keep:]
+                    leaf = "c"
+                break
+            m = _FENCE_OPEN_RE.match(body)
+            if m:
+                del stack[keep:]
+                leaf = ("f", m.group(0)[0], len(m.group(0)))
+                mask[n] = True
+                break
+            if body[0] == ">":
+                del stack[keep:]
+                stack.append(-1)
+                keep = len(stack)
+                pos += ind + 1 + (body[1:2] == " ")
+                leaf = None
+                continue
+            if (leaf == "p" and inner and _SETEXT_RE.match(body)) or _HR_RE.match(body):
+                del stack[keep:]
+                leaf = None
+                break
+            m = _LIST_RE.match(body)
+            after = body[m.end():] if m else ""
+            empty = not after.strip(" ")
+            if m and not (leaf == "p" and inner and (empty or (m.group(1) is not None and int(m.group(1)) != 1))):
+                del stack[keep:]
+                gap = len(after) - len(after.lstrip(" "))
+                stack.append(ind + m.end() + (1 if empty or gap > 4 else gap))
+                keep = len(stack)
+                leaf = None
+                if empty:
+                    empty_item = len(stack)
+                    break
+                pos += stack[-1]
+                continue
+            m = _FOOTNOTE_RE.match(body)  # ends a paragraph, but goes on with one in a quote the line left
+            if m and (leaf != "p" or inner or all(c >= 0 for c in stack[keep:])):
+                del stack[keep:]
+                stack.append(4)
+                keep = len(stack)
+                leaf = None
+                pos += ind + m.end()
+                pos = len(line) - len(line[pos:].lstrip(" "))
+                continue
+            if leaf != "p" and _REF_RE.match(body):
+                del stack[keep:]
+                leaf = None
+                break
+            html = _html_block(body)
+            if html and (html[2] or leaf != "p"):
+                del stack[keep:]
+                leaf = None if html[1] is not None and html[1].search(body) else ("h", html[1])
+                break
+            if _ATX_RE.match(body) or (ind == 0 and _SLOT_RE.match(body)):
+                del stack[keep:]
+                leaf = None
+                break
+            if leaf != "p":  # a new paragraph; otherwise it continues (lazily, when containers ended)
+                del stack[keep:]
+                leaf = "p"
+            break
+    return mask
+
+
+def strip_code(text: str) -> str:
+    """``text`` with the lines of fenced code blocks emptied (:func:`code_lines`)."""
+    return "\n".join("" if code else line for line, code in zip(_NEWLINE_RE.split(text), code_lines(text)))
+
+
 # --------------------------------------------------------------------------- decks
 
 
@@ -505,7 +701,6 @@ def count_slides(text: str) -> int:
 _TAG_RE = re.compile(r"<([A-Za-z][\w-]*)(?=[\s/>])((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
 COMPONENTS = ("LeanBadge", "TheoremCard")
 _ATTR_RE = re.compile(r"([:@]?[\w.-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'))?")
-_FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[^\n]*$", re.M)
 _ABS_LINK_RES = (
     re.compile(r"\b(?:href|src|poster|data)\s*=\s*[\"'](/(?!/)[^\"']*|file:[^\"']*)[\"']", re.I),
     re.compile(r"\]\((/(?!/)[^)\s]*|file:[^)\s]*)\)"),
@@ -529,10 +724,11 @@ def component(tag: str) -> str:
 
 def citations(content: str) -> tuple[list[Citation], list[str]]:
     """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide (in any spelling Vue accepts, e.g.
-    ``<lean-badge>``), in order, and problems found. ``Citation.tag`` is the PascalCase name."""
+    ``<lean-badge>``) outside fenced code (:func:`code_lines`), in order, and problems found.
+    ``Citation.tag`` is the PascalCase name."""
     out: list[Citation] = []
     problems: list[str] = []
-    for m in _TAG_RE.finditer(_FENCE_RE.sub("", content)):
+    for m in _TAG_RE.finditer(strip_code(content)):
         tag = component(m.group(1))
         if tag not in COMPONENTS:
             continue
@@ -700,8 +896,9 @@ def check(book: config.Book) -> list[Issue]:
                 cites[ed.lang].append(found)
                 for msg in problems:
                     err(ed.path, s.line, msg)
+                text = strip_code(s.content)
                 for rx in _ABS_LINK_RES:
-                    for m in rx.finditer(_FENCE_RE.sub("", s.content)):
+                    for m in rx.finditer(text):
                         err(ed.path, s.line, f"link {m.group(1)} is absolute; the site is served under /<repo>/, "
                                              "use a relative or https:// link")
                 for c in found:
@@ -920,18 +1117,27 @@ def read_manifest(out_dir: Path) -> dict[str, Any] | None:
 
 
 def _stale(book: config.Book, out_dir: Path, manifest: dict[str, Any] | None, base: str) -> str:
+    """Why the build in ``out_dir`` cannot be published as it is ('' when it can). Each edition is built for
+    its path on the site (its links and language switcher say so): the site's base path, ``<deck>/`` for the
+    book's first language and ``<deck>/<lang>/`` for the others, and the deck's languages."""
     if manifest is None:
         return f"{paths.rel(out_dir)} has no build"
     if manifest.get("base") != base:
         return f"{paths.rel(out_dir)} was built for base {manifest.get('base')!r}, the site uses {base!r}"
     for deck in deck_names(book):
         built = manifest.get("decks", {}).get(deck, {}).get("langs", {})
-        for lang in deck_langs(book, deck):
-            if lang not in book.languages:
-                continue
+        langs = [lang for lang in deck_langs(book, deck) if lang in book.languages]
+        for lang in langs:
             info = built.get(lang)
             if not info or not (out_dir / info["dir"] / "index.html").is_file():
                 return f"{deck} ({lang}) is not built"
+            want = site_path(book, deck, lang)
+            if info.get("site_path") != want:
+                return (f"{deck} ({lang}) was built for {info.get('site_path')!r}, the site uses {want!r} "
+                        f"({book.languages[0]} is the book's first language)")
+        gone = sorted(set(built) - set(langs))
+        if gone:
+            return f"{deck} was built with {', '.join(gone)} as well, which is no longer an edition of it"
     return ""
 
 
@@ -941,8 +1147,9 @@ def publish(site: config.Site, book: config.Book, site_dir: Path, *, build_missi
     The book's first language goes to ``<deck>/``, other languages to ``<deck>/<lang>/``, PDFs to
     ``<deck>/<slug>-<deck>-<lang>.pdf``; chapter pages already in ``site_dir.parent/<lang>/`` lose their
     links to PDFs that were not built.
-    Decks not built yet (or built for another base path) are built first unless ``build_missing`` is
-    False, in which case a RuntimeError names the problem. Returns :func:`items` for the published decks.
+    Decks not built yet, or built for other paths (another base path or first language, other languages:
+    :func:`_stale`), are built first unless ``build_missing`` is False, in which case a RuntimeError names
+    the problem. Returns :func:`items` for the published decks.
     """
     names = deck_names(book)
     if not names:
