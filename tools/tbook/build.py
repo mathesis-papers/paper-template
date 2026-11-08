@@ -62,6 +62,11 @@ def _timed(label: str, fn, result: BuildResult) -> None:
 
 def build(targets: list[str], books: list[config.Book], langs: list[str] | None = None,
           *, pdf_variants: list[str] | None = None) -> BuildResult:
+    unknown = [lang for lang in langs or [] if not any(lang in book.languages for book in books)]
+    if unknown:
+        have = "; ".join(f"{book.slug} ({', '.join(book.languages)})" for book in books) or "no books"
+        raise config.ConfigError(f"no {' or '.join(repr(lang) for lang in unknown)} edition in the selected "
+                                 f"books: {have}")
     site = config.load_site()
     lock = lean.Lock.load()
     result = BuildResult()
