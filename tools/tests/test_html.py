@@ -95,7 +95,8 @@ class FindMathTest(unittest.TestCase):
         self.assertEqual(notes, [])
         spans, _ = mathrender.find_math("inline $$x$$ display")
         self.assertEqual([(s.tex, s.display, s.block) for s in spans], [("x", True, False)])
-        spans, _ = mathrender.find_math("    $$x$$")  # would be an indented code block
+        self.assertEqual(mathrender.find_math("    $$x$$")[0], [])  # an indented code block
+        spans, _ = mathrender.find_math("- item\n\n    $$x$$")  # list item text, not an HTML block
         self.assertFalse(spans[0].block)
 
     def test_display_in_blockquote(self):

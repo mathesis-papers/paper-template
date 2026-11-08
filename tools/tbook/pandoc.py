@@ -23,8 +23,12 @@ Staging (:func:`stage`):
 * chapters are separate pages in HTML but one document here, so names that are only unique
   per chapter are scoped: footnote labels become ``[^<chapter id>--<label>]``
   (:func:`scope_footnotes`), and every heading without an explicit id gets one
-  (:func:`heading_slugs` — its mdBook / Pandoc slug, or ``<chapter id>--<slug>`` when another
-  chapter already uses that slug);
+  (:func:`heading_slugs` — its mdBook id, formulas counted as the text KaTeX shows, or
+  ``<chapter id>--<slug>`` when another chapter already uses that slug); ``{-}`` is read as
+  ``.unnumbered``, and a heading right under a line of text gets a blank line before it so
+  Pandoc reads it as one;
+* fenced and indented code blocks, HTML comments and inline code are never rewritten
+  (:func:`_code_mask`);
 * links between chapter files (``other.md``, ``other.md#x``, ``#x``) become internal ``#ids``
   (a heading slug resolves within the linked chapter, as in HTML); relative images of
   nested chapters are rebased onto the staging root and files inside the edition are
@@ -320,11 +324,13 @@ SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
 # Pandoc footnote labels: no whitespace, "^", "[" or "]".
 FOOTNOTE_REF_RE = re.compile(r"\[\^(?P<label>[^\s^\[\]]+)\]")
 FOOTNOTE_DEF_RE = re.compile(r"^ {0,3}\[\^(?P<label>[^\s^\[\]]+)\]:")
-# Inline link or image (text kept), raw HTML tags and a trailing attribute block that
-# mdscan cannot parse ({-}): what heading_slugs strips before slugifying.
+# Inline link or image (text kept) and raw HTML tags: what heading slugs strip; a trailing
+# brace block that Pandoc cannot parse ({weird stuff}) stays text in Pandoc, but mdBook
+# reads it as attributes and drops it from the id.
 _HEADING_LINK_RE = re.compile(r"!?\[((?:[^\[\]\\]|\\.)*)\]\([^)]*\)")
 _HEADING_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
 _UNPARSED_ATTRS_RE = re.compile(r"\{[^{}]*\}\s*$")
+_MATH_MARK = 0xE000  # private-use placeholders for the formulas of a heading (_mdbook_plain)
 _ATTR_BLOCK_RE = re.compile(r"\{([^{}\n]*)\}")
 _ATTR_ID_RE = re.compile(r"(?:^|\s)#([^\s{}#.=\"']+)")
 # Files a Pandoc image can embed (a reference definition to anything else is a plain link).
@@ -369,10 +375,12 @@ class Stage:
 
 
 def _code_mask(lines: list[str]) -> list[bool]:
-    """True for lines inside fenced code blocks (also in block quotes and list items) or HTML
-    comments (never rewritten); fences are found exactly as :func:`tbook.mdscan.parse_blocks`
-    finds them (:func:`tbook.mdscan.fence_end`)."""
+    """True for lines inside fenced code blocks (also in block quotes and list items),
+    indented code blocks or HTML comments (never rewritten); fences are found exactly as
+    :func:`tbook.mdscan.parse_blocks` finds them (:func:`tbook.mdscan.fence_end`), indented
+    code as the math scanner finds it (:func:`tbook.mdscan.indented_code_lines`)."""
     mask = [False] * len(lines)
+    indented = mdscan.indented_code_lines(lines)
     comment = False
     i = 0
     while i < len(lines):
@@ -387,6 +395,10 @@ def _code_mask(lines: list[str]) -> list[bool]:
         if end is not None:
             mask[i:end + 1] = [True] * (end + 1 - i)
             i = end + 1
+            continue
+        if indented[i]:
+            mask[i] = True
+            i += 1
             continue
         stripped = line.lstrip()
         if stripped.startswith("<!--") and "-->" not in stripped[4:]:
@@ -415,6 +427,28 @@ def normalize_setext(md: str) -> str:
     return "\n".join(out)
 
 
+def heading_attrs(raw: str) -> mdscan.Attrs:
+    """A heading's attribute block as Pandoc reads it: ``-`` is ``.unnumbered`` (``{-}``,
+    ``{- #id}``) and of several ``#id`` the last wins (as in mdBook). Raises
+    :class:`tbook.mdscan.AttrError` for what Pandoc would show as text (``{weird stuff}``)."""
+    text, pos, tokens = raw.strip(), 0, []
+    while pos < len(text):
+        if text[pos] == "-" and (pos + 1 == len(text) or text[pos + 1].isspace()):
+            tokens.append(".unnumbered")
+            pos += 1
+        else:
+            m = mdscan.ATTR_TOKEN_RE.match(text, pos)
+            if not m or m.end() == pos:
+                return mdscan.parse_attrs(text)  # raises AttrError with the parser's message
+            tokens.append(m.group(0).strip())
+            pos = m.end()
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+    last_id = max((k for k, tok in enumerate(tokens) if tok.startswith("#")), default=-1)
+    kept = [tok for k, tok in enumerate(tokens) if not tok.startswith("#") or k == last_id]
+    return mdscan.parse_attrs(" ".join(kept))
+
+
 def parse_heading(line: str) -> tuple[int, str, mdscan.Attrs | None] | None:
     m = ATX_RE.match(line)
     if not m:
@@ -425,7 +459,7 @@ def parse_heading(line: str) -> tuple[int, str, mdscan.Attrs | None] | None:
     am = ATTR_TAIL_RE.search(rest)
     if am:
         try:
-            attrs = mdscan.parse_attrs(am.group("attrs"))
+            attrs = heading_attrs(am.group("attrs"))
             rest = rest[:am.start()].rstrip()
         except mdscan.AttrError:
             attrs = None
@@ -463,8 +497,8 @@ def scope_footnotes(md: str, prefix: str) -> str:
 
     Each chapter is its own page in HTML, so ``[^1]`` is reused from chapter to chapter;
     book.md holds every chapter and Pandoc would give every ``[^1]`` the text of the last
-    definition in the book. Only labels defined in the chapter are renamed; fenced code,
-    HTML comments and inline code are left alone.
+    definition in the book. Only labels defined in the chapter are renamed; fenced and
+    indented code, HTML comments and inline code are left alone.
     """
     lines = md.split("\n")
     mask = _code_mask(lines)
@@ -490,16 +524,55 @@ def _heading_plain(text: str) -> str:
     return re.sub(r"\\(.)", r"\1", text)
 
 
-def heading_slugs(text: str) -> list[str]:
-    """The automatic ids of a heading before de-duplication: mdBook's (the HTML edition,
-    which authors link to) first, then Pandoc's ``gfm_auto_identifiers`` when it differs."""
-    plain = _heading_plain(text)
-    mdbook = "".join("-" if ch.isspace() else ch for ch in plain.strip().lower()
+def _mdbook_plain(text: str, math: dict[tuple[str, bool], str] | None) -> str:
+    """:func:`_heading_plain` with each formula replaced by the text KaTeX shows for it
+    (``math``: ``(tex, display)`` → text); without an entry the TeX source stands in."""
+    spans = mathrender.find_math(text)[0] if math else []
+    if not spans:
+        return _heading_plain(text)
+    parts, cursor = [], 0
+    for k, span in enumerate(spans):  # placeholders, so the formula text is never re-parsed
+        parts += [text[cursor:span.start], chr(_MATH_MARK + k)]
+        cursor = span.end
+    plain = _heading_plain("".join(parts) + text[cursor:])
+    for k, span in enumerate(spans):
+        shown = math.get((span.tex, span.display))
+        if shown is None:
+            shown = _heading_plain(text[span.start:span.end])
+        plain = plain.replace(chr(_MATH_MARK + k), shown)
+    return plain
+
+
+def _slug_pair(text: str, shown: str, math: dict[tuple[str, bool], str] | None) -> tuple[str, str]:
+    """(mdBook's id, Pandoc's ``gfm_auto_identifiers`` id) of a heading before de-duplication.
+
+    mdBook makes its id from the text of the rendered heading (``shown``, which lacks a trailing
+    ``{…}`` that only mdBook reads as attributes; formulas as KaTeX shows them); Pandoc from
+    the text it reads, formulas as TeX.
+    """
+    mdbook = "".join("-" if ch.isspace() else ch for ch in _mdbook_plain(shown, math).strip().lower()
                      if ch.isalnum() or ch in "-_" or ch.isspace())
-    gfm = "".join("-" if ch.isspace() else ch for ch in plain.lower()
+    gfm = "".join("-" if ch.isspace() else ch for ch in _heading_plain(text).lower()
                   if ch.isspace() or ch.isalnum() or ch in "-_"
                   or unicodedata.category(ch) in ("Mn", "Mc", "Me", "Pc"))
-    return [s for i, s in enumerate((mdbook, gfm)) if s and s not in (mdbook, gfm)[:i]]
+    return mdbook, gfm
+
+
+def heading_slugs(text: str, math: dict[tuple[str, bool], str] | None = None) -> list[str]:
+    """The automatic ids of a heading before de-duplication: mdBook's (the HTML edition,
+    which authors link to) first, then Pandoc's ``gfm_auto_identifiers`` when it differs.
+
+    ``math`` maps ``(tex, display)`` to the text KaTeX shows (:func:`tbook.mathrender.formula_texts`):
+    mdBook's id of ``关于 $\\beta$ 的估计`` is ``关于-β-的估计``. Without it the TeX stands in.
+    """
+    pair = _slug_pair(text, text, math)
+    return [s for i, s in enumerate(pair) if s and s not in pair[:i]]
+
+
+def _mdbook_text(h: Heading) -> str:
+    """The heading text mdBook shows: it reads any trailing ``{…}`` as attributes, also one
+    that Pandoc (and :func:`heading_attrs`) cannot parse and keeps as text."""
+    return _UNPARSED_ATTRS_RE.sub("", h.text).rstrip() if h.attrs is None else h.text
 
 
 def _unique(base: str, used: set[str]) -> str:
@@ -532,43 +605,66 @@ class HeadingIds:
     anchors: dict[str, dict[str, str]] = field(default_factory=dict)  # chapter → fragment → id
 
 
+def _heading_math(heads: list[Heading], render_math) -> dict[tuple[str, bool], str]:
+    """``(tex, display)`` → shown text for the formulas of ``heads`` (one ``render_math`` call)."""
+    if render_math is None:
+        return {}
+    items = list(dict.fromkeys((s.tex, s.display) for h in heads
+                               for s in mathrender.find_math(_mdbook_text(h))[0]))
+    shown = render_math(items) if items else None
+    return dict(zip(items, shown)) if shown is not None else {}
+
+
 def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, str],
-                       taken: set[str]) -> HeadingIds:
+                       taken: set[str], *, render_math=None) -> HeadingIds:
     """Give every heading without an explicit id one that is unique in the whole book.
 
     ``chapters`` is ``(path, rendered Markdown)`` in book order; ``taken`` holds the ids
     already in use (environments, chapters, parts…) and receives the new ones. A heading
-    keeps its slug when no other chapter uses it, otherwise it becomes
+    keeps its mdBook slug when no other chapter uses it, otherwise it becomes
     ``<chapter id>--<slug>``. ``anchors`` resolves a fragment within its chapter as the
-    chapter's HTML page does (its own explicit ids first, then its automatic heading ids),
-    so ``other.md#summary`` reaches the "Summary" of ``other.md``, not the first in the book.
+    chapter's HTML page does (its own explicit ids first, then mdBook's automatic heading
+    ids, then Pandoc's), so ``other.md#summary`` reaches the "Summary" of ``other.md``, not
+    the first in the book.
+
+    ``render_math(items)`` returns the text the HTML edition shows for each ``(tex, display)``
+    formula in a heading (:func:`tbook.mathrender.formula_texts`), or None when it cannot;
+    mdBook's id of a heading with math is made from that text. Without it the TeX source
+    stands in, and fragments copied from the HTML edition do not reach such headings.
     """
     parsed = [(posixpath.normpath(path), md, find_headings(normalize_setext(md))) for path, md in chapters]
     for _, _, heads in parsed:
         taken |= {h.attrs.id for h in heads if h.attrs and h.attrs.id}
+    math = _heading_math([h for _, _, heads in parsed for h in heads if not (h.attrs and h.attrs.id)], render_math)
     out = HeadingIds()
     for path, md, heads in parsed:
         cid = chapter_ids[path]
         own = explicit_ids(md)
         lines = out.by_line.setdefault(path, {})
-        anchors = out.anchors.setdefault(path, {})
-        local: set[str] = set()  # automatic ids of this chapter, de-duplicated as mdBook does
+        # Automatic ids of this chapter, each tool de-duplicating its own as it does.
+        mdbook_ids: set[str] = set()
+        pandoc_ids: set[str] = set()
+        reach: list[tuple[str, str]] = []  # (mdBook fragment, id)
+        reach_pandoc: list[tuple[str, str]] = []
         title = next((h for h in heads if h.level == 1), None)
         for h in heads:
             if h.attrs and h.attrs.id:
                 continue
-            if h.attrs is None and _UNPARSED_ATTRS_RE.search(h.text):
-                continue  # `{-}` and similar: left to Pandoc
-            slugs = [_unique(s, local) for s in heading_slugs(h.text)]
+            mdbook, gfm = _slug_pair(h.text, _mdbook_text(h), math)
+            mdbook = _unique(mdbook, mdbook_ids) if mdbook else ""
+            gfm = _unique(gfm, pandoc_ids) if gfm else ""
             if h is title:
                 new = cid  # restructure_chapter gives the chapter title its id
             else:
-                base = _safe_id(slugs[0] if slugs else "")
+                base = _safe_id(mdbook or gfm)
                 new = _unique(base if base not in taken else f"{cid}--{base}", taken)
                 lines[h.index] = new
-            for s in slugs:
-                if s not in own:
-                    anchors.setdefault(s, new)
+            reach.append((mdbook, new))
+            reach_pandoc.append((gfm, new))
+        anchors = out.anchors.setdefault(path, {})
+        for frag, new in reach + reach_pandoc:
+            if frag and frag not in own:
+                anchors.setdefault(frag, new)
     return out
 
 
@@ -679,7 +775,9 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
     """Shift headings by ``depth``, decorate the chapter title heading, rewrite links.
 
     ``heading_ids`` maps line numbers (of the setext-normalized text) to the ids that
-    :func:`assign_heading_ids` gave headings without one.
+    :func:`assign_heading_ids` gave headings without one. A heading right under a line of
+    text gets a blank line before it: mdBook reads it as a heading there, Pandoc
+    (``blank_before_header``) would read the line, ``{#id}`` included, as paragraph text.
     """
     md = normalize_setext(md)
     lines = md.split("\n")
@@ -704,6 +802,8 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
             elif heading_ids and i in heading_ids and not (attrs and attrs.id):
                 attrs = attrs or mdscan.Attrs()
                 attrs.id = heading_ids[i]
+            if out and out[-1].strip():
+                out.append("")
             out.append(format_heading(min(6, level + depth), text, attrs))
             continue
         out.append(linker.rewrite_line(line, chapter_path) if linker else line)
@@ -769,7 +869,18 @@ def stage(site: config.Site, book: config.Book, edition: config.Edition, model: 
                 cid, n = f"{base}-{n}", n + 1
         taken.add(cid)
         chapter_ids[posixpath.normpath(doc.chapter.path)] = cid
-    heading_ids = assign_heading_ids([(doc.chapter.path, md) for doc, md in rendered], chapter_ids, taken)
+
+    def heading_math(items: list[tuple[str, bool]]) -> list[str] | None:
+        # mdBook's id of a heading with math is made from the text KaTeX shows (Node needed).
+        try:
+            return mathrender.formula_texts(items)
+        except mathrender.MathError as exc:
+            result.warnings.append(f"{edition.key}: ids of headings with math follow their TeX, not the HTML "
+                                   f"edition, so links to them may not resolve (KaTeX unavailable: {exc})")
+            return None
+
+    heading_ids = assign_heading_ids([(doc.chapter.path, md) for doc, md in rendered], chapter_ids, taken,
+                                     render_math=heading_math)
 
     # Pass 2: restructure and concatenate.
     staged_files: set[str] = set()

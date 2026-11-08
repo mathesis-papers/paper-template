@@ -39,7 +39,7 @@ description: 构建或排查书的导出产物时使用：mdBook HTML、Typst PD
 
 1. **先跑 `./tbook check`。** 导出不修内容错误；未解析的引用会渲染成 `[@id?]`。
 2. **字体**：PDF 用 Typst，只认 TTF/OTF。中文需要 Noto Serif/Sans CJK SC（CI 装 `fonts-noto-cjk`）；标题字体 Chakra Petch 与 JetBrains Mono 由 `tools/fetch-fonts.sh` 拉到 `.cache/fonts/`。缺字体时会回退，但字形会变——`./tbook doctor` 会提示。
-3. **数学**：HTML 端 KaTeX 渲染失败的公式显示为代码并在构建日志中警告；PDF 端是 Pandoc 的 TeX→Typst 转换，复杂环境（`aligned`、`cases`）若出错，先在小文件中用 `pandoc -t typst` 复现。EPUB 端是 MathML。
+3. **数学**：HTML 端 KaTeX 渲染失败的公式显示为代码并在构建日志中警告；PDF 端是 Pandoc 的 TeX→Typst 转换，复杂环境（`aligned`、`cases`）若出错，先在小文件中用 `pandoc -t typst` 复现。EPUB 端是 MathML。标题含公式时，PDF/EPUB 构建也调用 Node（KaTeX）算出与 HTML 相同的标题 id；日志出现“ids of headings with math follow their TeX”时先 `npm ci`，否则指向这类标题的链接会变成纯文字。
 4. **EPUB 校验**：构建后运行 epubcheck；Apple Books 对 XHTML 很严格，任何原始 HTML 都必须是合法 XHTML。
 5. **Apple Books 显示**：不要在 CSS 中强制页面背景色；夜间主题由 `prefers-color-scheme: dark` 和 Apple 的主题选择器切换霓虹配色。用 Books（macOS/iOS）打开实测一次。
 6. **图片**：放在 `books/<slug>/assets/`，章节中写 `../assets/x.svg`；构建会复制进 `_book/`。PDF 支持 SVG/PNG/JPG。

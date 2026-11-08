@@ -4,6 +4,8 @@ It understands just enough of Pandoc Markdown for the book conventions:
 
 * fenced code blocks (backticks or tildes), also inside block quotes and list items —
   always passed through verbatim;
+* indented code blocks outside list items and footnotes (:func:`indented_code_lines`),
+  which the PDF/EPUB stager and the math scanner leave alone;
 * fenced divs ``::: {.theorem #thm-x lean="…"}`` … ``:::`` (and ``::: theorem``),
   nested by stack, as in Pandoc;
 * inline code spans, so that ``[@ref]``, ``lean:`` links and math inside code are ignored;
@@ -189,6 +191,51 @@ def fenced_code_lines(lines: list[str]) -> list[bool]:
             continue
         mask[i:end + 1] = [True] * (end + 1 - i)
         i = end + 1
+    return mask
+
+
+_ITEM_START_RE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)|^[ \t]*\[\^[^\]\s]+\]:")
+_ATX_START_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
+
+
+def indented_code_lines(lines: list[str], hidden: list[bool] | None = None) -> list[bool]:
+    """True for each line of an indented code block (4 or more columns; a tab counts as 4).
+
+    Such a block starts after a blank line, a heading or a fenced code block, outside list
+    items and footnote definitions: there, indented text after a blank line continues the
+    item, and a paragraph's next line is never code (CommonMark, Pandoc). Blank lines
+    between its lines belong to the block. Lines in ``hidden`` (default:
+    :func:`fenced_code_lines`) are never part of one.
+    """
+    hidden = hidden if hidden is not None else fenced_code_lines(lines)
+    mask = [False] * len(lines)
+    boundary = True  # the previous line ended a block
+    nested = False  # inside a list item or a footnote definition
+    code = False
+    last = -1  # last line of the current indented block
+    for i, line in enumerate(lines):
+        indent = _width(line[:len(line) - len(line.lstrip(" \t"))])
+        if hidden[i]:
+            if indent == 0 and not (i and hidden[i - 1]):
+                nested = False  # a fence at the left margin ends a list item
+            boundary, code = True, False
+            continue
+        if not line.strip():
+            boundary = True
+            continue
+        if indent >= 4 and (code or (boundary and not nested)):
+            if code:
+                mask[last + 1:i] = [True] * (i - last - 1)  # blank lines inside the block
+            mask[i] = code = True
+            boundary, last = False, i
+            continue
+        code = False
+        heading = _ATX_START_RE.match(line) is not None
+        if _ITEM_START_RE.match(line):
+            nested = True
+        elif indent == 0 and (boundary or heading):
+            nested = False
+        boundary = heading
     return mask
 
 

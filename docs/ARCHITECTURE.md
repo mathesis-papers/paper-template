@@ -85,7 +85,8 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 - `` [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued) `` → 指向所钉提交上 Lean 源文件（含行号）的永久链接。
 - 图片：`![说明](../assets/figure.svg)`。指向书目录内、语言目录外的文件会被复制进构建目录 `_book/`。引用式 `![说明][fig]` + `[fig]: ../assets/x.svg`、尖括号 `![说明](<../assets/有 空格.svg>)` 与百分号编码的路径同样处理（输出为百分号编码的 `_book/…`）。HTML 中，指向 `README.md` 章节的链接与指向其中条目的 `[@id]` 输出为 `index.html`（mdBook 把 README 发布为 index.html）。
 - 链接（非图片）到书内或语言目录内的文件（如 `../assets/data.csv`）：HTML 链接到构建目录中的副本；PDF/EPUB 改为指向网站上的同一副本（地址由 `site.book_url` 拼出），`base_url` 未知时只保留链接文字并警告。
-- 脚注标签与无显式 id 的标题按章节独立（与 HTML 每章一页一致）：PDF/EPUB 合并全书时，脚注标签变为 `[^<章节 id>--<标签>]`，标题得到全书唯一的 id（重名时为 `<章节 id>--<slug>`），`other.md#slug` 与 `#slug` 在所指章节内解析。
+- 脚注标签与无显式 id 的标题按章节独立（与 HTML 每章一页一致）：PDF/EPUB 合并全书时，脚注标签变为 `[^<章节 id>--<标签>]`，标题得到全书唯一的 id（重名时为 `<章节 id>--<slug>`），`other.md#slug` 与 `#slug` 在所指章节内解析。slug 就是 mdBook 给该标题的 id：标题中的公式按 KaTeX 显示的文字计算（`## 关于 $\beta$ 的估计` → `关于-β-的估计`，构建 PDF/EPUB 因此也调用 Node；不可用时退回 TeX 源码并警告），`{-}`（即 `.unnumbered`）等属性块也照此处理；Pandoc 自己的 slug（公式取 TeX）作为后备片段。
+- PDF/EPUB 合并时，围栏代码块、缩进代码块（列表与脚注之外，`mdscan.indented_code_lines`）、HTML 注释与行内代码原样保留：其中的链接、脚注与公式都不改写（HTML 端的 KaTeX 预渲染同样跳过缩进代码块）。紧贴在文字行下的标题前补一个空行：mdBook 本来就把它当作标题，Pandoc（`blank_before_header`）需要空行，否则 `{#id}` 会作为正文出现。
 
 ### 3.4 媒体
 
@@ -201,7 +202,7 @@ mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`
 | --- | --- |
 | `config` | `load_site()`、`load_book()`、`load_books()`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
 | `summary` | 解析 SUMMARY，章节编号前缀 |
-| `mdscan` | 代码块（含块引用与列表中的代码块；`fence_end` / `fenced_code_lines`）、fenced div、属性、行内代码、`[@id]`、`lean:` 链接 |
+| `mdscan` | 代码块（含块引用与列表中的代码块；`fence_end` / `fenced_code_lines`；列表与脚注之外的缩进代码块 `indented_code_lines`）、fenced div、属性、行内代码、`[@id]`、`lean:` 链接 |
 | `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 把标题中的 `[@id]` 换成引用文字）；`Issue` |
 | `lean` | 名称键解码、GID、冻结状态来源、`resolve()`、`Lock` 与永久链接 |
 | `render` | `RenderContext`、`env_view()`、`chapter_markdown()`（mdbook / pandoc 两种 target）；环境标题中的 `[@id]`（`env_title()`）；`rewrite_links()`（图片与文件链接，`check` 也用它找缺失文件）；Lean 声明未被锁文件解析时显示 `UNVERIFIED`、不给链接；`verified_envs()` 是所有 `LEAN ✓ n` 计数的唯一口径 |

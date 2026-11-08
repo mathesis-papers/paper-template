@@ -93,13 +93,13 @@ $$
 | `[@thm-deficit-three-valued]` | “定理1.3”，链接到该定理（跨章节可用） |
 | ``[`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`` | 指向所钉提交上 Lean 源文件对应行的永久链接 |
 | `[第二章](ch02-refutation-observation.md)` | 章节链接（HTML 为页面链接，PDF/EPUB 为内部跳转） |
-| `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章 |
+| `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章；片段照抄 HTML 页面上的锚点即可，标题含公式时也一样（`## 关于 $\beta$ 的估计` 的片段是 `#关于-β-的估计`） |
 | `![图注](../assets/figure.svg)` | 图片；放在 `assets/` 的图各语言共享 |
 | `![图注][fig]` + `[fig]: ../assets/figure.svg` | 引用式图片，同上 |
 | `![图注](<../assets/有 空格.svg>)` | 路径含空格时用尖括号 |
 | `[数据表](../assets/data.csv)` | 文件下载：HTML 指向复制进 `_book/` 的文件；PDF/EPUB 不能内嵌非图片文件，改为指向网站上的同一文件（需要 `site.toml` 的 `base_url` 或可推断的 repo，否则只保留文字并警告） |
 
-脚注 `[^1]` 在每章内独立（PDF/EPUB 合并全书时自动加章节前缀）；`@` 只在 `[@id]` 中表示引用，正文里的 `@name` 是普通文字。
+脚注 `[^1]` 在每章内独立（PDF/EPUB 合并全书时自动加章节前缀）；代码块（围栏或缩进四格）里的脚注、链接与公式各端都照原样显示；`@` 只在 `[@id]` 中表示引用，正文里的 `@name` 是普通文字。
 
 ## 5. 媒体
 
