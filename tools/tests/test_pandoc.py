@@ -10,7 +10,9 @@ typst, Java/epubcheck or the example book's Lean lock skip themselves when unava
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import io
 import json
 import os
 import re
@@ -410,7 +412,90 @@ class HeadingHelpersTest(unittest.TestCase):
             self.assertEqual(linker.rewrite_line("Get [the table](files/table.csv).", "a.md"), "Get the table.")
             self.assertEqual(linker.rewrite_line("See ![dot](img/dot.png).", "a.md"), "See ![dot](_book/en/img/dot.png).")
             self.assertEqual(linker.rewrite_line("[t]: files/table.csv", "a.md"), "[t]: files/table.csv")
+            # An angle-bracket destination that cannot be rewritten stays as written.
+            self.assertEqual(linker.rewrite_line("[t]: <files/my table.csv>", "a.md"), "[t]: <files/my table.csv>")
         self.assertTrue(any("base_url" in w for w in warnings), warnings)
+
+    NESTED_FENCES = """# A
+
+> ```markdown
+> See [B](b.md) and [outside](../out.md).
+> ```
+
+- item
+
+  - nested item
+
+    ```markdown
+    See [B](b.md#sec-b).
+    ```
+
+````markdown
+> ```
+Shown after a quoted fence line: [B](b.md).
+````
+
+<!--
+[B](b.md)
+-->
+
+Real [B](b.md).
+"""
+
+    def test_links_in_quoted_and_list_fences_are_not_rewritten(self):
+        # Fences in block quotes and list items are code, as for tbook.render and Pandoc: a
+        # chapter link inside one is shown as written, and nothing there is warned about.
+        with tempfile.TemporaryDirectory() as tmp:
+            ed = make_book(Path(tmp)).edition("en")
+            warnings: list[str] = []
+            linker = tp._Linker(Path(tmp) / "stage", ed, {"a.md": "ch-a", "b.md": "ch-b"}, warnings, set(),
+                                anchors={"b.md": {"sec-b": "sec-b"}}, online=BASE_URL)
+            out = tp.restructure_chapter(self.NESTED_FENCES, chapter_path="a.md", depth=1, chapter_id="ch-a",
+                                         title="A", classes=["tr-chapter"], kv={}, linker=linker)
+        self.assertIn("> See [B](b.md) and [outside](../out.md).", out)
+        self.assertIn("    See [B](b.md#sec-b).", out)
+        self.assertIn("Shown after a quoted fence line: [B](b.md).", out)
+        self.assertIn("<!--\n[B](b.md)\n-->", out)
+        self.assertIn("Real [B](#ch-b).", out)
+        self.assertEqual(warnings, [])
+
+    def test_code_mask_follows_mdscan(self):
+        lines = self.NESTED_FENCES.split("\n")
+        code = [line for line, hidden in zip(lines, tp._code_mask(lines)) if hidden]
+        self.assertIn("> See [B](b.md) and [outside](../out.md).", code)
+        self.assertIn("    See [B](b.md#sec-b).", code)
+        self.assertIn("Shown after a quoted fence line: [B](b.md).", code)
+        self.assertIn("[B](b.md)", code)
+        self.assertNotIn("Real [B](b.md).", code)
+        self.assertNotIn("- item", code)
+
+    def test_spaced_and_encoded_paths(self):
+        # tbook.render writes <…> destinations percent-encoded; the linker looks files up by
+        # the decoded path and writes the staged path percent-encoded.
+        with tempfile.TemporaryDirectory() as tmp:
+            ed = make_book(Path(tmp)).edition("en")
+            (ed.dir / "img dir").mkdir()
+            (ed.dir / "img dir" / "a b.png").write_bytes(PNG_1PX)
+            (ed.dir / "my notes.md").write_text("# Notes\n", encoding="utf-8")
+            warnings: list[str] = []
+            files: set[str] = set()
+            chapters = {"a.md": "ch-a", "my notes.md": "ch-notes", "part/a1.md": "ch-part-a1"}
+            linker = tp._Linker(Path(tmp) / "stage", ed, chapters, warnings, files, online=BASE_URL)
+            staged = "_book/en/img%20dir/a%20b.png"
+            for src in ("![x](<img dir/a b.png>)", "![x](img%20dir/a%20b.png)"):
+                self.assertEqual(linker.rewrite_line(src, "a.md"), f"![x]({staged})")
+            self.assertEqual(linker.rewrite_line("![x](<../img dir/a b.png>)", "part/a1.md"), f"![x]({staged})")
+            self.assertEqual(linker.rewrite_line("[r]: <img dir/a b.png>", "a.md"), f"[r]: {staged}")
+            self.assertEqual(linker.rewrite_line("[n](my%20notes.md) [m](<my notes.md>)", "a.md"),
+                             "[n](#ch-notes) [m](#ch-notes)")
+            self.assertEqual(linker.rewrite_line("[f](<img dir/a b.png>)", "a.md"),
+                             f"[f]({BASE_URL}img%20dir/a%20b.png)")
+            self.assertEqual(linker.rewrite_line("![b](_book/assets/my%20fig.svg)", "a.md"),
+                             "![b](_book/assets/my%20fig.svg)")
+            self.assertEqual(linker.rewrite_line("![x](%2Fetc%2Fhosts)", "a.md"), "![x](%2Fetc%2Fhosts)")
+            self.assertTrue((Path(tmp) / "stage" / "_book/en/img dir/a b.png").is_file())
+        self.assertEqual(files, {"_book/en/img dir/a b.png"})
+        self.assertEqual(warnings, ["test-book/en/a.md: link leaves the edition: %2Fetc%2Fhosts"])
 
 
 @unittest.skipUnless(have_pandoc(), "pandoc not available")
@@ -730,6 +815,127 @@ class BuildTest(unittest.TestCase):
         self.assertIn(b"<svg", svg.read_bytes()[:400])
         with self.assertRaises(ValueError):
             cover.render_cover(self.site, self.book, self.ed, self.tmp / "c.gif", fmt="gif")
+
+
+class VerifiedCountTest(unittest.TestCase):
+    """Only formal results the lock backs count as LEAN ✓: ledger kicker, colophon, cover."""
+
+    GID_OK = "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"
+    GID_MISSING = "D5/S1/Deficit/DeficitThreeValued.not_in_the_lock"
+
+    def test_unbacked_results_are_not_counted(self):
+        lock = lean.Lock(repo="the-omega-institute/trureturing", branch="dev", commit="c" * 40, declarations={
+            self.GID_OK: {"module": "D5/S1/Deficit/DeficitThreeValued", "name": "D5.S1.Deficit.deficit_three_valued",
+                          "kind": "theorem", "statement_id": "sha256:3v", "line": 12, "signature": ""}})
+        site = fixture_site()
+        with tempfile.TemporaryDirectory() as tmp:
+            book = make_book(Path(tmp))
+            ed = book.edition("en")
+            with (ed.dir / "b.md").open("a", encoding="utf-8") as f:
+                f.write(f'\n::: {{.theorem #thm-ok lean="{self.GID_OK}"}}\nBacked.\n:::\n\n'
+                        f'::: {{.lemma #lem-missing lean="{self.GID_MISSING}"}}\nNot in the lock.\n:::\n\n'
+                        f'::: {{.corollary #cor-half lean="{self.GID_OK}, {self.GID_MISSING}"}}\nHalf backed.\n:::\n')
+            model = load_edition(ed)
+            with contextlib.redirect_stderr(io.StringIO()):  # the fixture's own link warnings
+                staged = tp.stage(site, book, ed, model, lock, out_dir=Path(tmp) / "stage")
+            md = staged.book_md.read_text(encoding="utf-8")
+            cover_meta = tp.book_meta(site, book, ed, model, lock)  # what tbook.cover draws
+        self.assertEqual([e.id for e in model.formal_envs()], ["thm-ok", "lem-missing", "cor-half"])
+        self.assertEqual(staged.formal_count, 1)
+        self.assertEqual(staged.meta["formal_count"], 1)
+        self.assertEqual(cover_meta["formal_count"], 1)
+        kicker = next(line for line in md.splitlines() if "{#tr-verification-ledger" in line)
+        self.assertIn('tr-kicker="LEAN ✓ 1"', kicker)
+        statement = tp.t("en", "pdf.verified_statement", n=1)
+        self.assertEqual(staged.meta["strings"]["verified_statement"], statement)
+        self.assertIn(tp._md_escape(statement), tp.epub_colophon(staged.meta))
+        # The ledger still lists every formal result; the unbacked ones are not linked as verified.
+        for env_id in ("thm-ok", "lem-missing", "cor-half"):
+            self.assertIn(f"](#{env_id})", md)
+
+
+@unittest.skipUnless(have_pandoc() and have_typst(), "pandoc or typst not available")
+class SpacedPathBuildTest(unittest.TestCase):
+    """An edition image whose path has spaces, written as ``<…>`` or percent-encoded, is staged
+    under its real name and embedded in the PDF and the EPUB, with no warning."""
+
+    STAGED = "_book/en/img dir/a b.png"
+    ALTS = ("spaced angle", "spaced encoded", "spaced reference", "spaced nested")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-test-spaced-"))
+        cls.site = fixture_site()
+        cls.book = make_book(cls.tmp)
+        cls.ed = cls.book.edition("en")
+        (cls.ed.dir / "img dir").mkdir()
+        (cls.ed.dir / "img dir" / "a b.png").write_bytes(_png(6, 6))
+        with (cls.ed.dir / "b.md").open("a", encoding="utf-8") as f:
+            f.write("\n![spaced angle](<img dir/a b.png>)\n\n![spaced encoded](img%20dir/a%20b.png)\n\n"
+                    "![spaced reference][sp]\n\n[sp]: <img dir/a b.png>\n")
+        with (cls.ed.dir / "part" / "a1.md").open("a", encoding="utf-8") as f:
+            f.write("\n![spaced nested](<../img dir/a b.png>)\n")
+        cls.model = load_edition(cls.ed)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def quiet(self, fn, *args, **kwargs):
+        """Run ``fn`` with stderr captured (stage warnings, Pandoc and Lua filter messages)."""
+        err = io.StringIO()
+        old = os.environ.get("TBOOK_EPUBCHECK")
+        os.environ["TBOOK_EPUBCHECK"] = "0"
+        try:
+            with contextlib.redirect_stderr(err):
+                out = fn(*args, **kwargs)
+        finally:
+            if old is None:
+                os.environ.pop("TBOOK_EPUBCHECK", None)
+            else:
+                os.environ["TBOOK_EPUBCHECK"] = old
+        self.assertNotIn("not found", err.getvalue())
+        self.assertNotIn("a b.png", err.getvalue())
+        self.assertNotIn("a%20b.png", err.getvalue())
+        return out
+
+    def test_staged(self):
+        staged = self.quiet(tp.stage, self.site, self.book, self.ed, self.model, None, out_dir=self.tmp / "stage")
+        md = staged.book_md.read_text(encoding="utf-8")
+        encoded = self.STAGED.replace(" ", "%20")
+        for alt in ("spaced angle", "spaced encoded", "spaced nested"):
+            self.assertIn(f"![{alt}]({encoded})", md)
+        self.assertIn(f"[sp]: {encoded}", md)
+        self.assertIn(self.STAGED, staged.files)
+        self.assertTrue((staged.dir / self.STAGED).is_file())
+        self.assertEqual([w for w in staged.warnings if "img" in w], [])
+
+    def test_pdf(self):
+        out = self.quiet(tp.build_pdf, self.site, self.book, self.ed, self.model, None, "print",
+                         self.tmp / "spaced.pdf", stage_dir=self.tmp / "stage-pdf")
+        self.assertTrue(out.read_bytes().startswith(b"%PDF-"))
+        main = (self.tmp / "stage-pdf" / "main.typ").read_text(encoding="utf-8")
+        self.assertEqual(main.count(f'image("{self.STAGED}"'), len(self.ALTS), main)
+
+    def test_epub(self):
+        out = self.quiet(tp.build_epub, self.site, self.book, self.ed, self.model, None, self.tmp / "spaced.epub",
+                         stage_dir=self.tmp / "stage-epub")
+        with zipfile.ZipFile(out) as z:
+            names = set(z.namelist())
+            pages = {n: z.read(n).decode("utf-8") for n in names if n.endswith(".xhtml")}
+            image = (self.tmp / "stage-epub" / self.STAGED).read_bytes()
+            found = []
+            for name, page in pages.items():
+                for src, alt in re.findall(r'<img src="([^"]+)" alt="(spaced [a-z]+)"', page):
+                    target = os.path.normpath(os.path.join(os.path.dirname(name), src))
+                    self.assertIn(target, names, f"{alt}: {src}")
+                    self.assertEqual(z.read(target), image, alt)
+                    found.append(alt)
+        self.assertEqual(sorted(found), sorted(self.ALTS))
+        if shutil.which("java"):
+            report = tp.check_epub(out)
+            if not report.skipped:
+                self.assertEqual(report.errors, [])
 
 
 @unittest.skipUnless(have_pandoc() and have_typst() and shutil.which("java"), "pandoc, typst or java missing")

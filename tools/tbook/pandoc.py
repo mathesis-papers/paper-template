@@ -28,9 +28,11 @@ Staging (:func:`stage`):
 * links between chapter files (``other.md``, ``other.md#x``, ``#x``) become internal ``#ids``
   (a heading slug resolves within the linked chapter, as in HTML); relative images of
   nested chapters are rebased onto the staging root and files inside the edition are
-  copied to ``_book/<lang>/…``; plain links to files (not images) cannot work inside a PDF
-  or EPUB, so they point to the file's published copy on the site (``site.book_url``) or,
-  without a known base URL, are dropped with a warning (their text is kept);
+  copied to ``_book/<lang>/…`` (looked up by the decoded path, so ``<a b.png>`` and
+  ``a%20b.png`` both work, and written percent-encoded); plain links to files (not
+  images) cannot work inside a PDF or EPUB, so they point to the file's published copy
+  on the site (``site.book_url``) or, without a known base URL, are dropped with a
+  warning (their text is kept);
 * :data:`tbook.mathrender.TEX_MACROS` is written at the top as ``\\newcommand`` definitions
   (expanded by Pandoc's ``latex_macros``; tr-env.lua gets them as ``tr-tex-macros`` for
   environment titles), so macros render as they do in HTML;
@@ -72,7 +74,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote
 
 from . import config, lean, ledger, mathrender, mdscan, paths, render
-from .model import FORMAL, OPEN, EditionModel, load_edition
+from .model import OPEN, EditionModel, Env, load_edition
 from .summary import chapter_prefix
 
 # No `citations`: [@id] references are resolved by tbook.render before Pandoc runs, and a
@@ -327,6 +329,14 @@ _ATTR_BLOCK_RE = re.compile(r"\{([^{}\n]*)\}")
 _ATTR_ID_RE = re.compile(r"(?:^|\s)#([^\s{}#.=\"']+)")
 # Files a Pandoc image can embed (a reference definition to anything else is a plain link).
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+# What a written destination percent-encodes, as tbook.render does: a fragment (whitespace,
+# angle brackets, parentheses) and a decoded file path (also "%", "#", "?" and backslashes).
+_DEST_UNSAFE_RE = re.compile(r"[\s<>()]")
+_PATH_UNSAFE_RE = re.compile(r"[\s<>()%#?\\]")
+
+
+def _url_quote(pattern: re.Pattern, text: str) -> str:
+    return pattern.sub(lambda m: quote(m.group(), safe=""), text)
 
 
 @dataclass
@@ -359,31 +369,30 @@ class Stage:
 
 
 def _code_mask(lines: list[str]) -> list[bool]:
-    """True for lines inside fenced code blocks or HTML comments (never rewritten)."""
+    """True for lines inside fenced code blocks (also in block quotes and list items) or HTML
+    comments (never rewritten); fences are found exactly as :func:`tbook.mdscan.parse_blocks`
+    finds them (:func:`tbook.mdscan.fence_end`)."""
     mask = [False] * len(lines)
-    fence: tuple[str, int] | None = None
     comment = False
-    for i, line in enumerate(lines):
-        if fence:
-            mask[i] = True
-            m = mdscan.FENCE_RE.match(line)
-            if m and m.group("fence")[0] == fence[0] and len(m.group("fence")) >= fence[1] and not m.group("info").strip():
-                fence = None
-            continue
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         if comment:
             mask[i] = True
             if "-->" in line:
                 comment = False
+            i += 1
             continue
-        m = mdscan.FENCE_RE.match(line)
-        if m:
-            fence = (m.group("fence")[0], len(m.group("fence")))
-            mask[i] = True
+        end = mdscan.fence_end(lines, i)
+        if end is not None:
+            mask[i:end + 1] = [True] * (end + 1 - i)
+            i = end + 1
             continue
         stripped = line.lstrip()
         if stripped.startswith("<!--") and "-->" not in stripped[4:]:
             comment = True
             mask[i] = True
+        i += 1
     return mask
 
 
@@ -600,30 +609,39 @@ class _Linker:
     def target(self, url: str, chapter_path: str, *, image: bool | None) -> str | None:
         """New URL, or None to drop the link (keeping its text).
 
-        ``image`` is True for images, False for links and None for reference definitions
-        (decided by the file type).
+        ``url`` is the destination as written: ``<…>`` (may contain spaces) or a plain,
+        possibly percent-encoded one (:mod:`tbook.render` writes ``<…>`` that way). Files are
+        looked up by the decoded path; a staged path is written percent-encoded. ``image``
+        is True for images, False for links and None for reference definitions (decided by
+        the file type).
         """
+        raw = url
+        if url.startswith("<") and url.endswith(">"):
+            url = url[1:-1]
         if render.EXTERNAL_RE.match(url) and not url.startswith("#"):
-            return url
+            return raw
         path_part, hash_, frag = url.partition("#")
         if not path_part:
             if frag and unquote(frag) not in self.env_ids:
                 return "#" + self.anchor(posixpath.normpath(chapter_path), frag)
-            return url
+            return raw
+        frag = _url_quote(_DEST_UNSAFE_RE, frag)
+        tail = hash_ + frag if hash_ else ""
+        path = unquote(path_part)
         chapter_dir = posixpath.dirname(chapter_path)
-        joined = posixpath.normpath(posixpath.join(chapter_dir, path_part))
+        joined = posixpath.normpath(posixpath.join(chapter_dir, path))
         embed = image if image is not None else joined.lower().endswith(IMAGE_SUFFIXES)
         if joined == "_book" or joined.startswith("_book/"):
             if not embed:
                 return self.published(joined, hash_, frag, chapter_path, url)
-            return joined + (hash_ + frag if hash_ else "")
-        if joined.startswith("../") or joined == "..":
+            return _url_quote(_PATH_UNSAFE_RE, joined) + tail
+        if joined.startswith(("../", "/")) or joined == "..":
             self.warnings.append(f"{self.edition.key}/{chapter_path}: link leaves the edition: {url}")
-            return url
+            return raw
         if joined in self.chapter_ids:
             return "#" + (self.anchor(joined, frag) if frag else self.chapter_ids[joined])
         if joined.endswith(".md") and image is False:
-            self.warnings.append(f"{self.edition.key}/{chapter_path}: link to {path_part}, which is not a "
+            self.warnings.append(f"{self.edition.key}/{chapter_path}: link to {path}, which is not a "
                                  "chapter of this edition; kept as text")
             return None
         src = self.edition.dir / joined
@@ -635,9 +653,9 @@ class _Linker:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
             self.files.add(staged)
-            return staged + (hash_ + frag if hash_ else "")
+            return _url_quote(_PATH_UNSAFE_RE, staged) + tail
         self.warnings.append(f"{self.edition.key}/{chapter_path}: linked file not found: {url}")
-        return url
+        return raw
 
     def rewrite_line(self, line: str, chapter_path: str) -> str:
         def link(m: re.Match) -> str:
@@ -650,9 +668,8 @@ class _Linker:
         rd = REFDEF_RE.match(line)
         if rd and not line.lstrip().startswith("[^"):
             raw = rd.group("url")
-            url = raw[1:-1] if raw.startswith("<") else raw
-            new = self.target(url, chapter_path, image=None)  # keep reference definitions as links
-            return f"{rd.group('lead')}{new or url}{rd.group('rest')}"
+            new = self.target(raw, chapter_path, image=None)  # keep reference definitions as links
+            return f"{rd.group('lead')}{new or raw}{rd.group('rest')}"
         return mdscan.sub_outside_code(render.LINK_RE, link, line)
 
 
@@ -694,6 +711,14 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
         attrs = mdscan.Attrs(id=chapter_id, classes=list(classes), kv=dict(kv))
         out = [format_heading(min(6, 1 + depth), title, attrs), ""] + out
     return "\n".join(out).strip("\n") + "\n"
+
+
+def verified_formal_envs(model: EditionModel, lock: lean.Lock | None) -> list[Env]:
+    """Formal results shown with the green LEAN ✓: every Lean citation resolves in the lock to
+    a frozen theorem (:func:`tbook.render.lean_verified`). Only these are counted in the ledger
+    kicker, the colophon and on the cover; the others are UNVERIFIED (``check`` rejects them)."""
+    return [e for e in model.formal_envs()
+            if render.lean_verified([render.lean_view(g, lock) for g in e.lean])]
 
 
 def _kicker(model: EditionModel, chapter, book: config.Book) -> str:
@@ -779,8 +804,7 @@ def stage(site: config.Site, book: config.Book, edition: config.Edition, model: 
         result.chapters.append(StagedChapter(path=ch.path, id=cid, section=ch.section, depth=ch.depth,
                                              title=heads[0].text if heads else ch.title))
 
-    formal = [e for e in model.all_envs() if e.kind in FORMAL]
-    result.formal_count = len(formal)
+    result.formal_count = len(verified_formal_envs(model, lock))
     result.open_count = len([e for e in model.all_envs() if e.kind in OPEN])
     ledger_md = ledger.ledger_markdown(model, lock)
     pieces.append(restructure_chapter(
@@ -911,7 +935,7 @@ def book_meta(site: config.Site, book: config.Book, edition: config.Edition, mod
               lock: lean.Lock | None, staged: Stage | None = None) -> dict:
     """Everything theme/typst/book.typ and cover.typ need, as plain JSON data."""
     lang = edition.lang
-    formal = staged.formal_count if staged else len(model.formal_envs())
+    formal = staged.formal_count if staged else len(verified_formal_envs(model, lock))
     opens = staged.open_count if staged else len([e for e in model.all_envs() if e.kind in OPEN])
     try:
         d = datetime.strptime(book.date[:10], "%Y-%m-%d")
@@ -1223,7 +1247,7 @@ def epub_colophon(meta: dict) -> str:
     if meta["repo_url"]:
         out.append(f"[{_md_escape(s['source'])}]{{.tr-k}} <{meta['repo_url']}>  ")
     out += [":::", ""]
-    out += [f"::: {{.tr-verified}}", _md_escape(s["verified_statement"]), ":::", ""]
+    out += ["::: {.tr-verified}", _md_escape(s["verified_statement"]), ":::", ""]
     if s["open_statement"]:
         out += [_md_escape(s["open_statement"]), ""]
     return "\n".join(out)
