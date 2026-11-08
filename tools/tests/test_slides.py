@@ -143,6 +143,17 @@ five
 """
 
 
+# Decks whose slides start or end with characters Python and JavaScript disagree on as whitespace, and a
+# frontmatter opener with a line separator in it (JavaScript's . stops there).
+UNICODE_EDGES = [
+    '# a\n\n---\n\n\u0085```\n<LeanBadge gid="x" />\n```\n\n---\n\n\ufeff\x1ctext\ufeff\n',
+    "a\n\n---\n\n\ufeff```\nb\n```\n\n---\n\nc\n\n\u0085",
+    "a\n\n---\u2028x\nlayout: cover\n---\n\nb\n",
+    "a\n\n---\nlayout: cover\n---\u0085\n\nb\n\n---\n\n\x1f```yaml\nlayout: cover\n```\n\nc\n",
+    "a\n\n\u0085```\n---\n```\n\nb\n",
+]
+
+
 class SplitTest(unittest.TestCase):
     def test_tricky_counts_and_frontmatter(self):
         got = slides.split_slides(TRICKY)
@@ -157,6 +168,22 @@ class SplitTest(unittest.TestCase):
         text = "---\ntitle: t\n---\n\na\n\n---\nhide: true\n---\n\nb\n\n---\n\nc\n"
         self.assertEqual(len(slides.split_slides(text)), 3)
         self.assertEqual(slides.count_slides(text), 2)
+
+    def test_slides_are_trimmed_as_javascript_trims(self):
+        """Finding (Python vs JavaScript whitespace): @slidev/parser trims a slide with JavaScript's trim(),
+        which keeps U+0085 and U+001C-U+001F and drops U+FEFF. Behind U+0085 a ``` is no fence, so the badge
+        below it is rendered and checked."""
+        got = [s.content for s in slides.split_slides(UNICODE_EDGES[0])]
+        self.assertEqual(got, ["# a", '\u0085```\n<LeanBadge gid="x" />\n```', "\x1ctext"])
+        self.assertEqual([c.gid for c in slides.citations(got[1])[0]], ["x"])
+
+    @unittest.skipUnless(HAVE_NODE, "node and node_modules/@slidev/parser needed")
+    def test_matches_slidev_parser_on_unicode_spaces(self):
+        for text in UNICODE_EDGES:
+            mine = slides.split_slides(text)
+            theirs = node_parse(text)
+            self.assertEqual([(s.frontmatter, s.content, s.line) for s in mine],
+                             [(s["frontmatter"], s["content"], s["start"] + 1) for s in theirs], repr(text))
 
     @unittest.skipUnless(HAVE_NODE, "node and node_modules/@slidev/parser needed")
     def test_matches_slidev_parser(self):
@@ -753,7 +780,8 @@ class CitationSpellingTest(ScratchDeckCase):
         self.assertTrue(all("src: imports slides from another file" in m for m in msgs), msgs)
 
 
-# Fenced code as Slidev's Markdown (markdown-it) reads it: (name, Markdown, indices of the code lines).
+# Code as Slidev's Markdown (markdown-exit set up as Slidev sets it up) reads it: (name, Markdown, indices of the
+# lines shown as code).
 FENCE_CASES = [
     ("a tag between two code blocks", '# t\n\n```js\ncode\n```\n\n<LeanBadge gid="x" />\n\n```\nmore\n```\n',
      {2, 3, 4, 8, 9, 10}),
@@ -761,7 +789,8 @@ FENCE_CASES = [
     ("the closer has the opener's character, no info, at least its length", "````\n~~~~\n```` x\n```\n`````\nafter",
      {0, 1, 2, 3, 4}),
     ("a backtick in the info string: not a fence", '``` a`b\n<LeanBadge gid="x" />\n```\ny', {2, 3}),
-    ("indented 4 columns: indented code, not a fence", 'text\n\n    ```\n\n<LeanBadge gid="x" />\n\n    ```\nz', set()),
+    ("indented 4 columns: indented code, not a fence", 'text\n\n    ```\n\n<LeanBadge gid="x" />\n\n    ```\nz',
+     {2, 6}),
     ("an unclosed fence runs to the end", 'a\n\n```\n<LeanBadge gid="x" />', {2, 3}),
     ("a fence in a list item ends with it", '- ```js\n  <LeanBadge gid="in" />\n  ```\n\n<LeanBadge gid="out" />\n\n'
      '```\nx\n```', {0, 1, 2, 6, 7, 8}),
@@ -771,33 +800,112 @@ FENCE_CASES = [
     ("``` inside an HTML block is HTML", '<div>\n```\n<LeanBadge gid="x" />\n```\n</div>', set()),
     ("a component line starts an HTML block up to a blank line", "<v-click>\n```\nx\n```\n</v-click>\n\n```\ny\n```",
      {6, 7, 8}),
-    ("CRLF and tabs", "```\r\ncode\r\n```\r\n\t```\r\nafter", {0, 1, 2}),
+    ("CRLF and tabs (a tab indents to column 4: indented code)", "```\r\ncode\r\n```\r\n\t```\r\nafter", {0, 1, 2, 3}),
     ("nested list items", "1. a\n\n   - b\n\n     ```\n     c\n     ```\nd", {4, 5, 6}),
     ("a footnote holds its indented fence", "x[^1]\n\n[^1]: note\n\n    ```\n    c\n    ```\nd", {4, 5, 6}),
+    # GFM tables: a header row and a delimiter row open one; it takes no lazy line and ends at a blank line, a
+    # line indented 4 columns, a line outside its containers or a block that may interrupt a block quote
+    ("a table in a block quote ends at a lazy line, which starts an HTML block (finding)",
+     '> | a | b |\n> |---|---|\n<span>\n```js\n<LeanBadge gid="x" />\n```\n</span>\n', set()),
+    ("a table in a list item ends at an outdented line (finding)",
+     '- | a | b |\n  |---|---|\n<v-click>\n```js\n<LeanBadge gid="x" />\n```\n</v-click>\n', set()),
+    ("a table ends at a line indented 4 columns: indented code (finding)",
+     '| a | b |\n|---|---|\n| 1 | 2 |\n    x\n<span>\n```\n<LeanBadge gid="x" />\n```\n</span>\n', {3}),
+    ("a delimiter row without pipes at the ends opens a table too (finding)",
+     'a | b\n-|-\n    >\n</TheoremCard>\n```\n<LeanBadge gid="x" />\n```\n', {2}),
+    ("a table row needs no pipe; a fence ends the table", "| a |\n|---|\n<span>\n```\nx\n```", {3, 4, 5}),
+    ("a table interrupts a paragraph; a line indented 4 columns after it is code",
+     'text\n| a |\n|---|\n    <LeanBadge gid="x" />', {3}),
+    ("different cell counts: no table", '| a | b |\n|---|\n    <LeanBadge gid="x" />', set()),
+    # whitespace after a tag name is JavaScript's \s; tag names fold case in ASCII only
+    ("U+3000 after a block tag name: an HTML block (finding)",
+     'text\n<div\u3000class="x">\n```\n<LeanBadge gid="x" />\n```\n', set()),
+    ("U+00A0 likewise (finding)", 'text\n<div\u00a0class="x">\n```\n<LeanBadge gid="x" />\n```\n', set()),
+    ("U+FEFF likewise (finding)", 'text\n<div\ufeff/>\n```\n<LeanBadge gid="x" />\n```\n', set()),
+    ("U+0085 is no space in JavaScript: no HTML block", "text\n<div\u0085/>\n```\nx\n```\n", {2, 3, 4}),
+    ("long s does not fold to s", "<\u017ftyle>\n```\nx\n```", {1, 2, 3}),
+    # HTML blocks as @mdit-vue/plugin-component reads them
+    ("a component tag interrupts a paragraph", 'text\n<v-click>\n```\n<LeanBadge gid="x" />\n```\n</v-click>\n',
+     set()),
+    ("a self-closing component fills just its line", '<LeanBadge gid="x" />\n```\ncode\n```\n', {1, 2, 3}),
+    ("so does a component opened and closed on its line", "<Stat>4</Stat>\n```\nx\n```", {1, 2, 3}),
+    ("an inline HTML tag cannot interrupt a paragraph", "text\n<span>\n```\nx\n```\n</span>", {2, 3, 4}),
+    ("textarea is inline there: its HTML block ends at a blank line", "<textarea>\n\n```\nx\n```\n</textarea>",
+     {2, 3, 4}),
+    ("indented code is code", 'text\n\n    <LeanBadge gid="x" />\n\nz', {2}),
+    ("a line indented 4 columns goes on with a paragraph", 'text\n    <LeanBadge gid="x" />', set()),
+    # Slidev's own block rules
+    ("a <<< snippet import is code and ends a paragraph", "text\n<<< ./snippet.ts\n<span>\n```\nx\n```\n</span>",
+     {1}),
+    ("<<< … {monaco-write} is an editor, not code", "<<< ./snippet.ts {monaco-write}", set()),
+    ("::slot:: ends a paragraph", "text\n::right::\n<span>\n```\nx\n```\n</span>", set()),
+    ("``` inside a $$ math block is not a fence", '$$\n```\n$$\n<LeanBadge gid="x" />\n```\ny\n```', {4, 5, 6}),
+    ("a $$ block that its quote ends takes the next line too", '> $$\n> a\n```\n<LeanBadge gid="x" />\n```\n', {4}),
+    # markdown-it's other rules
+    ("a link reference definition over several lines is not a paragraph", "[a]:\n/url\n<span>\n```\nx\n```\n</span>",
+     set()),
+    ("a javascript: destination makes no definition", "[a]: javascript&colon;x\n<span>\n```\nx\n```\n", {2, 3, 4}),
+    ("a list marker 4 columns right of its list is text", "- a\n - b\n  - c\n   - d\n    - e\n<span>\n```\nx\n```",
+     {6, 7, 8}),
+    ("99 nested block quotes", ">" * 99 + " ```", {0}),
+    ("markdown-it reads nothing below 100 nested containers", ">" * 100 + " ```", set()),
+]
+
+# The cases where the scanner before tables and JavaScript's \s missed a rendered tag (the findings), and a deck
+# with one slide per case, each citing its own GID that the lock does not have.
+HIDDEN_TAGS = {name: text for name, text, _ in FENCE_CASES if name.endswith("(finding)")}
+HIDDEN_GIDS = [f"D5/S9/Hidden/Case.c{i}" for i in range(len(HIDDEN_TAGS))]
+HIDDEN_DECK = "".join("\n---\n\n" + text.replace('gid="x"', f'gid="{gid}"')
+                      for gid, text in zip(HIDDEN_GIDS, HIDDEN_TAGS.values()))
+
+# Pieces of random decks for the comparison with Slidev's parser: containers, and line contents that start,
+# go on with or end blocks.
+CORPUS_PREFIXES = ["> ", ">", ">  ", ">\t", "> > ", "- ", "* ", "+ ", "-\t", "1. ", "2) ", "10. ", "1.\t", "-    ",
+                   "-     ", " ", "  ", "   ", "    ", "\t", " \t", "[^n]: ", "[^n]:\t", "> - ", "1. > ", "\u3000",
+                   "\u0085", "\ufeff", "\x1c"]
+CORPUS_LINES = [
+    "```", "```js", "````", "``````", "~~~", "~~~~", "~~~ ~", "``` x`", "``", "```  ", "text", "text", "a", "",
+    '<LeanBadge gid="x" />', '<LeanBadge gid="x">', "</LeanBadge>", "<TheoremCard>", "</TheoremCard>", "<v-click>",
+    "</v-click>", "<Stat>4</Stat>", "<Foo>x</Bar>", "<foo-bar a=1>", "<template #x>", '<component :is="x">',
+    "<div>", "</div>", "<DIV>", '<div\u3000class="x">', "<div\u00a0/>", "<div\ufeff>", "<div\u0085/>", "<span>",
+    "</span>", "<span>x</span>", "<SPAN>", "<a href=\"x\">", "<textarea>", "<pre>", "</pre>", "<script>x</script>",
+    "<style>", "</style>", "<!-- c", "-->", "<!-- c -->", "<?x", "?>", "<!X", ">", "<![CDATA[", "]]>",
+    "| a | b |", "|---|---|", "| a |", "|-|", "|:--|--:|", "a | b", "-|-", "--- | ---", "- | -", "\\| a | b |",
+    "- a", "1. a", "2.", "-", "*", "---", "===", "--", "* * *", "_ _ _", "# h", "#", "####### x", "#\tx",
+    "[^n]: note", "[^x]", "[a]: /u", '[a]: /u "t"', "[a]:", "/url", '"title"', "'t", "[a]: <u v>",
+    "[a]: javascript:x", "[a]: javascript&colon;x", "[a]: &#106;avascript:x", "[a]: data:image/png;x", "[ ]: /u",
+    "$$", "$$ x $$", "x $$", "$$$$", "::right::", ":: a ::", "::\u3000a::", "<<< ./snippet.ts", "<<<",
+    "<<< ./snippet.ts {monaco-write}", "\\", "x\u2028y",
 ]
 
 
-def fence_corpus(n: int = 400, seed: int = 7) -> list[str]:
-    """Random Markdown made of the constructs code_lines() models, to compare it with markdown-it."""
+def deck_corpus(n: int = 600, seed: int = 11) -> list[str]:
+    """Random decks: slides of random lines in random containers, between slide separators (some with
+    frontmatter). A random line starting with --- separates slides too; a blank line after it keeps the next
+    random line from being read as frontmatter (Slidev refuses a deck whose frontmatter is not YAML)."""
     rng = random.Random(seed)
-    prefixes = ["> ", ">", ">  ", "- ", "* ", "1. ", "2) ", "10. ", "-    ", "-     ", " ", "  ", "   ", "    ", "\t"]
-    contents = ["```", "```js", "````", "~~~", "~~~ ~", "``` x`", "``", "text", '<LeanBadge gid="x" />', "<div>",
-                "</div>", "<v-click>", "</v-click>", "<!-- c", "-->", "<!-- c -->", "<pre>", "</pre>",
-                "<script>x</script>", "", "- a", "---", "===", "* * *", "# h", "| a | b |", "|---|---|",
-                "[^n]: note", "[a]: /u", '[a]: /u "t"']
-    docs = []
+    decks = []
     for _ in range(n):
-        lines = ["".join(rng.choice(prefixes) for _ in range(rng.choice([0, 0, 1, 1, 2, 3]))) + rng.choice(contents)
-                 for _ in range(rng.randint(1, 12))]
-        doc = "\n".join(lines)
-        parts = doc.split("[^n]")  # unique footnote labels
-        docs.append("".join(p + (f"[^{i + 1}]" if i < len(parts) - 1 else "") for i, p in enumerate(parts)))
-    return docs
+        lines: list[str] = []
+        for k in range(rng.randint(1, 3)):
+            if k:
+                lines += rng.choice([["---", ""], ["", "---", ""], ["---", "layout: default", "---"], ["----"]])
+            for _ in range(rng.randint(1, 14)):
+                lines.append("".join(rng.choice(CORPUS_PREFIXES) for _ in range(rng.choice([0, 0, 0, 1, 1, 2, 3])))
+                             + rng.choice(CORPUS_LINES) + rng.choice(["", "", "", " ", "\t", " x", "\u0085", "\ufeff"]))
+                if lines[-1].startswith("---"):
+                    lines.append("")
+        deck = "\n".join(lines)
+        parts = deck.split("[^n]")  # unique footnote labels
+        decks.append("".join(p + (f"[^{i + 1}]" if i < len(parts) - 1 else "") for i, p in enumerate(parts)))
+    return decks
 
 
 class FenceScanTest(unittest.TestCase):
-    """Finding: the code-stripping regex ran from one code block to the next, so tags between two blocks
-    were never checked. code_lines() is a line-based CommonMark scanner (slides-lib.mjs codeLines too)."""
+    """Findings: the code-stripping regex ran from one code block to the next, so tags between two blocks were
+    never checked; the line scanner after it knew no tables and no Unicode spaces after a tag name, so a tag
+    Slidev renders could be taken for code. code_lines() (and slides-lib.mjs codeLines()) now run Slidev's
+    block rules."""
 
     def test_cases(self):
         for name, text, want in FENCE_CASES:
@@ -810,44 +918,74 @@ class FenceScanTest(unittest.TestCase):
         found, _ = slides.citations(FENCE_CASES[6][1])
         self.assertEqual([c.gid for c in found], ["out"])
 
+    def test_tags_slidev_renders_are_cited(self):
+        self.assertEqual(len(HIDDEN_TAGS), 7)
+        for name, text in HIDDEN_TAGS.items():
+            found, _ = slides.citations(text)
+            self.assertEqual([c.gid for c in found], ["x"], name)
+
     def test_strip_code_keeps_the_lines(self):
         text = "a\r\n```\r\n<b>\r\n```\r\nc"
         self.assertEqual(slides.strip_code(text), "a\n\n\n\nc")
 
 
-@unittest.skipUnless(HAVE_NODE and (ROOT / "node_modules" / "markdown-exit").is_dir()
-                     and (ROOT / "node_modules" / "markdown-it-footnote").is_dir(),
-                     "node and node_modules (markdown-exit, markdown-it-footnote) needed")
-class NodeFenceScanTest(unittest.TestCase):
-    """code_lines() and slides-lib.mjs codeLines() agree with each other and with markdown-it (as Slidev
-    configures it: HTML on, footnotes) on the cases and on a fixed random corpus."""
+# Slides as Slidev renders them: @slidev/parser splits the deck, and the markdown-exit instance Slidev builds for
+# a deck of the theme (captured through the markdownSetup hook, footnote_tail off so that every footnote's
+# blocks stay in place) parses each slide.
+SLIDEV_MARKDOWN = """
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const [root, dir] = process.argv.slice(1);
+const items = JSON.parse(readFileSync(0, 'utf8')); // before Slidev loads: it leaves stdin non-blocking
+const url = (p) => pathToFileURL(join(root, p)).href;
+const { resolveOptions, ViteSlidevPlugin } = await import(url('node_modules/@slidev/cli/dist/index.mjs'));
+const { parseSync } = await import(url('node_modules/@slidev/parser/dist/index.mjs'));
+const { codeLines } = await import(url('tools/node/slides-lib.mjs'));
+writeFileSync(join(dir, 'slides.md'), `---\\ntheme: ${join(root, 'theme', 'slides')}\\n---\\n\\n$$\\nx\\n$$\\n`);
+// every file a <<< line of the corpus imports (a missing one fails Slidev's build)
+for (const name of ['snippet.ts', 'x', '\\u0085', 'snippet.ts\\u0085', 'snippet.ts\\ufeff'])
+  writeFileSync(join(dir, name), 'x\\n');
+const options = await resolveOptions({ entry: join(dir, 'slides.md') }, 'build');
+const md = await new Promise((resolve) => { ViteSlidevPlugin(options, { markdown: { markdownSetup: resolve } }); });
+md.core.ruler.disable('footnote_tail');
+const one = (content) => {
+  const code = new Set();
+  for (const t of md.parse(content, { id: '/@slidev/slides/__slidev_1.md' }))
+    if ((t.type === 'fence' || t.type === 'code_block') && t.map) for (let i = t.map[0]; i < t.map[1]; i++) code.add(i);
+  return { content, js: codeLines(content), md: [...code].sort((a, b) => a - b) };
+};
+const out = items.map(([text, deck]) => (deck ? parseSync(text, 'x.md').slides.map((s) => one(s.content))
+  : [one(text)]));
+process.stdout.write(JSON.stringify(out), () => process.exit(0));
+"""
 
-    def test_python_node_and_markdown_it_agree(self):
-        docs = [text for _, text, _ in FENCE_CASES] + fence_corpus()
-        script = (
-            "import { readFileSync } from 'node:fs';"
-            "import MarkdownExit from 'markdown-exit';"
-            "import footnote from 'markdown-it-footnote';"
-            f"import {{ codeLines }} from {json.dumps((ROOT / 'tools' / 'node' / 'slides-lib.mjs').as_uri())};"
-            "const md = MarkdownExit({ html: true }).use(footnote);"
-            "const out = JSON.parse(readFileSync(0, 'utf8')).map((src) => {"
-            # reference every footnote first, so markdown-it renders all of them (lines shift by 2)
-            "  const refs = [...src.matchAll(/\\[\\^([^\\] ]+)\\]:/g)].map((m) => `[^${m[1]}]`).join(' ');"
-            "  const fence = new Set();"
-            "  for (const t of md.parse(`x${refs}\\n\\n${src}`, {})) if (t.type === 'fence')"
-            "    for (let i = t.map[0] - 2; i < t.map[1] - 2; i++) fence.add(i);"
-            "  return { js: codeLines(src), md: [...fence] };"
-            "});"
-            "process.stdout.write(JSON.stringify(out));"
-        )
-        r = subprocess.run([NODE, "--input-type=module", "-e", script], input=json.dumps(docs), capture_output=True,
-                           text=True, cwd=ROOT)
+
+@unittest.skipUnless(HAVE_NODE and (ROOT / "node_modules" / "@slidev" / "cli").is_dir(),
+                     "node and node_modules (@slidev/cli, @slidev/parser) needed")
+class NodeFenceScanTest(unittest.TestCase):
+    """code_lines() and slides-lib.mjs codeLines() agree with each other and with the parser Slidev builds
+    (fence and code_block tokens) on the cases and on seeded random decks, split into slides as Slidev and
+    split_slides() split them."""
+
+    def test_python_node_and_slidev_agree(self):
+        items = [[text, False] for _, text, _ in FENCE_CASES] + [[deck, True] for deck in deck_corpus()]
+        with tempfile.TemporaryDirectory(prefix="tbook-slides-md-") as tmp:
+            r = subprocess.run([NODE, "--input-type=module", "-e", SLIDEV_MARKDOWN, str(ROOT), tmp],
+                               input=json.dumps(items), capture_output=True, text=True, cwd=ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
-        for text, out in zip(docs, json.loads(r.stdout)):
-            mask = slides.code_lines(text)
-            self.assertEqual(out["js"], mask, repr(text))
-            n = len(mask) - (1 if text.endswith(("\n", "\r")) else 0)  # markdown-it has no line after the last line end
-            self.assertEqual(sorted(out["md"]), [i for i in range(n) if mask[i]], repr(text))
+        out = json.loads(r.stdout)
+        self.assertEqual(len(out), len(items))
+        compared = 0
+        for (text, deck), got in zip(items, out):
+            contents = [s.content for s in slides.split_slides(text)] if deck else [text]
+            self.assertEqual([g["content"] for g in got], contents, repr(text))
+            for g in got:
+                mask = slides.code_lines(g["content"])
+                self.assertEqual(g["js"], mask, repr(g["content"]))
+                self.assertEqual([i for i, code in enumerate(mask) if code], g["md"], repr(g["content"]))
+                compared += 1
+        self.assertGreater(compared, 1000)
 
 
 class CodeBlockCitationTest(ScratchDeckCase):
@@ -867,6 +1005,15 @@ class CodeBlockCitationTest(ScratchDeckCase):
         want = f"/slides.md cites [D5/S9/Fake/Nope.not_locked {FAKE_DEF}]"
         msgs = self.issues()
         self.assertTrue(any(m.startswith("slide 2: cites [], ") and m.endswith(want) for m in msgs), msgs)
+
+    def test_tags_after_tables_and_unicode_spaces_are_checked(self):
+        """Findings: a tag Slidev renders after a table, or after a block tag and a Unicode space, is checked."""
+        self.write("zh", self.head("zh") + HIDDEN_DECK)
+        self.write("en", self.head("en") + HIDDEN_DECK)
+        msgs = self.issues()
+        for gid in HIDDEN_GIDS:
+            self.assertEqual(sum(f"{gid} is not in trureturing.lock.json" in m for m in msgs), 2, (gid, msgs))
+        self.assertEqual(len(msgs), 2 * len(HIDDEN_GIDS), msgs)
 
 
 # A slide with tags between two code blocks (and inside them, which is not checked).
@@ -955,6 +1102,24 @@ class NodeScriptsTest(unittest.TestCase):
         self.assertEqual(len(py), 6, py)
         for want in ("D5/S9/Fake/Nope.not_locked", FAKE_DEF, "/abs"):
             self.assertEqual(sum(want in m for m in py), 2, (want, py))
+
+    def test_check_tags_after_tables_and_unicode_spaces(self):
+        """Findings: slides-check.mjs, like check(), sees a tag Slidev renders after a table, or after a block
+        tag and a Unicode space."""
+        deck = self.book(["zh", "en"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        theme = "../../../../theme/slides"
+        (deck / "slides.md").write_text(deck_head(theme, "zh") + HIDDEN_DECK, encoding="utf-8")
+        (deck / "slides.en.md").write_text(deck_head(theme, "en") + HIDDEN_DECK, encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for gid in HIDDEN_GIDS:
+            self.assertEqual(r.stderr.count(f"{gid} is not in trureturing.lock.json"), 2, (gid, r.stderr))
+        self.assertIn(f"slides-check failed ({2 * len(HIDDEN_GIDS)})", r.stderr)
+        with mock.patch.object(lean.Lock, "load", return_value=fake_lock()), \
+                mock.patch.object(slides, "theme_ref", lambda deck_dir: theme):
+            py = [i.message for i in slides.check(config.load_book(self.tmp / "books" / "bk"))]
+        self.assertEqual(len(py), 2 * len(HIDDEN_GIDS), py)
 
     def test_new_deck_in_an_english_first_book(self):
         self.book(["en", "zh"])

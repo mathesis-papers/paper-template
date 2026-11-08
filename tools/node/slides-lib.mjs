@@ -347,220 +347,768 @@ export async function readEdition(book, deck, lang) {
   };
 }
 
-// --------------------------------------------------------------------------- fenced code (as Slidev's Markdown)
-// Slidev renders a slide with markdown-it (CommonMark, plus footnotes): a tag inside fenced code is shown as
-// text, every other tag is rendered. codeLines() finds the fenced code line by line by the CommonMark block
-// rules, as markdown-it applies them; it is the same algorithm as code_lines() in tools/tbook/slides.py (keep
-// them in step: test_slides compares both with markdown-it). Not modelled, all rare in slides: $$ math blocks
-// (``` there is not a fence), link reference definitions over several lines, and markdown-it reading a list
-// marker 4 columns right of its list as text.
+// --------------------------------------------------------------------------- code in a slide (as Slidev's Markdown)
+// Slidev 53 renders a slide with markdown-exit (markdown-it 14) as unplugin-vue-markdown sets it up: HTML on, the
+// HTML block rule of @mdit-vue/plugin-component (a Vue component tag such as <v-click> or <LeanBadge> starts an
+// HTML block that may interrupt a paragraph, a self-closing one fills just its line), GFM tables, footnotes
+// (markdown-it-footnote) and Slidev's own block rules: `<<< file` snippet imports, `::name::` slot markers and
+// `$$` math (on in every deck that has a `$$`). A tag inside a code block (fenced, indented or imported) is shown
+// as text; every other tag is rendered. codeLines() runs those block rules as markdown-it does (same rule order,
+// same lists of rules that may interrupt a paragraph, block quote, list or table, same container offsets) and
+// records the lines of the code blocks; it is the same port as code_lines() in tools/tbook/slides.py (keep them
+// in step: test_slides compares both with the parser Slidev builds). Not modelled: what a deck adds itself
+// (mdc/comark syntax, setup/transformers.ts, Markdown options in vite.config).
 
 const NEWLINE_RE = /\r\n?|\n/; // line ends as markdown-it reads them
-const QUOTE_RE = /^ *>/; // a block quote goes on at a > after any indentation (markdown-it)
-const FENCE_OPEN_RE = /^(?:`{3,}(?=[^`]*$)|~{3,})/; // a backtick fence's info string has no backtick
-const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,}) *$/;
-const HR_RE = /^(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$/;
-const SETEXT_RE = /^(?:=+|-+) *$/;
-const LIST_RE = /^(?:[-+*]|([0-9]{1,9})[.)])(?= |$)/;
-const ATX_RE = /^#{1,6}(?= |$)/;
-const SLOT_RE = /^::[ \t]*[\w.:-]+[ \t]*::[ \t]*$/; // Slidev's ::slot:: line
-const FOOTNOTE_RE = /^\[\^[^\] ]+\]:/; // a footnote (Slidev's markdown-it-footnote): its lines indent 4
-const REF_RE = new RegExp( // a link reference definition on one line
-  String.raw`^\[(?! *\])(?:[^\\\[\]]|\\.){1,999}\]: *(?:<(?:[^<>\\]|\\.)*>|[^ <][^ ]*)`
-  + String.raw`(?: +(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))? *$`);
 const BLOCK_TAGS = 'address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|'
   + 'dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|'
   + 'html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|'
   + 'summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul';
-const OPEN_TAG = '<[A-Za-z][A-Za-z0-9-]*(?:\\s+[a-zA-Z_:][a-zA-Z0-9:._-]*'
-  + '(?:\\s*=\\s*(?:[^"\'=<>`\\x00-\\x20]+|\'[^\']*\'|"[^"]*"))?)*\\s*/?>';
-const CLOSE_TAG = '</[A-Za-z][A-Za-z0-9-]*\\s*>';
+// HTML's inline elements, less Vue's own (template, component, slot, …): any other tag is a component
+const INLINE_TAGS = 'a|abbr|acronym|audio|b|bdi|bdo|big|br|button|canvas|cite|code|data|datalist|del|dfn|em|embed|i|'
+  + 'iframe|img|input|ins|kbd|label|map|mark|meter|noscript|object|output|picture|progress|q|ruby|s|'
+  + 'samp|script|select|small|span|strong|sub|sup|svg|textarea|time|u|tt|var|video|wbr';
+const ATTR = '(?:\\s+[a-zA-Z_:@][a-zA-Z0-9:._-]*(?:\\s*=\\s*(?:[^"\'=<>`\\x00-\\x20]+|\'[^\']*\'|"[^"]*"))?)';
+const OPEN_TAG = `<[A-Za-z][A-Za-z0-9\\-]*${ATTR}*\\s*\\/?>`;
+const CLOSE_TAG = '<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>';
 // HTML blocks: [start, end (null: a blank line), may interrupt a paragraph]. ``` inside one is HTML, not code.
 const HTML_BLOCKS = [
-  [/^<(?:script|pre|style|textarea)(?=\s|>|$)/i, /<\/(?:script|pre|style|textarea)>/i, true],
+  [/^<(?:script|pre|style)(?=\s|>|$)/i, /<\/(?:script|pre|style)>/i, true],
   [/^<!--/, /-->/, true],
   [/^<\?/, /\?>/, true],
   [/^<![A-Z]/, />/, true],
   [/^<!\[CDATA\[/, /\]\]>/, true],
   [new RegExp(`^</?(?:${BLOCK_TAGS})(?=\\s|/?>|$)`, 'i'), null, true],
+  [new RegExp(`^</?(?!(?:${INLINE_TAGS})(?![\\w-]))[A-Za-z][A-Za-z0-9\\-]*(?=\\s|/?>|$)`), null, true],
   [new RegExp(`^(?:${OPEN_TAG}|${CLOSE_TAG})\\s*$`), null, false],
 ];
+const COMPONENT = 6; // its tag alone on a line, self-closing or closed on the line, is just that line
+const ONE_LINE_TAG = new RegExp(`^(?:<[A-Za-z][A-Za-z0-9\\-]*${ATTR}*\\s*\\/>`
+  + `|<([A-Za-z][A-Za-z0-9\\-]*)${ATTR}*\\s*>.*<\\/\\1\\s*>)`);
+const SLOT_RE = /^::\s*[\w.\-:]+\s*::\s*$/; // Slidev's ::slot:: line
+// Slidev's <<< file import: path, #region, language, {meta}
+const SNIPPET_RE = /^<<<[ \t]*(\S.*?)(#[\w-]+)?[ \t]*(?:[ \t](\S+?))?[ \t]*(\{.*)?$/;
+const DELIMITER_CELL_RE = /^:?-+:?$/;
+const BAD_PROTO_RE = /^(?:vbscript|javascript|file|data):/;
+const GOOD_DATA_RE = /^data:image\/(?:gif|png|jpeg|webp);/;
+// the named character references that can make a link destination start with one of those schemes
+const NAMED_REFS = {
+  Tab: '\t', NewLine: '\n', nbsp: '\u00a0', NonBreakingSpace: '\u00a0', ensp: '\u2002', emsp: '\u2003',
+  emsp13: '\u2004', emsp14: '\u2005', numsp: '\u2007', puncsp: '\u2008', thinsp: '\u2009', ThinSpace: '\u2009',
+  hairsp: '\u200a', VeryThinSpace: '\u200a', MediumSpace: '\u205f', ThickSpace: '\u205f\u200a', colon: ':', semi: ';',
+  sol: '/', fjlig: 'fj',
+};
+const UNESCAPE_RE = new RegExp(String.raw`\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_${'`'}{|}~])|&#([0-9A-Za-z]{1,31});`
+  + `|&(${Object.keys(NAMED_REFS).sort((a, b) => b.length - a.length).join('|')});`, 'g');
+const NUMERIC_RE = /^(?:[xX]([0-9a-fA-F]{1,8})|([0-9]{1,8}))$/;
+const NUMERIC_PREFIX_RE = /^(?:[xX]([0-9a-fA-F]+)|([0-9]+))/;
 
-// Tabs to spaces up to the next multiple of 4 columns (Python's str.expandtabs(4)).
-function expandTabs(line) {
-  let out = '';
-  let col = 0;
-  for (const ch of line) {
-    const n = ch === '\t' ? 4 - (col % 4) : 1;
-    out += ch === '\t' ? ' '.repeat(n) : ch;
-    col += n;
+const space = (c) => c === ' ' || c === '\t';
+
+const validEntity = (c) => !((c >= 0xD800 && c <= 0xDFFF) || (c >= 0xFDD0 && c <= 0xFDEF) || (c & 0xFFFF) === 0xFFFF
+  || (c & 0xFFFF) === 0xFFFE || c <= 0x08 || c === 0x0B || (c >= 0x0E && c <= 0x1F) || (c >= 0x7F && c <= 0x9F)
+  || c > 0x10FFFF);
+
+// A link destination as markdown-it unescapes it, as far as it can decide whether the link is allowed: backslash
+// escapes, numeric character references (&#58;; &#58x; as the entities decoder reads it, any character that cannot
+// matter as U+FFFD) and the named references in NAMED_REFS.
+const unescape = (s) => s.replace(UNESCAPE_RE, (m, escaped, numeric, named) => {
+  if (escaped) return escaped;
+  if (named) return NAMED_REFS[named];
+  const exact = NUMERIC_RE.exec(numeric);
+  if (exact) {
+    const c = exact[1] ? parseInt(exact[1], 16) : parseInt(exact[2], 10);
+    return validEntity(c) ? String.fromCodePoint(c) : m;
   }
+  const lead = NUMERIC_PREFIX_RE.exec(numeric);
+  if (!lead) return m;
+  const c = lead[1] ? parseInt(lead[1], 16) : parseInt(lead[2], 10);
+  const rest = numeric.slice(lead[0].length);
+  const bad = c === 0 || (c >= 0x80 && c <= 0x9F) || (c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF;
+  return (bad ? '\ufffd' : String.fromCodePoint(c)) + (rest ? `${rest};` : '');
+});
+
+// A table row's cells: split at | unless escaped (markdown-it's escapedSplit).
+function escapedSplit(s) {
+  const out = [];
+  let cur = '';
+  let last = 0;
+  let escaped = false;
+  for (let pos = 0; pos < s.length; pos++) {
+    const c = s[pos];
+    if (c === '|') {
+      if (!escaped) {
+        out.push(cur + s.slice(last, pos));
+        cur = '';
+        last = pos + 1;
+      } else {
+        cur += s.slice(last, pos - 1);
+        last = pos;
+      }
+    }
+    escaped = c === '\\';
+  }
+  out.push(cur + s.slice(last));
+  if (out.length && out[0] === '') out.shift();
+  if (out.length && out.at(-1) === '') out.pop();
   return out;
 }
 
-const blank = (s) => !/[^ ]/.test(s);
-const leadingSpaces = (s) => s.length - s.replace(/^ +/, '').length;
-
-const htmlBlock = (body) => (body[0] === '<' ? HTML_BLOCKS.find(([start]) => start.test(body)) : undefined);
-
-// Whether `body` starts a block that ends a paragraph (list items and footnotes aside).
-function startsBlock(body) {
-  const html = htmlBlock(body);
-  return FENCE_OPEN_RE.test(body) || body[0] === '>' || HR_RE.test(body) || ATX_RE.test(body) || SLOT_RE.test(body)
-    || Boolean(html && html[2]);
-}
-
-// A line indented 4 columns past the `keep` containers it continues is indented code, or text going on lazily
-// with an open paragraph. Whether a container it left ends that paragraph (and the line is code), as markdown-it
-// decides: a block quote lets it through as lazy text; a list item, or a container inside a quote it left, sees
-// it indented less than its content, so a block start ends the paragraph there.
-function lazyLineEnds(stack, keep, body) {
-  let quoted = false; // a block quote let the line through
-  for (let i = keep; i <= stack.length; i++) {
-    if (i < stack.length && stack[i] >= 0) continue; // a list item: the block inside it decides
-    if (i === stack.length && quoted) return false; // the paragraph takes what its quote let through
-    if (i > keep && (startsBlock(body) || (LIST_RE.test(body) && (quoted || i - keep > 1))
-                     || (i === stack.length && FOOTNOTE_RE.test(body)))) return true;
-    quoted = true;
+// markdown-it's block state (StateBlock): per line its start (bm), end (em), first non-space (ts), indent in
+// columns (sc) and tab offset (bs), as the containers met so far have shifted them.
+class Blocks {
+  constructor(src) {
+    this.src = src;
+    this.bm = [];
+    this.em = [];
+    this.ts = [];
+    this.sc = [];
+    this.bs = [];
+    for (let start = 0; start < src.length;) {
+      const nl = src.indexOf('\n', start);
+      const end = nl < 0 ? src.length : nl;
+      let pos = start;
+      let offset = 0;
+      while (pos < end && space(src[pos])) {
+        offset += src[pos] === '\t' ? 4 - (offset % 4) : 1;
+        pos++;
+      }
+      this.bm.push(start);
+      this.em.push(end);
+      this.ts.push(pos - start);
+      this.sc.push(offset);
+      this.bs.push(0);
+      start = end + 1;
+    }
+    this.bm.push(src.length);
+    this.em.push(src.length);
+    this.ts.push(0);
+    this.sc.push(0);
+    this.bs.push(0);
+    this.lineMax = this.bm.length - 1;
+    this.line = 0;
+    this.blk = 0; // blkIndent
+    this.listIndent = -1;
+    this.parent = 'root';
+    this.level = 0;
+    this.code = new Array(this.lineMax).fill(false);
   }
-  return false;
+
+  at(pos) { return this.src.slice(pos, pos + 1); }
+
+  empty(line) { return line < this.bm.length && this.bm[line] + this.ts[line] >= this.em[line]; }
+
+  skipEmpty(line) {
+    while (line < this.lineMax && this.bm[line] + this.ts[line] >= this.em[line]) line++;
+    return line;
+  }
+
+  skipSpaces(pos) {
+    while (pos < this.src.length && space(this.src[pos])) pos++;
+    return pos;
+  }
+
+  skipChars(pos, c) {
+    while (pos < this.src.length && this.src[pos] === c) pos++;
+    return pos;
+  }
+
+  text(line) { return this.src.slice(this.bm[line] + this.ts[line], this.em[line]); }
+
+  mark(start, end) {
+    for (let i = start; i < Math.min(end, this.lineMax); i++) this.code[i] = true;
+  }
+
+  interrupts(chain, line, end) { return chain.some((rule) => rule(this, line, end, true)); }
+
+  tokenize(start, end) {
+    let line = start;
+    while (line < end) {
+      this.line = line = this.skipEmpty(line);
+      if (line >= end || this.sc[line] < this.blk) break;
+      if (this.level >= 100) { // markdown-it's maxNesting
+        this.line = end;
+        break;
+      }
+      for (const rule of RULES) if (rule(this, line, end, false)) break;
+      line = this.line;
+      if (line < end && this.empty(line)) {
+        line++;
+        this.line = line;
+      }
+    }
+  }
 }
 
-// For each line of a slide's Markdown, whether it is part of a fenced code block (fences included).
-// CommonMark rules: a fence opens with at least three backticks or tildes indented at most 3 columns inside
-// its container (block quote, list item) and closes at a fence of the same character, at least as long and
-// with nothing after it, or when its container ends; it may interrupt a paragraph. A ``` line indented 4
-// columns (indented code or paragraph text) or inside an HTML block is not a fence.
-export function codeLines(text) {
-  const lines = text.split(NEWLINE_RE);
-  const mask = lines.map(() => false);
-  // open containers: -1 a block quote, otherwise a list item: the columns of its content after its container's
-  const stack = [];
-  let leaf = null; // null, 'p' (paragraph), 'c' (indented code), { char, len } (fence), { end } (HTML block)
-  let emptyItem = 0; // stack.length after a list item whose first line is blank, on the next line
-  lines.forEach((raw, n) => {
-    const line = expandTabs(raw);
-    let pos = 0;
-    let keep = 0; // containers this line continues
-    const fresh = emptyItem;
-    emptyItem = 0;
-    for (const col of stack) {
-      if (col < 0) {
-        const m = QUOTE_RE.exec(line.slice(pos));
-        if (!m) break;
-        pos += m[0].length + (line[pos + m[0].length] === ' ' ? 1 : 0);
-      } else if (!blank(line.slice(pos))) {
-        if (leadingSpaces(line.slice(pos)) < col) break;
-        pos += col;
-      }
-      keep += 1;
+function table(s, start, end, silent) {
+  if (start + 2 > end) return false;
+  let nxt = start + 1;
+  if (s.sc[nxt] < s.blk || s.sc[nxt] - s.blk >= 4) return false;
+  const pos = s.bm[nxt] + s.ts[nxt];
+  const mx = s.em[nxt];
+  if (pos >= mx) return false;
+  const first = s.src[pos];
+  if (!'|-:'.includes(first) || pos + 1 >= mx) return false;
+  const second = s.src[pos + 1];
+  if ((!'|-:'.includes(second) && !space(second)) || (first === '-' && space(second))) return false;
+  for (const c of s.src.slice(pos + 2, mx)) if (!'|-:'.includes(c) && !space(c)) return false;
+  const cells = s.text(nxt).split('|');
+  let aligns = 0;
+  for (let i = 0; i < cells.length; i++) {
+    const t = cells[i].trim();
+    if (!t) {
+      if (i === 0 || i === cells.length - 1) continue;
+      return false;
     }
-    // a list item can begin with at most one blank line
-    if (fresh && keep >= fresh && blank(line.slice(pos))) keep = fresh - 1;
-    if (leaf && typeof leaf === 'object') {
-      if (keep === stack.length) {
-        const rest = line.slice(pos);
-        if ('char' in leaf) {
-          mask[n] = true;
-          const m = FENCE_CLOSE_RE.exec(rest);
-          if (m && m[1][0] === leaf.char && m[1].length >= leaf.len) leaf = null;
-          return;
-        }
-        if (leaf.end === null ? blank(rest) : leaf.end.test(rest)) leaf = null;
-        return;
+    if (!DELIMITER_CELL_RE.test(t)) return false;
+    aligns++;
+  }
+  const head = s.text(start).trim();
+  if (!head.includes('|') || s.sc[start] - s.blk >= 4) return false;
+  const columns = escapedSplit(head).length;
+  if (columns === 0 || columns !== aligns) return false;
+  if (silent) return true;
+  const oldParent = s.parent;
+  s.parent = 'table';
+  let autocompleted = 0;
+  for (nxt = start + 2; nxt < end; nxt++) {
+    if (s.sc[nxt] < s.blk || s.interrupts(QUOTE_BREAKS, nxt, end)) break;
+    const row = s.text(nxt).trim();
+    if (!row || s.sc[nxt] - s.blk >= 4) break;
+    autocompleted += columns - escapedSplit(row).length;
+    if (autocompleted > 65536) break;
+  }
+  s.parent = oldParent;
+  s.line = nxt;
+  return true;
+}
+
+function code(s, start, end) {
+  if (s.sc[start] - s.blk < 4) return false;
+  let nxt = start + 1;
+  let last = nxt;
+  while (nxt < end) {
+    if (s.empty(nxt)) nxt++;
+    else if (s.sc[nxt] - s.blk >= 4) last = ++nxt;
+    else break;
+  }
+  s.line = last;
+  s.mark(start, last);
+  return true;
+}
+
+function snippet(s, start, end, silent) {
+  const m = SNIPPET_RE.exec(s.text(start));
+  if (!m) return false;
+  if (!silent) {
+    s.line = start + 1;
+    if (!(m[4] ?? '').includes('{monaco-write}')) s.mark(start, start + 1); // that one is an editor
+  }
+  return true;
+}
+
+function slot(s, start, end, silent) {
+  if (s.sc[start] - s.blk > 0 || !SLOT_RE.test(s.text(start))) return false;
+  if (!silent) s.line = start + 1;
+  return true;
+}
+
+function fence(s, start, end, silent) {
+  let pos = s.bm[start] + s.ts[start];
+  let mx = s.em[start];
+  if (s.sc[start] - s.blk >= 4 || pos + 3 > mx) return false;
+  const marker = s.src[pos];
+  if (marker !== '~' && marker !== '`') return false;
+  let mem = pos;
+  pos = s.skipChars(pos, marker);
+  const size = pos - mem;
+  if (size < 3 || (marker === '`' && s.src.slice(pos, mx).includes('`'))) return false;
+  if (silent) return true;
+  let nxt = start;
+  let closed = false;
+  for (;;) {
+    nxt++;
+    if (nxt >= end) break;
+    pos = mem = s.bm[nxt] + s.ts[nxt];
+    mx = s.em[nxt];
+    if (pos < mx && s.sc[nxt] < s.blk) break;
+    if (s.at(pos) !== marker || s.sc[nxt] - s.blk >= 4) continue;
+    pos = s.skipChars(pos, marker);
+    if (pos - mem < size || s.skipSpaces(pos) < mx) continue;
+    closed = true;
+    break;
+  }
+  s.line = nxt + (closed ? 1 : 0);
+  s.mark(start, s.line);
+  return true;
+}
+
+function blockquote(s, start, end, silent) {
+  let pos = s.bm[start] + s.ts[start];
+  if (s.sc[start] - s.blk >= 4 || s.at(pos) !== '>') return false;
+  if (silent) return true;
+  const oldLineMax = s.lineMax;
+  const oldParent = s.parent;
+  s.parent = 'blockquote';
+  const saved = []; // [bm, bs, sc, ts] of the lines from `start` on
+  let lastEmpty = false;
+  let nxt = start;
+  while (nxt < end) {
+    const outdented = s.sc[nxt] < s.blk;
+    pos = s.bm[nxt] + s.ts[nxt];
+    const mx = s.em[nxt];
+    if (pos >= mx) break;
+    if (s.src[pos] === '>' && !outdented) {
+      pos++;
+      let initial = s.sc[nxt] + 1;
+      let adjust = false;
+      let spaceAfter = false;
+      if (s.at(pos) === ' ') {
+        pos++;
+        initial++;
+        spaceAfter = true;
+      } else if (s.at(pos) === '\t') {
+        spaceAfter = true;
+        if ((s.bs[nxt] + initial) % 4 === 3) {
+          pos++;
+          initial++;
+        } else adjust = true;
       }
-      leaf = null; // its container ended, so did the fence or HTML block
+      let offset = initial;
+      saved.push([s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]]);
+      s.bm[nxt] = pos;
+      while (pos < mx && space(s.src[pos])) {
+        offset += s.src[pos] === '\t' ? 4 - ((offset + s.bs[nxt] + (adjust ? 1 : 0)) % 4) : 1;
+        pos++;
+      }
+      lastEmpty = pos >= mx;
+      s.bs[nxt] = s.sc[nxt] + 1 + (spaceAfter ? 1 : 0);
+      s.sc[nxt] = offset - initial;
+      s.ts[nxt] = pos - s.bm[nxt];
+      nxt++;
+      continue;
     }
-    for (;;) { // the blocks this line starts
-      const rest = line.slice(pos);
-      const ind = leadingSpaces(rest);
-      const body = rest.slice(ind);
-      const inner = keep === stack.length;
-      if (!body) {
-        stack.length = keep;
-        leaf = null;
-        break;
-      }
-      if (ind >= 4) {
-        if (leaf !== 'p' || (!inner && lazyLineEnds(stack, keep, body))) {
-          stack.length = keep;
-          leaf = 'c';
-        }
-        break;
-      }
-      let m = FENCE_OPEN_RE.exec(body);
-      if (m) {
-        stack.length = keep;
-        leaf = { char: m[0][0], len: m[0].length };
-        mask[n] = true;
-        break;
-      }
-      if (body[0] === '>') {
-        stack.length = keep;
-        stack.push(-1);
-        keep = stack.length;
-        pos += ind + 1 + (body[1] === ' ' ? 1 : 0);
-        leaf = null;
-        continue;
-      }
-      if ((leaf === 'p' && inner && SETEXT_RE.test(body)) || HR_RE.test(body)) {
-        stack.length = keep;
-        leaf = null;
-        break;
-      }
-      m = LIST_RE.exec(body);
-      const after = m ? body.slice(m[0].length) : '';
-      const empty = blank(after);
-      if (m && !(leaf === 'p' && inner && (empty || (m[1] !== undefined && Number(m[1]) !== 1)))) {
-        stack.length = keep;
-        const gap = leadingSpaces(after);
-        stack.push(ind + m[0].length + (empty || gap > 4 ? 1 : gap));
-        keep = stack.length;
-        leaf = null;
-        if (empty) {
-          emptyItem = stack.length;
-          break;
-        }
-        pos += stack.at(-1);
-        continue;
-      }
-      m = FOOTNOTE_RE.exec(body); // ends a paragraph, but goes on with one in a quote the line left
-      if (m && (leaf !== 'p' || inner || stack.slice(keep).every((c) => c >= 0))) {
-        stack.length = keep;
-        stack.push(4);
-        keep = stack.length;
-        leaf = null;
-        pos += ind + m[0].length;
-        pos += leadingSpaces(line.slice(pos));
-        continue;
-      }
-      if (leaf !== 'p' && REF_RE.test(body)) {
-        stack.length = keep;
-        leaf = null;
-        break;
-      }
-      const html = htmlBlock(body);
-      if (html && (html[2] || leaf !== 'p')) {
-        stack.length = keep;
-        leaf = html[1] !== null && html[1].test(body) ? null : { end: html[1] };
-        break;
-      }
-      if (ATX_RE.test(body) || (ind === 0 && SLOT_RE.test(body))) {
-        stack.length = keep;
-        leaf = null;
-        break;
-      }
-      if (leaf !== 'p') { // a new paragraph; otherwise it continues (lazily, when containers ended)
-        stack.length = keep;
-        leaf = 'p';
+    if (lastEmpty) break;
+    if (s.interrupts(QUOTE_BREAKS, nxt, end)) {
+      s.lineMax = nxt;
+      if (s.blk !== 0) {
+        saved.push([s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]]);
+        s.sc[nxt] -= s.blk;
       }
       break;
     }
+    saved.push([s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]]);
+    s.sc[nxt] = -1; // a lazy line: text going on with a paragraph
+    nxt++;
+  }
+  const oldIndent = s.blk;
+  s.blk = 0;
+  s.level++;
+  s.tokenize(start, nxt);
+  s.level--;
+  s.lineMax = oldLineMax;
+  s.parent = oldParent;
+  saved.forEach(([bm, bs, sc, ts], i) => {
+    s.bm[start + i] = bm;
+    s.bs[start + i] = bs;
+    s.sc[start + i] = sc;
+    s.ts[start + i] = ts;
   });
-  return mask;
+  s.blk = oldIndent;
+  return true;
 }
 
-// `text` with the lines of fenced code blocks emptied (codeLines).
+function math(s, start, end, silent) {
+  let pos = s.bm[start] + s.ts[start];
+  let mx = s.em[start];
+  if (pos + 2 > mx || s.src.slice(pos, pos + 2) !== '$$') return false;
+  if (silent) return true;
+  let found = s.src.slice(pos + 2, mx).trim().slice(-2) === '$$';
+  let nxt = start;
+  while (!found) {
+    nxt++;
+    if (nxt >= end) break;
+    pos = s.bm[nxt] + s.ts[nxt];
+    mx = s.em[nxt];
+    if (pos < mx && s.ts[nxt] < s.blk) break;
+    found = s.src.slice(pos, mx).trim().slice(-2) === '$$';
+  }
+  s.line = nxt + 1; // sic: the line that ended the block goes with it
+  return true;
+}
+
+function hr(s, start, end, silent) {
+  const pos = s.bm[start] + s.ts[start];
+  const mx = s.em[start];
+  const marker = s.at(pos);
+  if (s.sc[start] - s.blk >= 4 || (marker !== '*' && marker !== '-' && marker !== '_')) return false;
+  let count = 1;
+  for (const c of s.src.slice(pos + 1, mx)) {
+    if (c !== marker && !space(c)) return false;
+    if (c === marker) count++;
+  }
+  if (count < 3) return false;
+  if (!silent) s.line = start + 1;
+  return true;
+}
+
+function bullet(s, line) {
+  const pos = s.bm[line] + s.ts[line];
+  const mx = s.em[line];
+  const c = s.at(pos);
+  if ((c !== '*' && c !== '-' && c !== '+') || (pos + 1 < mx && !space(s.src[pos + 1]))) return -1;
+  return pos + 1;
+}
+
+function ordered(s, line) {
+  const start = s.bm[line] + s.ts[line];
+  const mx = s.em[line];
+  let pos = start;
+  if (pos + 1 >= mx || !(s.src[pos] >= '0' && s.src[pos] <= '9')) return -1;
+  pos++;
+  for (;;) {
+    if (pos >= mx) return -1;
+    const c = s.src[pos++];
+    if (c >= '0' && c <= '9') {
+      if (pos - start >= 10) return -1;
+      continue;
+    }
+    if (c === ')' || c === '.') break;
+    return -1;
+  }
+  if (pos < mx && !space(s.src[pos])) return -1;
+  return pos;
+}
+
+function list(s, start, end, silent) {
+  let nxt = start;
+  if (s.sc[nxt] - s.blk >= 4) return false;
+  // a list marker indented 4 columns past its list is text
+  if (s.listIndent >= 0 && s.sc[nxt] - s.listIndent >= 4 && s.sc[nxt] < s.blk) return false;
+  const interrupting = silent && s.parent === 'paragraph' && s.sc[nxt] >= s.blk;
+  let after = ordered(s, nxt);
+  let isOrdered;
+  if (after >= 0) {
+    isOrdered = true;
+    if (interrupting && Number(s.src.slice(s.bm[nxt] + s.ts[nxt], after - 1)) !== 1) return false;
+  } else {
+    after = bullet(s, nxt);
+    if (after < 0) return false;
+    isOrdered = false;
+  }
+  if (interrupting && s.skipSpaces(after) >= s.em[nxt]) return false;
+  if (silent) return true;
+  const marker = s.src[after - 1];
+  const oldParent = s.parent;
+  s.parent = 'list';
+  s.level++;
+  while (nxt < end) {
+    let pos = after;
+    const mx = s.em[nxt];
+    const initial = s.sc[nxt] + after - (s.bm[nxt] + s.ts[nxt]);
+    let offset = initial;
+    while (pos < mx && space(s.src[pos])) {
+      offset += s.src[pos] === '\t' ? 4 - ((offset + s.bs[nxt]) % 4) : 1;
+      pos++;
+    }
+    const content = pos;
+    const gap = content >= mx ? 1 : offset - initial;
+    const indent = initial + (gap > 4 ? 1 : gap);
+    const oldTs = s.ts[nxt];
+    const oldSc = s.sc[nxt];
+    const oldListIndent = s.listIndent;
+    s.listIndent = s.blk;
+    s.blk = indent;
+    s.ts[nxt] = content - s.bm[nxt];
+    s.sc[nxt] = offset;
+    s.level++;
+    if (content >= mx && s.empty(nxt + 1)) s.line = Math.min(s.line + 2, end);
+    else s.tokenize(nxt, end);
+    s.level--;
+    s.blk = s.listIndent;
+    s.listIndent = oldListIndent;
+    s.ts[nxt] = oldTs;
+    s.sc[nxt] = oldSc;
+    nxt = s.line;
+    if (nxt >= end || s.sc[nxt] < s.blk || s.sc[nxt] - s.blk >= 4 || s.interrupts(LIST_BREAKS, nxt, end)) break;
+    after = isOrdered ? ordered(s, nxt) : bullet(s, nxt);
+    if (after < 0 || s.src[after - 1] !== marker) break;
+  }
+  s.level--;
+  s.line = nxt;
+  s.parent = oldParent;
+  return true;
+}
+
+function footnote(s, start, end, silent) {
+  const first = s.bm[start] + s.ts[start];
+  const mx = s.em[start];
+  if (first + 4 > mx || s.src.slice(first, first + 2) !== '[^') return false;
+  let pos = first + 2;
+  while (pos < mx && s.src[pos] !== ']') {
+    if (s.src[pos] === ' ') return false;
+    pos++;
+  }
+  if (pos === first + 2 || pos + 1 >= mx || s.src[pos + 1] !== ':') return false;
+  if (silent) return true;
+  pos += 2;
+  const old = [s.bm[start], s.ts[start], s.sc[start], s.parent];
+  const afterColon = pos;
+  const initial = s.sc[start] + pos - first;
+  let offset = initial;
+  while (pos < mx && space(s.src[pos])) {
+    offset += s.src[pos] === '\t' ? 4 - (offset % 4) : 1;
+    pos++;
+  }
+  s.ts[start] = pos - afterColon;
+  s.sc[start] = offset - initial;
+  s.bm[start] = afterColon;
+  s.blk += 4;
+  s.parent = 'footnote';
+  if (s.sc[start] < s.blk) s.sc[start] += s.blk;
+  s.level++;
+  s.tokenize(start, end);
+  s.level--;
+  s.blk -= 4;
+  [s.bm[start], s.ts[start], s.sc[start], s.parent] = old;
+  return true;
+}
+
+function linkDestination(st, start, mx) {
+  let pos = start;
+  if (st[pos] === '<') {
+    pos++;
+    while (pos < mx) {
+      const c = st[pos];
+      if (c === '\n' || c === '<') return null;
+      if (c === '>') return [pos + 1, unescape(st.slice(start + 1, pos))];
+      pos += c === '\\' && pos + 1 < mx ? 2 : 1;
+    }
+    return null;
+  }
+  let level = 0;
+  while (pos < mx) {
+    const c = st[pos];
+    if (c === ' ' || st.charCodeAt(pos) < 0x20 || c === '\x7f') break;
+    if (c === '\\' && pos + 1 < mx) {
+      if (st[pos + 1] === ' ') break;
+      pos += 2;
+      continue;
+    }
+    if (c === '(') {
+      level++;
+      if (level > 32) return null;
+    }
+    if (c === ')') {
+      if (level === 0) break;
+      level--;
+    }
+    pos++;
+  }
+  if (start === pos || level !== 0) return null;
+  return [pos, unescape(st.slice(start, pos))];
+}
+
+// markdown-it's parseLinkTitle; `text` is kept raw (only whether it is empty matters here).
+function linkTitle(st, start, mx, prev) {
+  let pos = start;
+  const res = { ok: false, more: false, pos: 0, text: '', marker: '' };
+  if (prev) {
+    res.text = prev.text;
+    res.marker = prev.marker;
+  } else {
+    if (pos >= mx || !'"\'('.includes(st[pos])) return res;
+    res.marker = st[pos] === '(' ? ')' : st[pos];
+    start++;
+    pos++;
+  }
+  while (pos < mx) {
+    const c = st[pos];
+    if (c === res.marker) return Object.assign(res, { pos: pos + 1, ok: true, text: res.text + st.slice(start, pos) });
+    if (c === '(' && res.marker === ')') return res;
+    if (c === '\\' && pos + 1 < mx) pos++;
+    pos++;
+  }
+  return Object.assign(res, { more: true, text: res.text + st.slice(start, pos) });
+}
+
+function reference(s, start, end, silent) {
+  let pos = s.bm[start] + s.ts[start];
+  if (s.sc[start] - s.blk >= 4 || s.at(pos) !== '[') return false;
+  let nxt = start + 1;
+  const nextLine = (line) => { // the next line, when the definition may go on there
+    if (line >= s.lineMax || s.empty(line)) return null;
+    if (!(s.sc[line] - s.blk > 3 || s.sc[line] < 0)) {
+      const old = s.parent;
+      s.parent = 'reference';
+      const stop = s.interrupts(PARAGRAPH_BREAKS, line, s.lineMax);
+      s.parent = old;
+      if (stop) return null;
+    }
+    return s.src.slice(s.bm[line] + s.ts[line], s.em[line] + 1);
+  };
+  let st = s.src.slice(pos, s.em[start] + 1);
+  let mx = st.length;
+  const more = () => {
+    const tail = nextLine(nxt);
+    if (tail !== null) {
+      st += tail;
+      mx = st.length;
+      nxt++;
+    }
+  };
+  let labelEnd = -1;
+  for (pos = 1; pos < mx; pos++) {
+    const c = st[pos];
+    if (c === '[') return false;
+    if (c === ']') {
+      labelEnd = pos;
+      break;
+    }
+    if (c === '\n') more();
+    else if (c === '\\') {
+      pos++;
+      if (pos < mx && st[pos] === '\n') more();
+    }
+  }
+  if (labelEnd < 0 || st[labelEnd + 1] !== ':') return false;
+  for (pos = labelEnd + 2; pos < mx && (st[pos] === '\n' || space(st[pos])); pos++) if (st[pos] === '\n') more();
+  const dest = linkDestination(st, pos, mx);
+  if (dest === null) return false;
+  const url = dest[1].trim().toLowerCase();
+  if (BAD_PROTO_RE.test(url) && !GOOD_DATA_RE.test(url)) return false;
+  pos = dest[0];
+  const destEnd = pos;
+  const destLine = nxt;
+  const begin = pos;
+  for (; pos < mx && (st[pos] === '\n' || space(st[pos])); pos++) if (st[pos] === '\n') more();
+  let title = linkTitle(st, pos, mx, null);
+  while (title.more) {
+    const tail = nextLine(nxt);
+    if (tail === null) break;
+    st += tail;
+    pos = mx;
+    mx = st.length;
+    nxt++;
+    title = linkTitle(st, pos, mx, title);
+  }
+  let hasTitle = false;
+  if (pos < mx && begin !== pos && title.ok) {
+    hasTitle = Boolean(title.text);
+    pos = title.pos;
+  } else {
+    pos = destEnd;
+    nxt = destLine;
+  }
+  while (pos < mx && space(st[pos])) pos++;
+  if (pos < mx && st[pos] !== '\n' && hasTitle) { // text after the title: the definition ends before it
+    pos = destEnd;
+    nxt = destLine;
+    while (pos < mx && space(st[pos])) pos++;
+  }
+  if ((pos < mx && st[pos] !== '\n') || !st.slice(1, labelEnd).trim()) return false;
+  if (!silent) s.line = nxt;
+  return true;
+}
+
+function html(s, start, end, silent) {
+  const pos = s.bm[start] + s.ts[start];
+  if (s.sc[start] - s.blk >= 4 || s.at(pos) !== '<') return false;
+  const text = s.text(start);
+  const kind = HTML_BLOCKS.findIndex(([open]) => open.test(text));
+  if (kind < 0) return false;
+  const [, close, interrupts] = HTML_BLOCKS[kind];
+  if (silent) return interrupts;
+  let nxt = start + 1;
+  if (kind === COMPONENT && ONE_LINE_TAG.test(text)) {
+    s.line = nxt;
+    return true;
+  }
+  if (!(close && close.test(text))) {
+    for (; nxt < end && s.sc[nxt] >= s.blk; nxt++) {
+      const line = s.text(nxt);
+      if (close ? close.test(line) : !line) {
+        if (line) nxt++;
+        break;
+      }
+    }
+  }
+  s.line = nxt;
+  return true;
+}
+
+function heading(s, start, end, silent) {
+  let pos = s.bm[start] + s.ts[start];
+  const mx = s.em[start];
+  if (s.sc[start] - s.blk >= 4 || s.at(pos) !== '#' || pos >= mx) return false;
+  let level = 1;
+  pos++;
+  while (s.at(pos) === '#' && pos < mx && level <= 6) {
+    level++;
+    pos++;
+  }
+  if (level > 6 || (pos < mx && !space(s.at(pos)))) return false;
+  if (!silent) s.line = start + 1;
+  return true;
+}
+
+function setext(s, start, end) {
+  if (s.sc[start] - s.blk >= 4) return false;
+  const oldParent = s.parent;
+  s.parent = 'paragraph';
+  let level = 0;
+  let nxt = start + 1;
+  for (; nxt < end && !s.empty(nxt); nxt++) {
+    if (s.sc[nxt] - s.blk > 3) continue;
+    if (s.sc[nxt] >= s.blk) {
+      const pos = s.bm[nxt] + s.ts[nxt];
+      const mx = s.em[nxt];
+      if (pos < mx && (s.src[pos] === '-' || s.src[pos] === '=')
+          && s.skipSpaces(s.skipChars(pos, s.src[pos])) >= mx) {
+        level = s.src[pos] === '=' ? 1 : 2;
+        break;
+      }
+    }
+    if (s.sc[nxt] >= 0 && s.interrupts(PARAGRAPH_BREAKS, nxt, end)) break;
+  }
+  s.parent = oldParent;
+  if (!level) return false;
+  s.line = nxt + 1;
+  return true;
+}
+
+function paragraph(s, start, end) {
+  const oldParent = s.parent;
+  s.parent = 'paragraph';
+  let nxt = start + 1;
+  for (; nxt < end && !s.empty(nxt); nxt++) {
+    if (s.sc[nxt] - s.blk <= 3 && s.sc[nxt] >= 0 && s.interrupts(PARAGRAPH_BREAKS, nxt, end)) break;
+  }
+  s.line = nxt;
+  s.parent = oldParent;
+  return true;
+}
+
+// markdown-it's block rules in Slidev's order, and the rules that may end a paragraph (or a link reference
+// definition), a block quote's lazy text or a table, and a list
+const RULES = [table, code, snippet, slot, fence, blockquote, math, hr, list, footnote, reference, html, heading,
+  setext, paragraph];
+const PARAGRAPH_BREAKS = [table, snippet, slot, fence, blockquote, math, hr, list, footnote, html, heading];
+const QUOTE_BREAKS = [snippet, slot, fence, blockquote, math, hr, list, html, heading];
+const LIST_BREAKS = [snippet, slot, fence, blockquote, math, hr];
+
+// For each line of a slide's Markdown, whether Slidev shows it as code: a line of a fenced code block (fences
+// included), of an indented code block or a `<<< file` import, as markdown-exit set up as Slidev sets it up parses
+// the slide (see the comment above). ``` in an HTML block (<div>, a component tag such as <v-click> up to the next
+// blank line, …), a math block or a table is not a fence.
+export function codeLines(text) {
+  const src = text.replace(/\r\n?/g, '\n').replaceAll('\0', '\uFFFD');
+  const blocks = new Blocks(src);
+  if (src) blocks.tokenize(0, blocks.lineMax);
+  return blocks.code.concat(new Array(src.split('\n').length - blocks.lineMax).fill(false));
+}
+
+// `text` with the lines Slidev shows as code emptied (codeLines).
 export function stripCode(text) {
   const mask = codeLines(text);
   return text.split(NEWLINE_RE).map((line, i) => (mask[i] ? '' : line)).join('\n');

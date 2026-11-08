@@ -13,10 +13,10 @@
 //   - every language page for page: same slide count, and on each slide the same layout, bare, chapter,
 //     hide/disabled flags, presence of a section, and the same sequence of cited Lean GIDs;
 //   - every <LeanBadge gid> / <TheoremCard gid> (in any spelling Vue resolves, e.g. <lean-badge>) outside
-//     fenced code (stripCode in slides-lib.mjs: the CommonMark rules Slidev's Markdown follows) is a GID
+//     code blocks (stripCode in slides-lib.mjs: Slidev's own Markdown block rules) is a GID
 //     present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems get the
 //     green LEAN ✓); status="open" cites no GID;
-//   - no root-relative or file: links outside fenced code (the site is served under /<repo>/), no
+//   - no root-relative or file: links outside code blocks (the site is served under /<repo>/), no
 //     index.html in the deck;
 //   - no class name or attribute on an HTML element that UnoCSS (bundled with Slidev) would turn into
 //     a utility that overrides the theme.
@@ -49,7 +49,7 @@ function attrsOf(text) {
   return out;
 }
 
-// Cited GIDs of one slide (outside fenced code: stripCode), in order: [{ tag, gid, attrs }]; problems go to `bad`.
+// Cited GIDs of one slide (outside code blocks: stripCode), in order: [{ tag, gid, attrs }]; problems go to `bad`.
 function citations(content, bad) {
   const out = [];
   for (const m of stripCode(content).matchAll(TAG_RE)) {

@@ -44,7 +44,16 @@ node tools/node/slides-check.mjs                                 # 同上（Node
 | `<Tex t="\beta(n)" />`、`<Tex display t="…" />` | HTML 块里的 KaTeX（HTML 块中 `$…$` 不会被处理）。 |
 | `<PageNo />` | 自带版式页面的“当前页 / 总页数”。 |
 
-GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除非写了 `kind="definition"`：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。组件写成 `<lean-badge>`、`<theorem-card>` 等 Vue 认可的其他写法时同样受检查。代码块里的标签只作为代码显示，不受检查；代码块之外（包括两个代码块之间）的每个标签都受检查。代码块按 Slidev 所用 markdown-it 的 CommonMark 规则逐行识别：围栏缩进不超过 3 列，可在块引用、列表项与脚注中，随所在容器结束；HTML 块里的 ```` ``` ```` 不是围栏（`tools/tbook/slides.py` 的 `code_lines` 与 `tools/node/slides-lib.mjs` 的 `codeLines` 是同一算法）。
+GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除非写了 `kind="definition"`：写好后运行 `./tbook pin --refresh`（它也收集幻灯片引用的 GID），再 `./tbook check`。组件写成 `<lean-badge>`、`<theorem-card>` 等 Vue 认可的其他写法时同样受检查。
+
+代码块里的标签只作为代码显示，不受检查；其余每个标签都受检查，包括两个代码块之间、表格之后与 HTML 块里的标签。代码块指围栏代码块、缩进四列的代码块与 `<<<` 代码片段导入。哪些行属于代码块，按 Slidev 53 实际使用的解析器判断：`tools/tbook/slides.py` 的 `code_lines` 与 `tools/node/slides-lib.mjs` 的 `codeLines` 是同一份移植，照搬 Slidev 配置下 markdown-exit（markdown-it 14）的块规则，连同规则顺序、哪些块能打断段落、块引用、列表或表格，以及块引用、列表项与脚注的缩进和懒惰续行。其中：
+
+- GFM 表格：表头行加分隔行开始一张表；表格不接懒惰续行，遇到空行、缩进四列的行、所在容器之外的行或能打断块引用的块就结束。
+- HTML 块按 `@mdit-vue/plugin-component` 的规则：`<v-click>`、`<TheoremCard>` 等组件标签可以打断段落，到空行为止；自闭合或在同一行闭合的组件标签只占这一行；`<span>` 等行内标签不能打断段落。HTML 块、`$$` 公式块与表格里的 ```` ``` ```` 都不是围栏。
+- 空白与大小写按 JavaScript：标签名后的空白按 `\s` 判断（全角空格、不换行空格也算），标签名只按 ASCII 折叠大小写；切分幻灯片、去掉每页首尾的空白也与 `@slidev/parser` 一致。
+- 演示文稿自己加入的语法不在其中：`mdc: true`、`setup/transformers.ts`、`vite.config` 里的 Markdown 选项都会让检查与渲染不一致，不要使用。
+
+`test_slides` 用 `@slidev/parser` 切分随机生成的演示文稿，再用 Slidev 构建出的解析器与两种实现逐行比对。
 
 ## 样式类（`styles/deck.css`）
 
