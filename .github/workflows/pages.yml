@@ -61,6 +61,11 @@ jobs:
     needs: probe
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    permissions:
+      contents: read
+      # actions/configure-pages reads the Pages configuration (GET /repos/{owner}/{repo}/pages), which
+      # private and internal repositories refuse without this scope.
+      pages: read
     steps:
       - name: Check out
         uses: actions/checkout@v5

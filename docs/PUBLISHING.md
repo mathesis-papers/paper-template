@@ -31,9 +31,9 @@ EPUB 按 Apple Books 的要求生成：EPUB 3、MathML 数学、PNG 封面、导
 
 | 工作流 | 触发 | 作用 |
 | --- | --- | --- |
-| `ci.yml` | PR、推送到任意分支、手动、被调用 | `check` 作业：`./tbook check`、`./tbook theme --check`、全部单元测试、可视化登记校验与幻灯片检查（模板仓库另跑 `./tbook template manifest --check`）；`build` 作业：HTML/PDF/EPUB，产物上传为 artifact；`media` 作业：可视化浏览器回归测试、幻灯片构建与 PDF |
+| `ci.yml` | PR、推送到任意分支、手动、被调用 | `check` 作业：`./tbook check`、`./tbook theme --check`、全部单元测试、可视化登记校验与幻灯片检查（模板仓库另跑 `./tbook template manifest --check`，并在删去示例书的工作树中重跑检查与单元测试：下游书库可以删除示例书，甚至暂时没有书，CI 照样通过）；`build` 作业：HTML/PDF/EPUB，产物上传为 artifact；`media` 作业：可视化浏览器回归测试、幻灯片构建与 PDF |
 | `pages.yml` | 推送到 `main`、手动 | `./tbook check` 后构建全部并部署 GitHub Pages；Pages 尚未启用时只构建、不部署，并在作业摘要中提示 |
-| `release.yml` | tag `<slug>-v<version>`（单本，须等于 `book.toml` 的 version）或 `v*`（全部书，仅下游书库） | 构建并创建 GitHub Release，附 PDF、EPUB 与幻灯片 PDF（`<slug>-<deck>-<lang>.pdf`）；`film-*` tag 不触发 |
+| `release.yml` | tag `<slug>-v<version>`（单本，须等于 `book.toml` 的 version）或 `v*`（全部书，仅下游书库，如 `v2026.11.08`、`v3.0.0`） | 构建并创建 GitHub Release，附 PDF、EPUB 与幻灯片 PDF（`<slug>-<deck>-<lang>.pdf`）；只有语义化版本的预发布（`book.toml` 的 `1.0.0-rc.1`，或 tag `v3.0.0-rc.1`）标为 pre-release，日期 tag 是正式发布；`film-*` tag 不触发 |
 | `film.yml` | tag `film-<slug>-<NNN>-v<k>`（须等于 `film.json` 的 `release_tag`）、手动 | 渲染视频（TTS、配乐、逐帧渲染、编码）并发布到 Release |
 | `lean-verify.yml` | 每周、手动、可被 Release 调用 | Lake 工程深度验证被引用定理的公理闭包 |
 | `trureturing-bump.yml` | 每周、手动 | 把所钉的 trureturing 提交升级到最新并开 PR；标题前缀 `[unresolved]`、`[check fails]`、`[review statements]` 提示需要处理的情况 |
