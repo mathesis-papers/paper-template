@@ -1,8 +1,14 @@
 """``./tbook pin``: pin a trureturing commit and resolve every cited declaration.
 
 ``./tbook pin``            follow the branch in site.toml (default ``dev``) to its head
-``./tbook pin <sha|ref>``  pin an explicit commit, branch or tag
+``./tbook pin <sha|ref>``  pin an explicit commit (full or abbreviated SHA), branch or tag
 ``./tbook pin --refresh``  keep the current commit; add newly cited and prune unused GIDs
+
+Whatever the ref, the commit must be on the site.toml branch: trureturing's CI enforces the
+freeze rule (frozen ⇒ kernel-verified, no ``sorry``) only there, while GitHub also serves
+pull-request heads and other unmerged commits. A commit that is not on the branch is
+refused; one whose ancestry cannot be determined is refused in GitHub Actions and pinned
+with a warning elsewhere (``./tbook check`` verifies it again).
 
 The lock records, per GID, the fully qualified Lean name, its kind, its module's frozen
 ``statement_id`` and (best effort) the source line and header. When the commit moves,
@@ -25,11 +31,18 @@ class PinReport:
     added: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     changed: list[tuple[str, str]] = field(default_factory=list)  # (gid, what)
+    moved: list[tuple[str, int, int]] = field(default_factory=list)  # (gid, old line, new line)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    refused: str = ""  # why the commit cannot be pinned (not on the branch …); nothing was resolved
     written: bool = False
 
     def markdown(self) -> str:
         lines = [f"trureturing pin: `{self.previous[:12] or '—'}` → `{self.commit[:12]}`", ""]
+        if self.refused:
+            return "\n".join(lines + ["**Refused (lock not written):**", "", f"- {self.refused}"])
+        if self.warnings:
+            lines += ["**Warnings:**", ""] + [f"- {w}" for w in self.warnings] + [""]
         if self.errors:
             lines += ["**Unresolved (lock not written):**", ""] + [f"- {e}" for e in self.errors] + [""]
         for title, items in (("Added", self.added), ("Removed", self.removed)):
@@ -38,6 +51,9 @@ class PinReport:
         if self.changed:
             lines += ["**Changed — review the book text for these:**", ""]
             lines += [f"- `{g}`: {what}" for g, what in self.changed] + [""]
+        if self.moved:
+            lines += ["**Source line changed:**", ""]
+            lines += [f"- `{g}`: L{a or '?'} → L{b or '?'}" for g, a, b in self.moved] + [""]
         if not (self.errors or self.added or self.removed or self.changed):
             lines.append("No declaration changes.")
         return "\n".join(lines)
@@ -57,24 +73,55 @@ def cited_gids(books: list[config.Book]) -> list[str]:
     return sorted(gids)
 
 
-def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
-        dry_run: bool = False) -> PinReport:
-    site = config.load_site()
-    old = lean.Lock.load()
+def _target(ref: str | None, old: lean.Lock | None, *, refresh: bool, offline: bool, branch: str, repo: str,
+            ledger) -> tuple[str, bool]:
+    """(commit to pin, whether it is the head of ``branch`` by construction)."""
     if refresh:
         if old is None:
             raise lean.LeanError("nothing to refresh: trureturing.lock.json does not exist; run ./tbook pin")
-        commit = old.commit
-    elif ref and lean.SHA_RE.match(ref):
-        commit = ref
-    else:
-        if offline:
-            raise lean.LeanError("--offline needs a full 40-hex commit or --refresh")
-        commit = lean.ls_remote(site.trureturing_repo, ref or site.trureturing_branch)
-    report = PinReport(commit=commit, previous=old.commit if old else "")
+        return old.commit, False
+    if ref and lean.SHA_RE.match(ref):
+        return ref, False
+    if ref and lean.ABBREV_SHA_RE.match(ref):
+        full = ledger.expand_sha(ref)
+        if full:
+            return full, False
+    if offline:
+        raise lean.LeanError("--offline needs a full 40-hex commit, a commit prefix the local trureturing checkout "
+                             "knows, or --refresh")
+    if not ref or ref == branch:
+        return lean.ls_remote(repo, f"refs/heads/{branch}"), True
+    return lean.ls_remote(repo, ref), False
+
+
+def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
+        dry_run: bool = False) -> PinReport:
+    site = config.load_site()
+    branch = site.trureturing_branch
+    old = lean.Lock.load()
     ledger = lean.Ledger(site.trureturing_repo, offline=offline)
+    commit, head = _target(ref, old, refresh=refresh, offline=offline, branch=branch,
+                           repo=site.trureturing_repo, ledger=ledger)
+    report = PinReport(commit=commit, previous=old.commit if old else "")
+    if head:
+        ledger.record_on_branch(commit, branch, f"head of {branch}")
+    else:
+        anc = ledger.branch_contains(commit, branch)
+        where = f"branch {branch!r} of {site.trureturing_repo}"
+        if anc.on_branch is False:
+            report.refused = (f"{commit} is not on {where} ({anc.detail}). trureturing enforces the freeze rule "
+                              f"only on {branch}: merge the formalization into {branch} first "
+                              "(skills/theorem-formalize), then pin a commit on it")
+            return report
+        if anc.on_branch is None:
+            msg = f"could not verify that {commit[:12]} is on {where}: {anc.detail}"
+            if lean.ancestry_required(offline):
+                report.refused = msg
+                return report
+            report.warnings.append(msg + "; ./tbook check verifies it again")
+    cited = cited_gids(config.load_books())
     resolved: dict[str, dict] = {}
-    for gid in cited_gids(config.load_books()):
+    for gid in cited:
         try:
             res = lean.resolve(ledger, commit, gid)
         except lean.LeanError as exc:
@@ -84,7 +131,7 @@ def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
         resolved[gid] = res.to_lock()
     before = old.declarations if old else {}
     report.added = sorted(set(resolved) - set(before))
-    report.removed = sorted(set(before) - set(resolved))
+    report.removed = sorted(set(before) - set(cited))  # a cited GID that fails to resolve is Unresolved only
     for gid in sorted(set(resolved) & set(before)):
         a, b = before[gid], resolved[gid]
         diffs = []
@@ -96,9 +143,11 @@ def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
             diffs.append("module statement digest changed")
         if diffs:
             report.changed.append((gid, "; ".join(diffs)))
+        if int(a.get("line", 0) or 0) != int(b.get("line", 0) or 0):
+            report.moved.append((gid, int(a.get("line", 0) or 0), int(b.get("line", 0) or 0)))
     if report.errors or dry_run:
         return report
-    lock = lean.Lock(repo=site.trureturing_repo, branch=site.trureturing_branch, commit=commit,
+    lock = lean.Lock(repo=site.trureturing_repo, branch=branch, commit=commit,
                      pinned_at=(old.pinned_at if old and refresh and old.commit == commit else lean.now_utc()),
                      declarations=resolved)
     lock.save()

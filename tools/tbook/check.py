@@ -3,18 +3,22 @@
 The rule this enforces: every theorem / lemma / proposition / corollary cites at least
 one Lean declaration (``lean="<GID>"``) that is recorded in ``trureturing.lock.json`` and
 that, at the pinned commit, is listed in trureturing's ``Golden/Frozen/state`` with kind
-``theorem`` — i.e. kernel-verified and frozen. Conjectures and open problems must not
-cite Lean. Editions of a book (zh, en, …) must agree item by item.
+``theorem`` — i.e. kernel-verified and frozen. The pinned commit must be on the site.toml
+branch, where trureturing's CI enforces the freeze rule. Conjectures and open problems must
+not cite Lean. Editions of a book (zh, en, …) must agree item by item, and their SUMMARY.md
+must give every chapter the same number.
 """
 
 from __future__ import annotations
 
 import importlib
+import subprocess
 from pathlib import Path
 
 from . import config, lean, mdscan, paths
 from .model import (DEFINITION, FORMAL, MEDIA, NUMBERED, OPEN, PROOF, EditionModel, Issue, load_book_models,
                     media_cited_gids)
+from .summary import Chapter, Summary, chapter_prefix
 
 
 def _err(issues: list[Issue], path: Path | None, line: int, msg: str) -> None:
@@ -92,6 +96,22 @@ def _env_signature(model: EditionModel) -> list[tuple[str, list[tuple[str, str, 
     return sig
 
 
+def _placement(summary: Summary, ch: Chapter) -> tuple[str, tuple[int, ...], int, str]:
+    """What decides a chapter's theorem numbers: section, mdBook number, nesting depth and the
+    numbering prefix (``2``, ``0`` for prefix chapters, ``A`` for the first suffix chapter)."""
+    return ch.section, ch.number, ch.depth, chapter_prefix(summary, ch)
+
+
+def _describe(summary: Summary, ch: Chapter) -> str:
+    section, number, depth, prefix = _placement(summary, ch)
+    nested = f", nested at depth {depth}" if depth else ""
+    if section == "numbered":
+        return f"numbered chapter {'.'.join(map(str, number))}{nested} (theorems {prefix}.n)"
+    if section == "prefix":
+        return "a prefix chapter before the numbered list (theorems 0.n)"
+    return f"a suffix chapter after the numbered list (theorems {prefix}.n)"
+
+
 def check_parity(book: config.Book, models: dict[str, EditionModel], issues: list[Issue]) -> None:
     if len(models) < 2:
         return
@@ -100,6 +120,7 @@ def check_parity(book: config.Book, models: dict[str, EditionModel], issues: lis
         return
     p_files = primary.summary.files()
     p_sig = _env_signature(primary)
+    p_place = {c.path: c for c in primary.summary.chapters if c.path}
     for lang in book.languages[1:]:
         other = models[lang]
         if other.summary is None:
@@ -119,6 +140,15 @@ def check_parity(book: config.Book, models: dict[str, EditionModel], issues: lis
                  f"{lang} edition chapters differ from the {book.languages[0]} edition ({'; '.join(detail)}). "
                  "Editions use the same file names in the same order.")
             continue
+        for ch in other.summary.chapters:  # same files, but the same numbers? (sections, nesting, drafts)
+            pch = p_place.get(ch.path) if ch.path else None
+            if pch and _placement(other.summary, ch) != _placement(primary.summary, pch):
+                _err(issues, other.summary.path, ch.line,
+                     f"{ch.path} is {_describe(other.summary, ch)} in the {lang} edition but "
+                     f"{_describe(primary.summary, pch)} in the {book.languages[0]} edition, so its theorem "
+                     "numbers would differ. Give every edition the same SUMMARY.md structure (prefix / "
+                     "numbered / suffix chapters, nesting, draft entries).")
+                break
         o_sig = dict(_env_signature(other))
         for path, items in p_sig:
             o_items = o_sig.get(path, [])
@@ -140,11 +170,15 @@ def check_parity(book: config.Book, models: dict[str, EditionModel], issues: lis
 
 def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lock | None,
                site: config.Site, issues: list[Issue], *, offline: bool,
-               extra_cited: list[tuple[Path, int, str]] | None = None) -> None:
-    """Re-verify every cited GID against the lock and the frozen state at the pinned commit.
+               extra_cited: list[tuple[Path, int, str]] | None = None,
+               cited_elsewhere: set[str] | None = frozenset()) -> None:
+    """Re-verify every cited GID against the lock and the frozen state at the pinned commit, and
+    the pinned commit against the site.toml branch.
 
     ``extra_cited`` holds citations outside the chapters (visualizations, films, slides); they are
     verified the same way but do not impose the theorem-kind rule (their modules check that).
+    ``cited_elsewhere`` holds GIDs cited by books outside ``models_by_book`` (``check --book``), so
+    their lock entries do not count as unused; ``None`` (unknown) skips the unused-entry warning.
     """
     cited: dict[str, list[tuple[Path, int, bool]]] = {}
     for path, line, gid in extra_cited or []:
@@ -170,14 +204,29 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
         _err(issues, paths.LOCK_FILE, 0,
              f"lock pins {lock.repo} but site.toml uses {site.trureturing_repo}; run ./tbook pin")
     ledger = lean.Ledger(lock.repo, offline=offline)
+    branch = site.trureturing_branch
+    anc = ledger.branch_contains(lock.commit, branch)
+    where = f"branch {branch!r} of {lock.repo}"
+    if anc.on_branch is False:
+        _err(issues, paths.LOCK_FILE, 0,
+             f"pinned commit {lock.commit[:12]} is not on {where} ({anc.detail}); trureturing enforces the freeze "
+             f"rule only on {branch}, so its frozen state at other commits proves nothing. Pin a commit on "
+             f"{branch}: ./tbook pin")
+    elif anc.on_branch is None:
+        (_err if lean.ancestry_required(offline) else _warn)(
+            issues, paths.LOCK_FILE, 0,
+            f"could not verify that pinned commit {lock.commit[:12]} is on {where}: {anc.detail}")
     for gid, uses in sorted(cited.items()):
         path, line, _ = uses[0]
         res = lock.get(gid)
         if res is None:
             _err(issues, path, line, f"{gid} is not in trureturing.lock.json; run ./tbook pin --refresh")
             continue
-        if any(formal for _, _, formal in uses) and res.kind not in lean.FORMAL_KINDS:
-            _err(issues, path, line, f"{gid} is a Lean {res.kind}, but theorem-like environments must cite theorems")
+        if res.kind not in lean.FORMAL_KINDS:
+            for fpath, fline, formal in uses:  # at each theorem-like environment, not at a media citation
+                if formal:
+                    _err(issues, fpath, fline,
+                         f"{gid} is a Lean {res.kind}, but theorem-like environments must cite theorems")
         try:
             live = lean.resolve(ledger, lock.commit, gid)
         except lean.LeanError as exc:
@@ -192,8 +241,37 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
                      f"{gid}: lock says {fld}={getattr(res, fld)!r} but trureturing@{lock.commit[:12]} says "
                      f"{getattr(live, fld)!r}; run ./tbook pin --refresh")
                 break
-    for gid in sorted(set(lock.declarations) - set(cited)):
+    if cited_elsewhere is None:
+        return
+    for gid in sorted(set(lock.declarations) - set(cited) - set(cited_elsewhere)):
         _warn(issues, paths.LOCK_FILE, 0, f"{gid} is locked but no longer cited; ./tbook pin --refresh prunes it")
+
+
+def _cited_by_other_books(books: list[config.Book]) -> set[str] | None:
+    """GIDs cited by the repository's books that ``books`` leaves out (None if they cannot be read)."""
+    from .pin import cited_gids
+
+    try:
+        slugs = {b.slug for b in books}
+        others = [b for b in config.load_books() if b.slug not in slugs]
+        return set(cited_gids(others)) if others else set()
+    except Exception:  # noqa: BLE001 - another book's problem is reported when that book is checked
+        return None
+
+
+def check_cache(issues: list[Issue]) -> None:
+    """``.cache/`` holds downloaded trureturing state and verification results; committed files there
+    would let a pull request feed ``./tbook check`` fabricated frozen state."""
+    try:
+        r = subprocess.run(["git", "-C", str(paths.ROOT), "ls-files", "--", paths.rel(paths.CACHE)],
+                           capture_output=True, text=True)
+    except OSError:  # no git: not a checkout of the repository
+        return
+    tracked = r.stdout.splitlines() if r.returncode == 0 else []
+    if tracked:
+        _err(issues, paths.CACHE, 0,
+             f"{len(tracked)} file(s) under {paths.rel(paths.CACHE)}/ are committed (e.g. {tracked[0]}); it is a local "
+             f"cache and is never trusted from the repository: git rm -r --cached {paths.rel(paths.CACHE)}")
 
 
 def check_theme(issues: list[Issue]) -> None:
@@ -238,6 +316,8 @@ def run(books: list[config.Book], *, offline: bool = False) -> list[Issue]:
             except NotImplementedError:
                 pass
     extra = [c for book in books for c in media_cited_gids(book)]
-    check_lean(models_by_book, lock, site, issues, offline=offline, extra_cited=extra)
+    check_cache(issues)
+    check_lean(models_by_book, lock, site, issues, offline=offline, extra_cited=extra,
+               cited_elsewhere=_cited_by_other_books(books))
     check_theme(issues)
     return issues

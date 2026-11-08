@@ -100,11 +100,26 @@ class FakeLedger:
     """Stands in for ``lean.Ledger``: frozen states and Lean sources from dicts."""
 
     def __init__(self, state_map: dict[str, dict | None] | None = None, sources: dict[str, str] | None = None,
-                 unreachable: bool = False):
+                 unreachable: bool = False, on_branch: bool | None = True, shas: dict[str, str] | None = None):
         self.states = states() if state_map is None else state_map
         self.sources = sources or {}
         self.unreachable = unreachable
         self.calls: list[tuple[str, str]] = []
+        self.ancestry = lean.Ancestry(on_branch, {True: "fake: on branch", False: "fake: not on branch",
+                                                  None: "fake: cannot tell"}[on_branch])
+        self.ancestry_calls: list[tuple[str, str]] = []
+        self.recorded: list[tuple[str, str]] = []
+        self.shas = shas or {}
+
+    def branch_contains(self, commit: str, branch: str) -> lean.Ancestry:
+        self.ancestry_calls.append((commit, branch))
+        return self.ancestry
+
+    def record_on_branch(self, commit: str, branch: str, detail: str) -> None:
+        self.recorded.append((commit, branch))
+
+    def expand_sha(self, prefix: str) -> str | None:
+        return self.shas.get(prefix)
 
     def state(self, commit: str, module: str) -> dict | None:
         self.calls.append((commit, module))
