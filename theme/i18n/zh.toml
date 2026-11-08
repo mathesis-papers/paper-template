@@ -1,0 +1,66 @@
+# 界面与排版用语（中文）。下游可在仓库根目录 i18n/zh.toml 中覆盖任意键。
+[meta]
+name = "中文"
+bcp47 = "zh-CN"
+# 书名页、封面、目录用的语言标签
+short = "ZH"
+
+[env]
+theorem = "定理"
+lemma = "引理"
+proposition = "命题"
+corollary = "推论"
+definition = "定义"
+conjecture = "猜想"
+problem = "开放问题"
+example = "例"
+remark = "注"
+proof = "证明"
+
+[badge]
+lean = "LEAN ✓"
+open = "OPEN"
+lean_title = "已在 trureturing 中由 Lean 内核验证并冻结"
+open_title = "开放问题：尚无 Lean 证明"
+
+[punct]
+title_open = "（"
+title_close = "）"
+period = "。"
+list_sep = "、"
+
+[ui]
+contents = "目录"
+read_online = "在线阅读"
+download = "下载"
+pdf_screen = "PDF · 屏幕版"
+pdf_print = "PDF · 印刷版"
+epub = "EPUB · Apple Books"
+slides = "演示文稿"
+visualizations = "交互可视化"
+films = "视频"
+books = "书目"
+version = "版本"
+language = "语言"
+back_to_library = "返回书库"
+open_fullscreen = "全屏打开"
+watch = "观看"
+poster_unavailable = "视频海报未提供"
+viz_static_note = "交互版本见"
+film_static_note = "视频见"
+pinned_at = "形式化依据：trureturing 提交"
+verified_count = "条定理均经 Lean 内核验证"
+generated_note = "本页由构建自动生成，请勿手改。"
+
+[ledger]
+title = "形式化验证账本"
+intro = "本书每一条定理、引理、命题与推论都对应 trureturing 中一条已被 Lean 内核验证并冻结的声明。下表列出对应关系；链接固定到所钉的提交，内容不会随上游变化而漂移。"
+col_item = "条目"
+col_title = "标题"
+col_decl = "Lean 声明"
+col_kind = "种类"
+col_module = "模块"
+col_state = "冻结状态片"
+open_title = "开放问题与猜想"
+open_intro = "以下条目明确标为开放，书中不把它们当作已证结论。"
+none = "（无）"

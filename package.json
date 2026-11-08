@@ -1,0 +1,28 @@
+{
+  "name": "trureturing-books",
+  "private": true,
+  "description": "Node toolchain for trureturing books: KaTeX (HTML math), Slidev (slides), Playwright (viz tests, thumbnails, slide export, film frames). Managed by the template; pinned.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "check": "./tbook check",
+    "build": "./tbook build all",
+    "serve": "./tbook serve"
+  },
+  "devDependencies": {
+    "@fontsource/chakra-petch": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/noto-sans-sc": "5.3.1",
+    "@fontsource/orbitron": "5.3.0",
+    "@fontsource/rajdhani": "5.3.0",
+    "@slidev/cli": "53.0.0",
+    "@slidev/parser": "53.0.0",
+    "@slidev/types": "53.0.0",
+    "katex": "0.18.10",
+    "pdf-lib": "1.17.1",
+    "playwright-chromium": "1.56.1"
+  }
+}

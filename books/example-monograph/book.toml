@@ -1,0 +1,31 @@
+# 示例专著：演示定理环境、Lean 引用、双语对齐、可视化/视频/幻灯片嵌入与三种导出。
+[book]
+version = "0.1.0"
+authors = ["The Omega Institute"]
+license = "CC-BY-4.0"
+editions = ["zh", "en"]
+code = "GOLDEN//OBSERVE"
+date = ""
+
+[book.title]
+zh = "黄金整数与可观测性"
+en = "Golden Integers and Observability"
+
+[book.subtitle]
+zh = "一本每条定理都经 Lean 内核验证的示例专著"
+en = "A sample monograph whose every theorem is kernel-verified in Lean"
+
+[book.description]
+zh = "从 Zeckendorf 表示的进位亏量，到猜想的反驳与观测的盲区：用 trureturing 中已冻结的 Lean 定理演示本模板的全部写作约定。"
+en = "From the carry deficit of Zeckendorf representations to refuting a conjecture and the blind spots of observation: every convention of this template, shown with Lean theorems frozen in trureturing."
+
+[outputs]
+html = true
+pdf = ["screen", "print"]
+epub = true
+
+[pdf]
+paper = "a4"
+
+[epub]
+embed_fonts = false

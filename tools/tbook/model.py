@@ -1,0 +1,233 @@
+"""The structured view of one edition: chapters, numbered environments, references.
+
+Environment kinds and their verification policy:
+
+=============  ==================================================================
+formal         theorem, lemma, proposition, corollary — MUST cite >=1 Lean GID
+               (``lean="…"``); every cited declaration must be frozen and of kind
+               ``theorem``. Rendered with the green LEAN ✓ badge.
+definition     definition — ``lean`` optional; when given it must resolve (any kind).
+open           conjecture, problem — MUST NOT cite Lean; rendered with the OPEN badge.
+informal       example, remark — ``lean`` optional; when given it must resolve.
+proof          proof — unnumbered; ``lean`` optional.
+media          viz, film, slides — embeds, not numbered.
+=============  ==================================================================
+
+Numbered kinds share one counter per top-level chapter: ``定理 2.1``, ``定义 2.2``…
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import config, lean, mdscan
+from .summary import Chapter, Summary, SummaryError, chapter_prefix, parse_summary
+
+FORMAL = ("theorem", "lemma", "proposition", "corollary")
+DEFINITION = ("definition",)
+OPEN = ("conjecture", "problem")
+INFORMAL = ("example", "remark")
+PROOF = ("proof",)
+MEDIA = ("viz", "film", "slides")
+NUMBERED = FORMAL + DEFINITION + OPEN + INFORMAL
+ENV_KINDS = NUMBERED + PROOF
+ALL_KINDS = ENV_KINDS + MEDIA
+
+
+def kind_of(div: mdscan.Div) -> str | None:
+    for cls in div.classes:
+        if cls in ALL_KINDS:
+            return cls
+    return None
+
+
+def status_of(kind: str) -> str:
+    if kind in FORMAL:
+        return "lean"
+    if kind in OPEN:
+        return "open"
+    if kind in DEFINITION:
+        return "definition"
+    if kind in PROOF:
+        return "proof"
+    if kind in MEDIA:
+        return "media"
+    return "informal"
+
+
+@dataclass
+class Issue:
+    severity: str  # "error" | "warning"
+    path: Path | None
+    line: int
+    message: str
+
+    def format(self) -> str:
+        from .paths import rel
+
+        loc = rel(self.path) if self.path else "-"
+        if self.line:
+            loc += f":{self.line}"
+        return f"{self.severity.upper():7} {loc}: {self.message}"
+
+    def github(self) -> str:
+        from .paths import rel
+
+        kind = "error" if self.severity == "error" else "warning"
+        file = f" file={rel(self.path)}" if self.path else ""
+        line = f",line={self.line}" if self.line else ""
+        msg = self.message.replace("%", "%25").replace("\n", "%0A")
+        return f"::{kind}{file}{line}::{msg}"
+
+
+@dataclass
+class Env:
+    kind: str
+    id: str
+    title: str
+    lean: list[str]
+    attrs: mdscan.Attrs
+    chapter: Chapter
+    line: int
+    number: str = ""  # "2.1" for numbered kinds
+    div: mdscan.Div | None = field(default=None, repr=False)
+
+    @property
+    def status(self) -> str:
+        return status_of(self.kind)
+
+    def label(self, lang: str) -> str:
+        return config.s(lang, f"env.{self.kind}")
+
+    def ref_text(self, lang: str) -> str:
+        """``定理 2.1`` / ``Theorem 2.1``."""
+        sep = "" if lang.startswith(("zh", "ja")) else " "
+        return f"{self.label(lang)}{sep}{self.number}" if self.number else self.label(lang)
+
+    def heading(self, lang: str) -> str:
+        """``定理 2.1（亏量三值）`` / ``Theorem 2.1 (Deficit is three-valued)``."""
+        head = self.ref_text(lang)
+        if self.title:
+            head += config.s(lang, "punct.title_open") + self.title + config.s(lang, "punct.title_close")
+        return head
+
+
+@dataclass
+class ChapterDoc:
+    chapter: Chapter
+    path: Path
+    text: str
+    blocks: list[mdscan.Node]
+    envs: list[Env] = field(default_factory=list)
+    media: list[Env] = field(default_factory=list)
+    refs: list[tuple[int, str]] = field(default_factory=list)  # (line, id)
+    lean_links: list[tuple[int, str]] = field(default_factory=list)  # (line, gid)
+
+
+@dataclass
+class EditionModel:
+    edition: config.Edition
+    summary: Summary | None
+    chapters: list[ChapterDoc]
+    issues: list[Issue]
+    envs: dict[str, Env] = field(default_factory=dict)
+
+    @property
+    def lang(self) -> str:
+        return self.edition.lang
+
+    def all_envs(self) -> list[Env]:
+        return [e for ch in self.chapters for e in ch.envs]
+
+    def formal_envs(self) -> list[Env]:
+        return [e for e in self.all_envs() if e.kind in FORMAL]
+
+    def cited_gids(self) -> list[tuple[Path, int, str, Env | None]]:
+        out = []
+        for ch in self.chapters:
+            for env in ch.envs + ch.media:
+                for g in env.lean:
+                    out.append((ch.path, env.line, g, env))
+            for line, g in ch.lean_links:
+                out.append((ch.path, line, g, None))
+        return out
+
+    def chapter_of(self, env_id: str) -> ChapterDoc | None:
+        for ch in self.chapters:
+            if any(e.id == env_id for e in ch.envs):
+                return ch
+        return None
+
+
+def load_edition(edition: config.Edition) -> EditionModel:
+    issues: list[Issue] = []
+    model = EditionModel(edition=edition, summary=None, chapters=[], issues=issues)
+    if not edition.summary.exists():
+        issues.append(Issue("error", edition.summary, 0, "SUMMARY.md is missing"))
+        return model
+    try:
+        summary = parse_summary(edition.summary)
+    except SummaryError as exc:
+        issues.append(Issue("error", exc.path, exc.line, exc.message))
+        return model
+    model.summary = summary
+    counters: dict[int, int] = {}
+    for chapter in summary.chapters:
+        if chapter.draft:
+            continue
+        path = edition.dir / chapter.path
+        if not path.exists():
+            issues.append(Issue("error", edition.summary, chapter.line, f"chapter file not found: {chapter.path}"))
+            continue
+        text = path.read_text(encoding="utf-8")
+        scan_issues: list[mdscan.ScanIssue] = []
+        blocks = mdscan.parse_blocks(text, scan_issues)
+        for si in scan_issues:
+            issues.append(Issue("error", path, si.line, si.message))
+        doc = ChapterDoc(chapter=chapter, path=path, text=text, blocks=blocks)
+        prefix = chapter_prefix(summary, chapter)
+        for node in mdscan.walk(blocks):
+            if not isinstance(node, mdscan.Div):
+                continue
+            kind = kind_of(node)
+            if kind is None:
+                continue
+            env = Env(
+                kind=kind,
+                id=node.attrs.id,
+                title=node.attrs.get("title"),
+                lean=lean.split_gids(node.attrs.get("lean")),
+                attrs=node.attrs,
+                chapter=chapter,
+                line=node.start,
+                div=node,
+            )
+            if kind in NUMBERED:
+                counters[chapter.top] = counters.get(chapter.top, 0) + 1
+                env.number = f"{prefix}.{counters[chapter.top]}"
+            if kind in MEDIA:
+                doc.media.append(env)
+            else:
+                doc.envs.append(env)
+        for lineno, line in mdscan.iter_text_lines(blocks):
+            for m in mdscan.find_outside_code(mdscan.REF_RE, line):
+                doc.refs.append((lineno, m.group("id")))
+            for m in mdscan.find_outside_code(mdscan.LEAN_LINK_RE, line):
+                doc.lean_links.append((lineno, m.group("gid")))
+        model.chapters.append(doc)
+    for ch in model.chapters:
+        for env in ch.envs + ch.media:
+            if not env.id:
+                continue
+            if env.id in model.envs:
+                prev = model.envs[env.id]
+                issues.append(Issue("error", ch.path, env.line,
+                                    f"duplicate id #{env.id} (first used in {prev.chapter.path}:{prev.line})"))
+            else:
+                model.envs[env.id] = env
+    return model
+
+
+def load_book_models(book: config.Book) -> dict[str, EditionModel]:
+    return {ed.lang: load_edition(ed) for ed in book.editions}

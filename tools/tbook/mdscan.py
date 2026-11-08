@@ -1,0 +1,283 @@
+"""Small, dependency-free Markdown scanner shared by every renderer and by ``check``.
+
+It understands just enough of Pandoc Markdown for the book conventions:
+
+* fenced code blocks (backticks or tildes) — always passed through verbatim;
+* fenced divs ``::: {.theorem #thm-x lean="…"}`` … ``:::`` (and ``::: theorem``),
+  nested by stack, as in Pandoc;
+* inline code spans, so that ``[@ref]``, ``lean:`` links and math inside code are ignored;
+* cross references ``[@id]`` and Lean links ``[text](lean:GID)``.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Callable, Iterator
+
+FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+DIV_OPEN_RE = re.compile(r"^(?P<colons>:{3,})\s*(?:\{(?P<attrs>[^{}]*)\}|(?P<word>[A-Za-z][\w-]*))\s*:*\s*$")
+DIV_CLOSE_RE = re.compile(r"^:{3,}\s*$")
+ATTR_TOKEN_RE = re.compile(
+    r"""\s*(?:
+        \#(?P<id>[^\s{}#.="']+)
+      | \.(?P<cls>[^\s{}#.="']+)
+      | (?P<key>[A-Za-z_][\w:.-]*)\s*=\s*(?:"(?P<dq>(?:[^"\\]|\\.)*)"|'(?P<sq>(?:[^'\\]|\\.)*)'|(?P<bare>[^\s"'{}]+))
+    )""",
+    re.X,
+)
+REF_RE = re.compile(r"\[@(?P<id>[A-Za-z][A-Za-z0-9:_.-]*)\](?!\()")
+LEAN_LINK_RE = re.compile(r"\[(?P<text>(?:`[^`]*`|[^\]`])*)\]\(lean:(?P<gid>[^)\s]+)\)")
+ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
+
+
+@dataclass
+class Attrs:
+    id: str = ""
+    classes: list[str] = field(default_factory=list)
+    kv: dict[str, str] = field(default_factory=dict)
+
+    def get(self, key: str, default: str = "") -> str:
+        return self.kv.get(key, default)
+
+    def to_pandoc(self) -> str:
+        parts = []
+        if self.id:
+            parts.append("#" + self.id)
+        parts += ["." + c for c in self.classes]
+        for k, v in self.kv.items():
+            parts.append(f'{k}="{escape_attr(v)}"')
+        return "{" + " ".join(parts) + "}"
+
+
+def escape_attr(v: str) -> str:
+    return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+
+class AttrError(ValueError):
+    pass
+
+
+def parse_attrs(text: str) -> Attrs:
+    attrs = Attrs()
+    pos = 0
+    text = text.strip()
+    while pos < len(text):
+        m = ATTR_TOKEN_RE.match(text, pos)
+        if not m or m.end() == pos:
+            raise AttrError(f"cannot parse attributes near: {text[pos:pos + 30]!r}")
+        if m.group("id"):
+            if attrs.id:
+                raise AttrError("more than one #id")
+            attrs.id = m.group("id")
+        elif m.group("cls"):
+            attrs.classes.append(m.group("cls"))
+        else:
+            val = m.group("dq") if m.group("dq") is not None else m.group("sq") if m.group("sq") is not None else m.group("bare")
+            attrs.kv[m.group("key")] = re.sub(r"\\(.)", r"\1", val)
+        pos = m.end()
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+    return attrs
+
+
+# --------------------------------------------------------------------------- block tree
+
+
+@dataclass
+class Text:
+    lines: list[str]
+    start: int  # 1-based line number of the first line
+
+
+@dataclass
+class Code:
+    lines: list[str]
+    start: int
+
+
+@dataclass
+class Div:
+    attrs: Attrs
+    children: list["Node"]
+    start: int  # line of the opening fence
+    end: int = 0  # line of the closing fence (0 if unclosed)
+    fence: str = ":::"
+    raw_open: str = ""
+
+    @property
+    def classes(self) -> list[str]:
+        return self.attrs.classes
+
+
+Node = Text | Code | Div
+
+
+@dataclass
+class ScanIssue:
+    line: int
+    message: str
+
+
+def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]:
+    """Split Markdown into Text / Code / Div nodes (divs nested)."""
+    issues = issues if issues is not None else []
+    root: list[Node] = []
+    stack: list[Div] = []
+    lines = text.split("\n")
+    i = 0
+
+    def container() -> list[Node]:
+        return stack[-1].children if stack else root
+
+    def add_text(line: str, lineno: int) -> None:
+        nodes = container()
+        if nodes and isinstance(nodes[-1], Text):
+            nodes[-1].lines.append(line)
+        else:
+            nodes.append(Text([line], lineno))
+
+    while i < len(lines):
+        line = lines[i]
+        lineno = i + 1
+        fm = FENCE_RE.match(line)
+        if fm:
+            fence = fm.group("fence")
+            block = [line]
+            j = i + 1
+            closer = re.compile(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*$")
+            while j < len(lines):
+                block.append(lines[j])
+                if closer.match(lines[j]):
+                    break
+                j += 1
+            container().append(Code(block, lineno))
+            i = j + 1
+            continue
+        om = DIV_OPEN_RE.match(line)
+        if om:
+            try:
+                attrs = parse_attrs(om.group("attrs")) if om.group("attrs") is not None else Attrs(classes=[om.group("word")])
+            except AttrError as exc:
+                issues.append(ScanIssue(lineno, f"fenced div attributes: {exc}"))
+                attrs = Attrs()
+            div = Div(attrs=attrs, children=[], start=lineno, fence=om.group("colons"), raw_open=line)
+            container().append(div)
+            stack.append(div)
+            i += 1
+            continue
+        if DIV_CLOSE_RE.match(line) and stack:
+            stack.pop().end = lineno
+            i += 1
+            continue
+        add_text(line, lineno)
+        i += 1
+    for div in stack:
+        issues.append(ScanIssue(div.start, "fenced div is never closed (add a ':::' line)"))
+    return root
+
+
+def walk(nodes: list[Node]) -> Iterator[Node]:
+    for node in nodes:
+        yield node
+        if isinstance(node, Div):
+            yield from walk(node.children)
+
+
+def render_blocks(nodes: list[Node], div_fn: Callable[[Div, str], str] | None = None,
+                  text_fn: Callable[[Text], str] | None = None) -> str:
+    """Serialise nodes back to Markdown. ``div_fn(div, inner)`` may replace a div."""
+    out: list[str] = []
+    for node in nodes:
+        if isinstance(node, Code):
+            out.append("\n".join(node.lines))
+        elif isinstance(node, Text):
+            out.append(text_fn(node) if text_fn else "\n".join(node.lines))
+        else:
+            inner = render_blocks(node.children, div_fn, text_fn)
+            if div_fn is not None:
+                out.append(div_fn(node, inner))
+            else:
+                close = node.fence if node.end else ""
+                out.append(node.raw_open + "\n" + inner + ("\n" + close if close else ""))
+    return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- inline
+
+
+def code_spans(line: str) -> list[tuple[int, int]]:
+    """Half-open intervals of inline code spans (CommonMark backtick rule, per line)."""
+    spans: list[tuple[int, int]] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        if line[i] == "\\":
+            i += 2
+            continue
+        if line[i] == "`":
+            j = i
+            while j < n and line[j] == "`":
+                j += 1
+            ticks = j - i
+            k = j
+            found = -1
+            while k < n:
+                if line[k] == "`":
+                    m = k
+                    while m < n and line[m] == "`":
+                        m += 1
+                    if m - k == ticks:
+                        found = m
+                        break
+                    k = m
+                else:
+                    k += 1
+            if found < 0:
+                i = j
+                continue
+            spans.append((i, found))
+            i = found
+            continue
+        i += 1
+    return spans
+
+
+def _inside(pos: int, spans: list[tuple[int, int]]) -> bool:
+    return any(a <= pos < b for a, b in spans)
+
+
+def sub_outside_code(pattern: re.Pattern, repl: Callable[[re.Match], str], line: str) -> str:
+    spans = code_spans(line)
+    out = []
+    last = 0
+    for m in pattern.finditer(line):
+        if _inside(m.start(), spans):
+            continue
+        out.append(line[last:m.start()])
+        out.append(repl(m))
+        last = m.end()
+    out.append(line[last:])
+    return "".join(out)
+
+
+def find_outside_code(pattern: re.Pattern, line: str) -> list[re.Match]:
+    spans = code_spans(line)
+    return [m for m in pattern.finditer(line) if not _inside(m.start(), spans)]
+
+
+def iter_text_lines(nodes: list[Node]) -> Iterator[tuple[int, str]]:
+    """(line number, text) for every non-code line, including lines nested in divs."""
+    for node in nodes:
+        if isinstance(node, Text):
+            for k, line in enumerate(node.lines):
+                yield node.start + k, line
+        elif isinstance(node, Div):
+            yield from iter_text_lines(node.children)
+
+
+def transform_text(nodes: list[Node], fn: Callable[[str], str]) -> None:
+    """Apply ``fn`` to every non-code line, in place."""
+    for node in walk(nodes):
+        if isinstance(node, Text):
+            node.lines = [fn(line) for line in node.lines]

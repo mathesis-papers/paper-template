@@ -1,0 +1,31 @@
+# Chapter 1 The carry deficit of golden integers
+
+Every natural number $n$ is, in a unique way, a sum of nonadjacent Fibonacci numbers (its Zeckendorf representation), with weights $F_2 = 1, F_3 = 2, F_4 = 3, \dots$. Replacing each weight $F_i$ by $\varphi^i$, where $\varphi = (1+\sqrt5)/2$ is the golden ratio, gives a real number $\beta(n)$.
+
+::: {.definition #def-deficit title="Normalized deficit" lean="D5/S1/Deficit/DeficitInteger.deficit"}
+For natural numbers $v_1, v_2$, define
+$$
+c(v_1, v_2) = \beta(v_1) + \beta(v_2) - \beta(v_1 + v_2).
+$$
+:::
+
+$\beta$ does not preserve addition: for example $\beta(1) = \varphi^2$ and $\beta(2) = \varphi^3$, so $c(1, 1) = 2\varphi^2 - \varphi^3 = 1$.
+
+::: {.theorem #thm-deficit-integer title="The deficit is an integer, the signed carry count" lean="D5/S1/Deficit/DeficitInteger.deficit_integer"}
+For all natural numbers $v_1, v_2$, the deficit $c(v_1, v_2)$ equals its reading on the contraction face (the Galois conjugate), is an integer, and equals the signed count of the two lowest repeated-carry rules applied while normalizing the digitwise sum of the two Zeckendorf representations.
+:::
+
+::: {.theorem #thm-deficit-three-valued title="The deficit takes three values" lean="D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"}
+For all natural numbers $v_1, v_2$,
+$$
+c(v_1, v_2) \in \{-1, 0, 1\}.
+$$
+:::
+
+::: proof
+The contraction face evaluates Zeckendorf digits at powers of the conjugate $\psi = (1-\sqrt5)/2$. Each $\beta'(v)$ lies in the window $[-\psi^2, -\psi]$, whose length is exactly $1$, so the contraction-face reading of $c$ lies strictly between $-2$ and $2$; by [@thm-deficit-integer] it is an integer. The full proof is checked by the Lean kernel.
+:::
+
+::: remark
+[@thm-deficit-three-valued] holds however large the inputs are: it ties an arithmetic algorithm (digitwise carrying) to an exact bound, and can be reused as a premise in later arguments. In Lean its name is [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued).
+:::
