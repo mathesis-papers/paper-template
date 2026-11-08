@@ -2,14 +2,16 @@
 
 It understands just enough of Pandoc Markdown for the book conventions:
 
-* fenced code blocks (backticks or tildes), also inside block quotes and list items —
-  always passed through verbatim;
-* HTML comments: a ``<!--`` that opens a line and is not closed on it starts a comment block
-  that runs to the line holding ``-->`` (passed through verbatim, like code); a comment closed
-  on its line is skipped like an inline code span. No target shows comments, so links and
-  references inside them are neither rewritten nor checked;
-* indented code blocks outside list items and footnotes (:func:`indented_code_lines`),
-  which the PDF/EPUB stager and the math scanner leave alone;
+* the block structure (:func:`scan_blocks`), one model for every consumer (:func:`parse_blocks`,
+  the PDF/EPUB stager, the math scanner): block quotes, list items, footnote and definition
+  bodies as containers, and in them fenced code blocks (backticks or tildes), indented code
+  blocks (4 columns past the container's content) and HTML comment blocks — all passed
+  through verbatim;
+* HTML comments: a ``<!--`` that opens a block (at most 3 columns into its container) and is not
+  closed on its line starts a comment block that runs to the line holding ``-->``; any other
+  ``<!--`` is an inline comment, which may go on over the following lines of its paragraph
+  (:func:`close_comments`). No target shows comments, so links and references inside them
+  are neither rewritten nor checked;
 * fenced divs ``::: {.theorem #thm-x lean="…"}`` … ``:::`` (and ``::: theorem``),
   nested by stack, as in Pandoc;
 * inline code spans, so that ``[@ref]``, ``lean:`` links and math inside code are ignored;
@@ -26,12 +28,8 @@ from typing import Callable, Iterator
 
 # A top-level code fence. A backtick fence's info string cannot contain a backtick
 # (CommonMark), so ```` ```x``` ```` at the start of a line is inline code, not a fence.
+# :func:`scan_blocks` finds fences in containers too and decides where their blocks end.
 FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}(?=[^`]*$)|~{3,})(?P<info>.*)$")
-# A code fence in any container: after block-quote markers (``> ```…``) and/or the
-# indentation of a list item. :func:`fence_end` decides where its block ends.
-CONTAINER_FENCE_RE = re.compile(
-    r"^(?P<quote>(?:[ \t]*>[ \t]?)*)(?P<indent>[ \t]*)(?P<fence>`{3,}(?=[^`]*$)|~{3,})(?P<info>.*)$")
-_QUOTE_RE = re.compile(r"^(?:[ \t]*>[ \t]?)*")
 # Quoted attribute values may contain braces (TeX in a title: ``title="$\mathbb{N}$"``).
 DIV_OPEN_RE = re.compile(
     r"""^(?P<colons>:{3,})\s*(?:\{(?P<attrs>(?:[^{}"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*)\}"""
@@ -129,17 +127,21 @@ def parse_attrs(text: str) -> Attrs:
 class Text:
     lines: list[str]
     start: int  # 1-based line number of the first line
+    # Per line: an inline HTML comment is open at its start / at its end (:attr:`BlockScan.carry`);
+    # read the lines through :func:`text_views` / :func:`map_text`.
+    carry: list[tuple[bool, bool]] = field(default_factory=list)
 
 
 @dataclass
 class Code:
+    """A fenced or indented code block (:func:`scan_blocks`): passed through verbatim."""
     lines: list[str]
     start: int
 
 
 @dataclass
 class Comment(Code):
-    """A multi-line HTML comment block (:func:`comment_end`): passed through verbatim, like code."""
+    """A multi-line HTML comment block (:func:`scan_blocks`): passed through verbatim, like code."""
 
 
 @dataclass
@@ -163,126 +165,332 @@ Node = Text | Code | Div
 class ScanIssue:
     line: int
     message: str
+    severity: str = "error"
 
 
-def _width(space: str) -> int:
-    return len(space.expandtabs(4))
+# --------------------------------------------------------------------------- block structure
+#
+# One line-based scanner (:func:`scan_blocks`) decides for every consumer which lines are code
+# or HTML comment blocks and which lines go on with a paragraph: parse_blocks (and so check,
+# the model and tbook.render), the PDF/EPUB stager (tbook.pandoc._code_mask) and the math
+# scanner (tbook.mathrender). It follows the CommonMark block rules, which mdBook
+# (pulldown-cmark) and Pandoc share for these constructs. Tabs count to the next multiple of
+# 4 columns. Not modelled: the inside of raw HTML blocks (Pandoc reads Markdown there, mdBook
+# does not), link reference definitions over several lines, and Pandoc-only list markers
+# (``a.``, ``(1)``, ``#.``).
+
+TEXT, BLANK, FENCE, CODE, COMMENT = "text", "blank", "fence", "code", "comment"
+
+_QUOTE_MARK_RE = re.compile(r" {0,3}>")
+_FENCE_OPEN_RE = re.compile(r"`{3,}(?=[^`]*$)|~{3,}")  # a backtick fence's info string has no backtick
+_FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,}) *$")
+_HR_RE = re.compile(r"(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
+_SETEXT_RE = re.compile(r"(?:=+|-+) *$")
+_LIST_RE = re.compile(r"(?:[-+*]|([0-9]{1,9})[.)])(?= |$)")
+_DEFINITION_RE = re.compile(r"[:~](?= )")  # a definition (Pandoc, pulldown-cmark): its body is a container
+_FOOTNOTE_START_RE = re.compile(r"\[\^[^\]\s]+\]:")  # a footnote definition: its body is indented 4 columns
+_ATX_RE = re.compile(r"#{1,6}(?= |$)")
+# HTML blocks that may interrupt a paragraph (CommonMark types 1 and 3-6; type 2 is a comment).
+_HTML_BLOCK_RE = re.compile(
+    r"<(?:(?:script|pre|style|textarea)(?=[\s>]|$)|\?|![A-Za-z]|!\[CDATA\[|/?(?:address|article|aside|base|"
+    r"basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|"
+    r"figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|"
+    r"noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|"
+    r"ul)(?=[\s/>]|$))", re.I)
 
 
-def fence_end(lines: list[str], i: int) -> int | None:
-    """If ``lines[i]`` opens a fenced code block, the index of the block's last line; else None.
+@dataclass
+class BlockScan:
+    """The block structure of a text, line by line (:func:`scan_blocks`)."""
 
-    The opener may sit in block quotes or list items (``> ```…``, an indented fence). The
-    block ends at its closing fence: the opener's block-quote depth and fence character, at
-    least as many characters, no info string, and at most 3 more columns of indentation, so a
-    ``> ```…`` or deeper-indented fence shown inside a code example is content, not a closer.
-    Without one it ends with its container: before the first line with fewer ``>`` markers,
-    or, nested in a list item, before the first non-blank line left of the item's content;
-    otherwise at the end of the text.
+    lines: list[str]
+    kinds: list[str]  # per line: TEXT, BLANK, FENCE (fences included), CODE (indented) or COMMENT
+    blocks: dict[int, int]  # first line of each fenced code, indented code and comment block → its last line
+    # Per line: an inline HTML comment is open at its start / at its end. A ``<!--`` left open on a
+    # line goes on over the following lines of its paragraph up to ``-->`` (CommonMark raw HTML may
+    # span lines; mdBook and Pandoc both hide it).
+    carry: list[tuple[bool, bool]]
+    # (line, column) of each ``<!--`` that its paragraph never closes: text, not a comment.
+    unclosed: list[tuple[int, int]] = field(default_factory=list)
+
+    @property
+    def hidden(self) -> list[bool]:
+        """True for each line that no target shows as Markdown text: code and comment blocks, and
+        the lines wholly inside an inline comment that spans lines."""
+        return [k in (FENCE, CODE, COMMENT) or (lead and "-->" not in line)
+                for k, (lead, _), line in zip(self.kinds, self.carry, self.lines)]
+
+
+def scan_blocks(lines: list[str]) -> BlockScan:
+    """The block structure of ``lines``: which are code or comment blocks, and the inline comments
+    that go on from line to line.
+
+    Containers: a block quote (``>``), a list item (its content starts after the marker and 1-4
+    spaces), a definition (``:`` or ``~`` after its term, like a list item) and a footnote
+    definition ``[^x]:`` (its body is indented 4 columns). A line belongs to a container while it
+    is indented to the container's content (blank lines too), or as lazy text going on with a
+    paragraph. In a container:
+
+    * a line indented 4 columns past the content is indented code, unless it goes on with a
+      paragraph; blank lines between such lines belong to the block;
+    * a fence (at least three backticks or tildes, indented at most 3 columns) opens a fenced
+      code block, which ends at a fence of the same character, at least as long and with nothing
+      after it, or when its container ends;
+    * a line that starts with ``<!--`` (indented at most 3 columns) and does not close it opens an
+      HTML comment block, which ends at the first line holding ``-->`` (or with the text);
+    * anything else is text: headings, thematic breaks, ``:::`` div fences and HTML blocks end
+      the paragraph before them, other lines start or go on with one.
     """
-    m = CONTAINER_FENCE_RE.match(lines[i])
-    if not m:
-        return None
-    depth, width = m.group("quote").count(">"), _width(m.group("indent"))
-    char, length = m.group("fence")[0], len(m.group("fence"))
-    for j in range(i + 1, len(lines)):
-        line = lines[j]
-        if depth and _QUOTE_RE.match(line).group(0).count(">") < depth:
-            return j - 1
-        if not depth and width >= 4 and line.strip() and _width(line[:len(line) - len(line.lstrip())]) < width - 3:
-            return j - 1
-        c = CONTAINER_FENCE_RE.match(line)
-        if (c and c.group("quote").count(">") == depth and c.group("fence")[0] == char
-                and len(c.group("fence")) >= length and not c.group("info").strip()
-                and _width(c.group("indent")) <= width + 3):
-            return j
-    return len(lines) - 1
+    n = len(lines)
+    kinds = [TEXT] * n
+    blocks: dict[int, int] = {}
+    cont = [False] * n  # a text line going on with the paragraph of the line before it
+    # open containers: -1 a block quote, otherwise the columns of its content after its container's
+    stack: list[int] = []
+    leaf: object = None  # None, "p" (paragraph), "c" (indented code), ("f", char, length, first), ("m", first)
+    before_blank: object = None  # the leaf at the last non-blank line (a definition follows its term)
+    empty_item = 0  # len(stack) after a list item whose first line is blank, on the next line
+    code = -1  # first line of the indented code block a code line after blank lines would go on with
+    for i, raw in enumerate(lines):
+        line = raw.expandtabs(4)
+        pos = keep = 0  # keep: containers this line continues
+        fresh, empty_item = empty_item, 0
+        for col in stack:
+            if col < 0:
+                m = _QUOTE_MARK_RE.match(line, pos)
+                if not m:
+                    break
+                pos = m.end() + (line[m.end():m.end() + 1] == " ")
+            elif line[pos:].strip(" "):
+                if len(line) - pos - len(line[pos:].lstrip(" ")) < col:
+                    break
+                pos += col
+            keep += 1
+        if fresh and keep >= fresh and not line[pos:].strip(" "):
+            keep = fresh - 1  # a list item can begin with at most one blank line
+        if isinstance(leaf, tuple):
+            if leaf[0] == "m":  # a comment block ends at the first line holding -->, whatever the containers
+                kinds[i] = COMMENT
+                blocks[leaf[1]] = i
+                if "-->" in raw:
+                    leaf = None
+                continue
+            if keep == len(stack):
+                kinds[i] = FENCE
+                blocks[leaf[3]] = i
+                m = _FENCE_CLOSE_RE.match(line, pos)
+                if m and m.group(1)[0] == leaf[1] and len(m.group(1)) >= leaf[2]:
+                    leaf = None
+                continue
+            leaf = None  # its container ended, so did the fence
+        while True:  # the blocks this line starts
+            rest = line[pos:]
+            body = rest.lstrip(" ")
+            ind = len(rest) - len(body)
+            inner = keep == len(stack)
+            if not body:
+                if keep < len(stack):
+                    code = -1
+                del stack[keep:]
+                kinds[i] = BLANK
+                if i == 0 or kinds[i - 1] != BLANK:
+                    before_blank = leaf
+                leaf = None
+                break
+            if ind >= 4:
+                if leaf == "p":
+                    cont[i] = True  # indented code cannot interrupt a paragraph
+                    break
+                del stack[keep:]
+                kinds[i] = CODE
+                if code >= 0 and all(kinds[k] == BLANK for k in range(blocks[code] + 1, i)):
+                    kinds[blocks[code] + 1:i] = [CODE] * (i - blocks[code] - 1)
+                    blocks[code] = i
+                else:
+                    code = blocks[i] = i
+                leaf = "c"
+                break
+            m = _FENCE_OPEN_RE.match(body)
+            if m:
+                del stack[keep:]
+                leaf = ("f", m.group(0)[0], len(m.group(0)), i)
+                kinds[i] = FENCE
+                blocks[i] = i
+                break
+            if body[0] == ">":
+                del stack[keep:]
+                stack.append(-1)
+                keep = len(stack)
+                pos += ind + 1 + (body[1:2] == " ")
+                leaf, code = None, -1
+                continue
+            if body.startswith("<!--"):
+                del stack[keep:]
+                if "-->" in body[4:]:  # closed on its line: left to the inline scanners (code_spans)
+                    leaf = None
+                else:
+                    leaf = ("m", i)
+                    kinds[i] = COMMENT
+                    blocks[i] = i
+                break
+            if (leaf == "p" and inner and _SETEXT_RE.match(body)) or _HR_RE.match(body):
+                del stack[keep:]
+                leaf = None
+                break
+            m = _LIST_RE.match(body)
+            after = body[m.end():] if m else ""
+            empty = not after.strip(" ")
+            if m and not (leaf == "p" and inner and (empty or (m.group(1) is not None and int(m.group(1)) != 1))):
+                del stack[keep:]
+                gap = len(after) - len(after.lstrip(" "))
+                stack.append(ind + m.end() + (1 if empty or gap > 4 else gap))
+                keep = len(stack)
+                leaf, code = None, -1
+                if empty:
+                    empty_item = len(stack)
+                    break
+                pos += stack[-1]
+                continue
+            m = _DEFINITION_RE.match(body)
+            if m and (leaf == "p" or (leaf is None and i and kinds[i - 1] == BLANK and before_blank in ("p", "c"))):
+                del stack[keep:]
+                after = body[m.end():]
+                gap = len(after) - len(after.lstrip(" "))
+                stack.append(ind + m.end() + (1 if gap > 4 else gap))
+                keep = len(stack)
+                leaf, code = None, -1
+                pos += stack[-1]
+                continue
+            m = _FOOTNOTE_START_RE.match(body)
+            if m:
+                del stack[keep:]
+                stack.append(4)
+                keep = len(stack)
+                leaf, code = None, -1
+                pos += ind + m.end()
+                pos = len(line) - len(line[pos:].lstrip(" "))
+                continue
+            if _ATX_RE.match(body) or (pos == 0 and (DIV_OPEN_RE.match(raw) or DIV_CLOSE_RE.match(raw))):
+                del stack[keep:]
+                leaf = None
+                break
+            if _HTML_BLOCK_RE.match(body):  # its lines follow as one block, like a paragraph's
+                del stack[keep:]
+                leaf = "p"
+                break
+            if leaf == "p":
+                cont[i] = True  # lazily, when containers ended
+            else:
+                del stack[keep:]
+                leaf = "p"
+            break
+        if kinds[i] not in (CODE, BLANK):
+            code = -1
+    carry: list[tuple[bool, bool]] = [(False, False)] * n
+    unclosed: list[tuple[int, int]] = []
+    i = 0
+    while i < n:
+        if kinds[i] != TEXT:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and kinds[j] == TEXT and cont[j]:
+            j += 1
+        flags, opened = _paragraph_comments(lines[i:j])
+        carry[i:j] = flags
+        if opened is not None:
+            unclosed.append((i + opened[0], opened[1]))
+        i = j
+    return BlockScan(list(lines), kinds, blocks, carry, unclosed)
 
 
-def comment_end(lines: list[str], i: int) -> int | None:
-    """If ``lines[i]`` opens a multi-line HTML comment, the index of its last line; else None.
+def _open_comment(line: str) -> int | None:
+    """Column of the first ``<!--`` on ``line`` that the line does not close (not escaped, outside
+    code spans), or None."""
+    spans = code_spans(line, comments=True)
+    i = line.find("<!--")
+    while i >= 0:
+        backslashes = i - len(line[:i].rstrip("\\"))
+        if backslashes % 2 == 0 and not _inside(i, spans):
+            return i
+        i = line.find("<!--", i + 1)
+    return None
 
-    A comment block starts with a line whose text begins with ``<!--`` and that does not close
-    it (a CommonMark HTML block); it ends at the first later line that holds ``-->``, or with the
-    text when none does. Its lines are raw HTML that no target shows (tbook.pandoc's staging
-    masks them by the same rule). A comment closed on its own line is left to :func:`code_spans`.
-    """
-    stripped = lines[i].lstrip()
-    if not stripped.startswith("<!--") or "-->" in stripped[4:]:
-        return None
-    for j in range(i + 1, len(lines)):
-        if "-->" in lines[j]:
-            return j
-    return len(lines) - 1
+
+def _paragraph_comments(lines: list[str]) -> tuple[list[tuple[bool, bool]], tuple[int, int] | None]:
+    """:attr:`BlockScan.carry` for the lines of one paragraph, and where a ``<!--`` the paragraph
+    never closes stands (then it is text, as are the lines after it)."""
+    out: list[tuple[bool, bool]] = []
+    inside = False
+    opened: tuple[int, int] | None = None
+    for k, line in enumerate(lines):
+        lead = inside
+        if inside:
+            if "-->" not in line:
+                out.append((True, True))
+                continue
+            inside = False
+        col = _open_comment(close_comments(line, (lead, False)))
+        if col is not None:
+            inside = True
+            opened = (k, col - 4 if lead else col)
+        out.append((lead, inside))
+    if inside and opened is not None:
+        k = opened[0]
+        out[k] = (out[k][0], False)
+        out[k + 1:] = [(False, False)] * (len(out) - k - 1)
+        return out, opened
+    return out, None
+
+
+def close_comments(line: str, carry: tuple[bool, bool]) -> str:
+    """``line`` as the per-line scanners must read it: an inline comment open at its start
+    (``carry[0]``) gets a ``<!--`` before it, one open at its end (``carry[1]``) a ``-->`` after it,
+    so that :func:`code_spans` (and everything built on it) sees the comment closed on the line."""
+    lead, trail = carry
+    return ("<!--" if lead else "") + line + ("-->" if trail else "")
+
+
+def map_closed(fn: Callable[[str], str], line: str, carry: tuple[bool, bool]) -> str:
+    """``fn(line)`` with the inline comments that span lines closed on the line (:func:`close_comments`)
+    while ``fn`` runs; ``fn`` leaves comments alone, so the added marks are taken off again."""
+    lead, trail = carry
+    if not (lead or trail):
+        return fn(line)
+    out = fn(close_comments(line, carry))
+    if (lead and not out.startswith("<!--")) or (trail and not out.endswith("-->")):
+        return fn(line)
+    return out[4 if lead else 0:len(out) - 3 if trail else len(out)]
+
+
+def hidden_spans(line: str, carry: tuple[bool, bool] = (False, False)) -> list[tuple[int, int]]:
+    """Half-open intervals of ``line`` inside code spans and HTML comments, also comments that
+    go on from the line before (``carry[0]``) or to the next (``carry[1]``)."""
+    shift = 4 if carry[0] else 0
+    spans = code_spans(close_comments(line, carry), comments=True)
+    return [(max(a - shift, 0), min(b - shift, len(line))) for a, b in spans if b > shift and a - shift < len(line)]
 
 
 def fenced_code_lines(lines: list[str]) -> list[bool]:
     """True for each line of a fenced code block (fences included), exactly as :func:`parse_blocks` sees them
     (so a fence inside an HTML comment block is not one)."""
-    mask = [False] * len(lines)
-    i = 0
-    while i < len(lines):
-        end = fence_end(lines, i)
-        if end is None:
-            comment = comment_end(lines, i)
-            i = i + 1 if comment is None else comment + 1
-            continue
-        mask[i:end + 1] = [True] * (end + 1 - i)
-        i = end + 1
-    return mask
+    return [k == FENCE for k in scan_blocks(lines).kinds]
 
 
-_ITEM_START_RE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)|^[ \t]*\[\^[^\]\s]+\]:")
-_ATX_START_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
-
-
-def indented_code_lines(lines: list[str], hidden: list[bool] | None = None) -> list[bool]:
-    """True for each line of an indented code block (4 or more columns; a tab counts as 4).
-
-    Such a block starts after a blank line, a heading or a fenced code block, outside list
-    items and footnote definitions: there, indented text after a blank line continues the
-    item, and a paragraph's next line is never code (CommonMark, Pandoc). Blank lines
-    between its lines belong to the block. Lines in ``hidden`` (default:
-    :func:`fenced_code_lines`) are never part of one.
-    """
-    hidden = hidden if hidden is not None else fenced_code_lines(lines)
-    mask = [False] * len(lines)
-    boundary = True  # the previous line ended a block
-    nested = False  # inside a list item or a footnote definition
-    code = False
-    last = -1  # last line of the current indented block
-    for i, line in enumerate(lines):
-        indent = _width(line[:len(line) - len(line.lstrip(" \t"))])
-        if hidden[i]:
-            if indent == 0 and not (i and hidden[i - 1]):
-                nested = False  # a fence at the left margin ends a list item
-            boundary, code = True, False
-            continue
-        if not line.strip():
-            boundary = True
-            continue
-        if indent >= 4 and (code or (boundary and not nested)):
-            if code:
-                mask[last + 1:i] = [True] * (i - last - 1)  # blank lines inside the block
-            mask[i] = code = True
-            boundary, last = False, i
-            continue
-        code = False
-        heading = _ATX_START_RE.match(line) is not None
-        if _ITEM_START_RE.match(line):
-            nested = True
-        elif indent == 0 and (boundary or heading):
-            nested = False
-        boundary = heading
-    return mask
+def indented_code_lines(lines: list[str]) -> list[bool]:
+    """True for each line of an indented code block (:func:`scan_blocks`): 4 or more columns past
+    the content of its container (top level, block quote, list item, footnote or definition
+    body), not going on with a paragraph. Blank lines between its lines belong to the block."""
+    return [k == CODE for k in scan_blocks(lines).kinds]
 
 
 def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]:
-    """Split Markdown into Text / Code / Div nodes (divs nested)."""
+    """Split Markdown into Text / Code / Comment / Div nodes (divs nested), by :func:`scan_blocks`."""
     issues = issues if issues is not None else []
     root: list[Node] = []
     stack: list[Div] = []
     lines = text.split("\n")
+    scan = scan_blocks(lines)
     i = 0
 
     def container() -> list[Node]:
@@ -292,23 +500,29 @@ def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]
         nodes = container()
         if nodes and isinstance(nodes[-1], Text):
             nodes[-1].lines.append(line)
+            nodes[-1].carry.append(scan.carry[lineno - 1])
         else:
-            nodes.append(Text([line], lineno))
+            nodes.append(Text([line], lineno, [scan.carry[lineno - 1]]))
 
+    for k, col in scan.unclosed:
+        later = next((j for j in range(k + 1, len(lines)) if "-->" in lines[j]), None)
+        if later is not None:
+            issues.append(ScanIssue(k + 1, f"'<!--' (column {col + 1}) is not closed in its paragraph: the HTML "
+                                           f"edition shows it as text, while Pandoc (PDF/EPUB) may hide everything "
+                                           f"up to the '-->' on line {later + 1}; close it in the paragraph, or write "
+                                           f"it as inline code `<!--`", "warning"))
     while i < len(lines):
         line = lines[i]
         lineno = i + 1
-        end = fence_end(lines, i)
+        end = scan.blocks.get(i)
         if end is not None:
-            container().append(Code(lines[i:end + 1], lineno))
-            i = end + 1
-            continue
-        end = comment_end(lines, i)
-        if end is not None:
-            if "-->" not in lines[end]:
-                issues.append(ScanIssue(lineno, "HTML comment is never closed (add '-->'); everything after it "
-                                                "is part of the comment"))
-            container().append(Comment(lines[i:end + 1], lineno))
+            if scan.kinds[i] == COMMENT:
+                if "-->" not in lines[end]:
+                    issues.append(ScanIssue(lineno, "HTML comment is never closed (add '-->'); everything after it "
+                                                    "is part of the comment"))
+                container().append(Comment(lines[i:end + 1], lineno))
+            else:
+                container().append(Code(lines[i:end + 1], lineno))
             i = end + 1
             continue
         om = DIV_OPEN_RE.match(line)
@@ -458,11 +672,27 @@ def lean_link_gids(line: str) -> list[str]:
     return [url[len("lean:"):] for url in urls if url.startswith("lean:")]
 
 
+def _node_carry(node: Text) -> list[tuple[bool, bool]]:
+    return node.carry if len(node.carry) == len(node.lines) else [(False, False)] * len(node.lines)
+
+
+def text_views(node: Text) -> list[str]:
+    """The lines of ``node`` as the per-line scanners must read them (:func:`close_comments`)."""
+    return [close_comments(line, carry) for line, carry in zip(node.lines, _node_carry(node))]
+
+
+def map_text(node: Text, fn: Callable[[str], str]) -> list[str]:
+    """``fn`` applied to each line of ``node``, inline comments that span lines kept out of its reach
+    (:func:`map_closed`)."""
+    return [map_closed(fn, line, carry) for line, carry in zip(node.lines, _node_carry(node))]
+
+
 def iter_text_lines(nodes: list[Node]) -> Iterator[tuple[int, str]]:
-    """(line number, text) for every line outside code and comment blocks, including lines nested in divs."""
+    """(line number, text) for every line outside code and comment blocks, including lines nested in
+    divs; an inline comment that spans lines is closed on each of them (:func:`text_views`)."""
     for node in nodes:
         if isinstance(node, Text):
-            for k, line in enumerate(node.lines):
+            for k, line in enumerate(text_views(node)):
                 yield node.start + k, line
         elif isinstance(node, Div):
             yield from iter_text_lines(node.children)
@@ -518,7 +748,7 @@ def escape_markdown(text: str) -> str:
 
 
 def transform_text(nodes: list[Node], fn: Callable[[str], str]) -> None:
-    """Apply ``fn`` to every non-code line, in place."""
+    """Apply ``fn`` to every line outside code and comment blocks, in place (:func:`map_text`)."""
     for node in walk(nodes):
         if isinstance(node, Text):
-            node.lines = [fn(line) for line in node.lines]
+            node.lines = map_text(node, fn)

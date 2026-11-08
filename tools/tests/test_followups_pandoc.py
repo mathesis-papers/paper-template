@@ -1,7 +1,7 @@
 """Fenced code is seen the same way by every scanner: mdscan, the Pandoc stager, the math scanner.
 
 A fence may sit in a block quote or a list item, and a ``> ```…`` line shown inside a
-top-level code example is content, not a closing fence (:func:`tbook.mdscan.fence_end`).
+top-level code example is content, not a closing fence (:func:`tbook.mdscan.scan_blocks`).
 :mod:`tbook.render` (via ``mdscan.parse_blocks``), :func:`tbook.pandoc._code_mask` and
 :func:`tbook.mathrender.find_math` must agree on that, or a link or formula inside a code
 example is rewritten by one target and shown as written by another.
@@ -215,8 +215,9 @@ class UnnumberedHeadingIdsTest(unittest.TestCase):
                 self.assertNotIn("dangling", err)
 
 
-# Indented code blocks: outside lists and footnotes, a run of lines indented by 4+ columns
-# after a blank line is code (CommonMark, Pandoc); inside them it continues the item.
+# Indented code blocks: a run of lines indented by 4+ columns past their container's content after
+# a blank line is code (CommonMark, Pandoc); indented less, inside a list item or footnote, it
+# continues the item (more cases: test_blocks).
 INDENTED = """\
 # 甲
 
