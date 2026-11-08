@@ -2,8 +2,8 @@
 //
 // Lookup order: the shared i18n table that setup/vite-plugins.ts injects for the deck's language
 // (theme/i18n/<lang>.toml, overridden by i18n/<lang>.toml in the books repository), then the
-// component-local defaults below. The `slides.*` keys are not yet in theme/i18n/*.toml; once they
-// are merged there (see LOCAL), the shared values win automatically.
+// component-local defaults below. The shared tables carry every `slides.*` key, so LOCAL is only a
+// fallback for a language whose table lacks one; keep the two in sync.
 import tr from 'virtual:trureturing'
 
 const LOCAL: Record<string, Record<string, string>> = {

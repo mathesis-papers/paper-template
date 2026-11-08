@@ -83,6 +83,18 @@ class TitleReferenceTests(unittest.TestCase):
             view = render.env_view(ctx.model.envs["lem-b"], ctx)
             self.assertEqual(view["title_text"], "Theorem 1.1 corollary `[@thm-a]`")
 
+    def test_ledger_resolves_title_references(self):
+        from tbook import ledger
+        with CoreRepo() as repo:
+            book = title_book(repo, '\n::: {.problem #prob-c title="beyond [@lem-b]"}\nZ\n:::\n')
+            m = model.load_edition(book.edition("en"))
+            md = ledger.ledger_markdown(m, make_lock())
+            self.assertIn("| [Theorem 1.1](#thm-a) corollary `[@thm-a]` |", md)
+            self.assertIn(" — beyond [Lemma 1.2](#lem-b)", md)
+            self.assertNotIn("[@lem-b]", md)
+            md = ledger.ledger_markdown(m, make_lock(), href=lambda env: f"ch01.md#{env.id}")
+            self.assertIn("[Theorem 1.1](ch01.md#thm-a) corollary", md)
+
     def test_unknown_reference_in_a_title(self):
         with CoreRepo() as repo:
             book = title_book(repo, '\n::: {.remark #rem-x title="see [@nope]"}\nZ\n:::\n')

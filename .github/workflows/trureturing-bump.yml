@@ -48,6 +48,8 @@ jobs:
       # Actions an unanswered question is an error.
       GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
       HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+      # Optional repository secret for a private trureturing (raw files and the compare API).
+      TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
       BASE: ${{ github.ref_name }}
     steps:
       - name: Check out

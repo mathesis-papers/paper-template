@@ -125,7 +125,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 ## 4. 校验（`./tbook check`）
 
 1. 配置：`site.toml`、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
-2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 闭合、无法解析的 div 开头行（报错）。
+2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 闭合、无法解析的 div 开头行（报错）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录（警告）。
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
 5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
@@ -202,9 +202,9 @@ mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`
 | `config` | `load_site()`、`load_book()`、`load_books()`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
 | `summary` | 解析 SUMMARY，章节编号前缀 |
 | `mdscan` | 代码块（含块引用与列表中的代码块；`fence_end` / `fenced_code_lines`）、fenced div、属性、行内代码、`[@id]`、`lean:` 链接 |
-| `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用）；`Issue` |
+| `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 把标题中的 `[@id]` 换成引用文字）；`Issue` |
 | `lean` | 名称键解码、GID、冻结状态来源、`resolve()`、`Lock` 与永久链接 |
-| `render` | `RenderContext`、`env_view()`、`chapter_markdown()`（mdbook / pandoc 两种 target）；环境标题中的 `[@id]`；Lean 声明未被锁文件解析时显示 `UNVERIFIED`、不给链接 |
+| `render` | `RenderContext`、`env_view()`、`chapter_markdown()`（mdbook / pandoc 两种 target）；环境标题中的 `[@id]`（`env_title()`）；`rewrite_links()`（图片与文件链接，`check` 也用它找缺失文件）；Lean 声明未被锁文件解析时显示 `UNVERIFIED`、不给链接；`verified_envs()` 是所有 `LEAN ✓ n` 计数的唯一口径 |
 | `ledger` | 生成“形式化验证账本”章节 |
 | `check` / `pin` / `theme` / `newbook` / `build` / `cli` | 命令 |
 

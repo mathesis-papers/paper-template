@@ -44,6 +44,7 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
                     href: Callable[[Env], str] | None = None) -> str:
     """``href(env)`` links an item to its environment (default ``#id``, right for Pandoc)."""
     href = href or (lambda env: "#" + env.id)
+    link = lambda target, text: f"[{text}]({href(target)})" if target.id else text  # noqa: E731  [@id] in titles
     lang = model.lang
     s = lambda key: config.s(lang, key)  # noqa: E731
     out = [f"# {s('ledger.title')} {{#{LEDGER_ID} .unnumbered}}", "", s("ledger.intro"), ""]
@@ -71,7 +72,8 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
             if not verified:
                 states = [f"**{_cell(unverified)}**"]
             item = f"[{env.ref_text(lang)}]({href(env)})" if env.id else env.ref_text(lang)
-            out.append(f"| {item} | {_cell(env.title) or '—'} | {' · '.join(decls)} | {' '.join(states) or '—'} |")
+            title = _cell(model.title_text(env, link))
+            out.append(f"| {item} | {title or '—'} | {' · '.join(decls)} | {' '.join(states) or '—'} |")
         out.append("")
     else:
         out += [s("ledger.none"), ""]
@@ -79,7 +81,7 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
     out += [f"## {s('ledger.open_title')} {{.unnumbered}}", "", s("ledger.open_intro"), ""]
     if open_items:
         for env in open_items:
-            title = f" — {env.title}" if env.title else ""
+            title = f" — {model.title_text(env, link)}" if env.title else ""
             out.append(f"- [{env.ref_text(lang)}]({href(env)}){title}")
     else:
         out.append(s("ledger.none"))

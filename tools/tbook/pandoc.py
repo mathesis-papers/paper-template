@@ -717,8 +717,7 @@ def verified_formal_envs(model: EditionModel, lock: lean.Lock | None) -> list[En
     """Formal results shown with the green LEAN ✓: every Lean citation resolves in the lock to
     a frozen theorem (:func:`tbook.render.lean_verified`). Only these are counted in the ledger
     kicker, the colophon and on the cover; the others are UNVERIFIED (``check`` rejects them)."""
-    return [e for e in model.formal_envs()
-            if render.lean_verified([render.lean_view(g, lock) for g in e.lean])]
+    return render.verified_envs(model.formal_envs(), lock)
 
 
 def _kicker(model: EditionModel, chapter, book: config.Book) -> str:

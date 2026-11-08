@@ -59,6 +59,8 @@ jobs:
           # the site.toml branch; in GitHub Actions an unanswered question is an error, and anonymous calls
           # are limited to 60 per hour per runner address.
           GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
         run: ./tbook check
 
       - name: Theme tokens are up to date
@@ -89,6 +91,8 @@ jobs:
         env:
           PYTHONPATH: tools
           GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/no-example"
