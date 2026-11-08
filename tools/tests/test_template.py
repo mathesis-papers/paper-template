@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -109,8 +110,12 @@ def migrate(root: Path) -> list[str]:
 '''
 
 
-def copy_real_managed(dest: Path) -> None:
-    """This repository's managed files (and the owned files a template repository has)."""
+def copy_real_managed(dest: Path, *, example: bool = True) -> None:
+    """This repository's managed files (and the owned files a template repository has).
+
+    The example book is optional (books repositories may delete it): two of its files are copied when
+    it exists and ``example`` is true.
+    """
     cfg = TemplateConfig.load(REAL_ROOT)
     files = [p for p in template.candidate_files(REAL_ROOT, cfg) if cfg.manages(p)]
     files += ["template.toml", "site.toml", "README.md", "LICENSE", "trureturing.lock.json"]
@@ -125,7 +130,7 @@ def copy_real_managed(dest: Path) -> None:
         elif src.is_file():
             shutil.copy2(src, dst)
     for rel in ("books/example-monograph/book.toml", "books/example-monograph/zh/SUMMARY.md"):
-        if (REAL_ROOT / rel).exists():
+        if example and (REAL_ROOT / rel).exists():
             dst = dest / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REAL_ROOT / rel, dst)
@@ -134,8 +139,6 @@ def copy_real_managed(dest: Path) -> None:
 def set_version(root: Path, version: str) -> None:
     p = root / "template.toml"
     text = p.read_text(encoding="utf-8")
-    import re
-
     text, n = re.subn(r'(?m)^version = "[^"]*"', f'version = "{version}"', text, count=1)
     assert n == 1
     p.write_text(text, encoding="utf-8")
@@ -297,6 +300,22 @@ class TemplateFixture(unittest.TestCase):
     def kinds(res: template.UpdateResult) -> dict[str, str]:
         return {a.path: a.kind for a in res.actions if a.path.startswith("tools/fixture/")}
 
+    def tpl_at(self, tag: str) -> Path:
+        out = self.base / f"tpl-{tag}"
+        if not out.exists():
+            out.mkdir()
+            archive = subprocess.run(["git", "-C", str(self.tpl), "archive", tag], capture_output=True, check=True)
+            subprocess.run(["tar", "-x", "-C", str(out)], input=archive.stdout, check=True)
+        return out
+
+    def template_clone(self, name: str, start: str) -> Path:
+        """A clone of the fixture template (with its tags) on a new branch at ``start``."""
+        type(self).counter += 1
+        clone = self.base / f"{name}-{self.counter}"
+        subprocess.run(["git", "clone", "-q", str(self.tpl), str(clone)], check=True)
+        git(clone, "checkout", "-q", "-b", f"{name}-branch", start)
+        return clone
+
 
 # --------------------------------------------------------------------------- tests: update
 
@@ -385,14 +404,6 @@ class UpdateTests(TemplateFixture):
         self.assertTrue((ds / "books" / "MIGRATED-0.2.0.txt").exists())
         self.assertFalse((ds / "WRONG-0.1.0.txt").exists())
         self.assertFalse((ds / "WRONG-0.3.0.txt").exists())
-
-    def tpl_at(self, tag: str) -> Path:
-        out = self.base / f"tpl-{tag}"
-        if not out.exists():
-            out.mkdir()
-            archive = subprocess.run(["git", "-C", str(self.tpl), "archive", tag], capture_output=True, check=True)
-            subprocess.run(["tar", "-x", "-C", str(out)], input=archive.stdout, check=True)
-        return out
 
     def test_summary_and_exit_code_via_cmd(self):
         ds = self.downstream()
@@ -489,6 +500,21 @@ class UpdateTests(TemplateFixture):
         with self.assertRaisesRegex(TemplateError, "cannot fetch"):
             self.run_update(ds, to="no-such-branch", dry_run=True)
 
+    def test_to_abbreviated_commit(self):
+        """git fetch needs full object names: a local source expands a short SHA, a URL says what to pass."""
+        ds = self.downstream()
+        commit = git(self.tpl, "rev-parse", "v0.2.0^{commit}").strip()
+        res = self.run_update(ds, to=commit[:12], dry_run=True)
+        self.assertEqual(res.upstream.commit, commit)
+        self.assertEqual(res.upstream.ref, commit[:12])
+        self.assertEqual(res.new_version, "0.2.0")
+        url = Path(self.tpl).resolve().as_uri()  # file://… is fetched like a remote
+        with self.assertRaisesRegex(TemplateError, "(?s)cannot fetch .*full 40-character SHA"):
+            self.run_update(ds, source=url, to=commit[:12], dry_run=True)
+        self.assertEqual(self.run_update(ds, source=url, to=commit, dry_run=True).upstream.commit, commit)
+        with self.assertRaisesRegex(TemplateError, "cannot fetch 'abcdef0123'"):
+            self.run_update(ds, to="abcdef0123", dry_run=True)
+
     def test_upgrade_in_two_steps_runs_each_migration_once(self):
         ds = self.downstream()
         res = self.run_update(ds, to="0.1.0")
@@ -562,6 +588,224 @@ class UpdateTests(TemplateFixture):
                            cwd=ds, env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("template: ", r.stderr)
+
+
+# --------------------------------------------------------------------------- tests: adoption
+
+
+def adopting_repo(base: Path, tpl: Path, name: str, tag: str, files: tuple[str, ...]) -> Path:
+    """A repository that was not created from the template: its own files, plus ``files`` from ``tag``."""
+    ds = base / name
+    ds.mkdir()
+    write(ds / ".gitignore", "my own ignore rules\n")  # a managed path the repository already has
+    write(ds / "notes" / "mine.md", "my own notes\n")
+    archive = subprocess.run(["git", "-C", str(tpl), "archive", "--format=tar", tag, *files], capture_output=True,
+                             check=True)
+    subprocess.run(["tar", "-x", "-C", str(ds)], input=archive.stdout, check=True)
+    git(ds, "init", "-q", "-b", "main")
+    git(ds, "add", "-A")
+    git(ds, "commit", "-q", "-m", "Adopt the template")
+    return ds
+
+
+class AdoptionTests(TemplateFixture):
+    """docs/UPGRADING.md §5: copy tbook, tools/ and template.toml (perhaps template-manifest.json too) from a
+    release, then ./tbook template update installs every other managed file."""
+
+    def adopt(self, *files: str) -> Path:
+        type(self).counter += 1
+        return adopting_repo(self.base, self.tpl, f"adopt-{self.counter}", "v0.2.0", files)
+
+    def assert_installed(self, ds: Path) -> None:
+        release = Manifest.load(self.tpl_at("v0.2.0"))
+        for p, entry in release.files.items():
+            if p != ".gitignore":
+                self.assertEqual(template.file_entry(ds / p), entry, p)
+        self.assertTrue((ds / "theme" / "tokens.json").is_file())
+        self.assertTrue((ds / ".github" / "workflows" / "ci.yml").is_file())
+        self.assertEqual((ds / ".gitignore").read_text(encoding="utf-8"), "my own ignore rules\n")
+        self.assertEqual((ds / "notes" / "mine.md").read_text(encoding="utf-8"), "my own notes\n")
+        self.assertEqual(Manifest.load(ds).files, release.files)
+        self.assertEqual(TemplateConfig.load(ds).version, "0.2.0")
+
+    def test_adopt_without_the_manifest(self):
+        """The documented flow: the latest release has the copied version, and there is no base."""
+        ds = self.adopt("tbook", "tools", "template.toml")
+        res = self.run_update(ds)  # no --to: the latest release, 0.2.0, the version copied
+        self.assertEqual(res.errors, [])
+        self.assertEqual(res.no_update, "", "same version, no base: an installation, not a no-op")
+        added = {a.path for a in res.of(ADD)}
+        self.assertIn("theme/tokens.json", added)
+        self.assertFalse(any(p.startswith(("tools/", "tbook")) for p in added), "the copied files are the release")
+        self.assertEqual([(a.path, a.reason) for a in res.conflicts], [(".gitignore", "conflict_added")])
+        self.assertEqual(res.exit_code, template.EXIT_CONFLICTS)
+        self.assert_installed(ds)
+        self.assertEqual((ds / ".gitignore.template-new").read_bytes(),
+                         (self.tpl_at("v0.2.0") / ".gitignore").read_bytes(),
+                         "a managed file the repository already had: the template's version is next to it")
+        self.assertIn("`.gitignore` — added upstream, but a different local file exists",
+                      template.render_summary(res, "en"))
+        res = self.run_update(ds, dry_run=True)
+        self.assertEqual(res.of(ADD, UPDATE, REMOVE, CONFLICT), [], "installed: a second update changes nothing")
+
+    def test_adopt_with_the_copied_manifest(self):
+        """The flow docs/UPGRADING.md §5 used to give: the copied manifest lists files this repository never had."""
+        ds = self.adopt("tbook", "tools", "template.toml", "template-manifest.json")
+        res = self.run_update(ds)
+        self.assertEqual(res.errors, [])
+        self.assertEqual([a.path for a in res.actions if a.reason == "kept_deleted"], [])
+        added = {a.path for a in res.of(ADD)}
+        self.assertIn("theme/tokens.json", added)
+        self.assertIn("skills/book-new/SKILL.md", added)
+        self.assertFalse(any(p.startswith(("tools/", "tbook")) for p in added), "the copied files are the base")
+        self.assertTrue(any("never in this repository" in w for w in res.warnings))
+        self.assert_installed(ds)
+        git(ds, "add", "-A")
+        git(ds, "commit", "-q", "-m", "Install the template")
+        res = self.run_update(ds)
+        self.assertEqual(res.of(ADD, UPDATE, REMOVE, CONFLICT), [], "installed: a second update changes nothing")
+
+    def test_deleted_files_stay_deleted(self):
+        """Only files absent from the whole history are installed; a deletion (committed or not) is kept."""
+        ds = self.downstream()  # tools/fixture/deleted-locally*.txt deleted in a commit
+        (ds / "tools" / "fixture" / "replace.txt").unlink()  # deleted, not committed
+        self.assertEqual(template.never_installed(ds, Manifest.load(ds)), set())
+        k = self.kinds(self.run_update(ds, dry_run=True))
+        self.assertEqual(k["tools/fixture/deleted-locally.txt"], KEEP)
+        self.assertEqual(k["tools/fixture/deleted-locally-changed-upstream.txt"], CONFLICT)
+        self.assertEqual(k["tools/fixture/replace.txt"], CONFLICT, "deleted locally, changed upstream")
+
+    def test_shallow_clone_trusts_the_base(self):
+        """A shallow clone cannot show old deletions, so the base manifest decides as before."""
+        ds = self.downstream()
+        write(ds / "books" / "later.md", "a later commit\n")
+        git(ds, "add", "-A")
+        git(ds, "commit", "-q", "-m", "Later")
+        clone = self.base / f"shallow-{self.counter}"
+        subprocess.run(["git", "clone", "-q", "--depth", "1", ds.resolve().as_uri(), str(clone)], check=True,
+                       capture_output=True)
+        self.assertFalse((clone / "tools" / "fixture" / "deleted-locally.txt").exists())
+        self.assertEqual(template.never_installed(clone, Manifest.load(clone)), set())
+        self.assertEqual(self.kinds(self.run_update(clone, dry_run=True))["tools/fixture/deleted-locally.txt"], KEEP)
+
+    def test_adoption_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(TemplateError, r"copy tbook, tools/ and template\.toml .*UPGRADING\.md §5"):
+                TemplateConfig.load(Path(tmp))
+
+
+# --------------------------------------------------------------------------- tests: never downgrade
+
+
+class NoDowngradeTests(TemplateFixture):
+    """Without --to, an update never goes back (an older release, or the same version from another snapshot)."""
+
+    def test_latest_release_older_than_a_prerelease(self):
+        type(self).counter += 1
+        ds = make_downstream(self.base, self.tpl, f"rc-{self.counter}", "v0.3.0-rc.1", local_work=False)
+        before = tree_snapshot(ds)
+        lines: list[str] = []
+        rc = template.cmd_update(ds, to=None, source=str(self.tpl), dry_run=False, force=False, out=lines.append)
+        self.assertEqual(rc, template.EXIT_OK)
+        after = tree_snapshot(ds)
+        after.pop("build/template-update.md")
+        self.assertEqual(after, before, "nothing changed")
+        self.assertEqual(git(ds, "status", "--porcelain"), "", "template-sync finds nothing to propose")
+        summary = (ds / "build" / "template-update.md").read_text(encoding="utf-8")
+        self.assertIn("## Template 0.3.0-rc.1: no update", summary)
+        self.assertIn("The latest release (0.2.0) is older than this repository's template version 0.3.0-rc.1",
+                      summary)
+        self.assertIn("`--to 0.2.0`", summary)
+        res = self.run_update(ds, dry_run=True)
+        self.assertEqual((res.no_update, res.actions, res.exit_code, res.changed), ("not_newer_older", [], 0, False))
+        # An explicit --to still downgrades, with a warning.
+        res = self.run_update(ds, to="0.2.0", dry_run=True)
+        self.assertEqual(res.no_update, "")
+        self.assertTrue(any("downgrade" in w for w in res.warnings))
+        self.assertEqual(self.kinds(res)["tools/fixture/replace.txt"], UPDATE)
+
+    def test_same_version_from_another_snapshot(self):
+        """A repository created from the template's main branch between releases (same version number)."""
+        main = self.template_clone("tpl-main", "v0.2.0")
+        write(main / "tools" / "fixture" / "replace.txt", "v2 plus a fix on main\n")
+        write(main / "docs" / "NEXT.md", "on main only\n")
+        commit_all(main, "main after 0.2.0 (version unchanged)")
+        type(self).counter += 1
+        ds = make_downstream(self.base, main, f"from-main-{self.counter}", "HEAD", local_work=False)
+        before = tree_snapshot(ds)
+        res = self.run_update(ds, source=str(main))
+        self.assertEqual((res.no_update, res.actions, res.exit_code), ("not_newer_same", [], 0))
+        self.assertEqual(tree_snapshot(ds), before)
+        text = template.render_summary(res, "en")
+        self.assertIn("another snapshot", text)
+        self.assertIn("模板 0.2.0：无需升级", template.render_summary(res, "zh"))
+        # --to re-syncs with the release on purpose.
+        res = self.run_update(ds, source=str(main), to="0.2.0", dry_run=True)
+        self.assertEqual(self.kinds(res)["tools/fixture/replace.txt"], UPDATE)
+        self.assertIn(("docs/NEXT.md", REMOVE), {(a.path, a.kind) for a in res.actions})
+
+    def test_newer_release_still_updates(self):
+        ds = self.downstream()
+        res = self.run_update(ds, dry_run=True)
+        self.assertEqual((res.no_update, res.old_version, res.new_version), ("", "0.1.0", "0.2.0"))
+
+
+# --------------------------------------------------------------------------- tests: migrations
+
+
+MIGRATION_NEW_CODE = '''\
+import os
+
+from tbook import newmod, paths
+
+
+def migrate(root):
+    return [f"const={newmod.NEW_CONST}", f"root={paths.ROOT}", f"cwd={os.getcwd()}", f"file={paths.__file__}"]
+'''
+
+
+class MigrationProcessTests(TemplateFixture):
+    """Migrations import tbook from the new template (tools/migrations/README.md), in a fresh process."""
+
+    def template_040(self, migration: str) -> Path:
+        """v0.4.0 on top of v0.2.0: tbook.paths gains NEW_CONST, a new module uses it, one migration."""
+        tpl = self.template_clone("tpl-040", "v0.2.0")
+        set_version(tpl, "0.4.0")
+        with (tpl / "tools" / "tbook" / "paths.py").open("a", encoding="utf-8") as fh:
+            fh.write('\nNEW_CONST = "new"\n')
+        write(tpl / "tools" / "tbook" / "newmod.py", "from .paths import NEW_CONST\n")
+        (tpl / "tools" / "migrations" / "v0.3.0.py").unlink()
+        write(tpl / "tools" / "migrations" / "v0.4.0.py", migration)
+        commit_all(tpl, "template 0.4.0", "v0.4.0")
+        return tpl
+
+    def test_migration_imports_the_new_modules(self):
+        tpl = self.template_040(MIGRATION_NEW_CODE)
+        type(self).counter += 1
+        ds = make_downstream(self.base, self.tpl, f"mig-{self.counter}", "v0.2.0", local_work=False)
+        res = self.run_update(ds, source=str(tpl))
+        self.assertEqual(res.errors, [])
+        self.assertEqual([m[0] for m in res.migrations], ["v0.4.0.py"])
+        notes = dict(n.split("=", 1) for n in res.migrations[0][1])
+        self.assertEqual(notes["const"], "new", "tbook.paths and the new module are the new template's")
+        self.assertEqual(Path(notes["root"]).resolve(), ds.resolve(), "tbook.paths.ROOT is the repository")
+        self.assertEqual(Path(notes["cwd"]).resolve(), ds.resolve())
+        imported = Path(notes["file"]).resolve()
+        self.assertEqual(imported.parts[-4:], ("template", "tools", "tbook", "paths.py"), "the fetched template")
+        self.assertFalse(imported.is_relative_to(ds.resolve()))
+        self.assertFalse(imported.is_relative_to(REAL_ROOT.resolve()))
+        self.assertFalse(hasattr(paths, "NEW_CONST"), "this process keeps the modules it imported")
+
+    def test_failing_migration(self):
+        tpl = self.template_040('def migrate(root):\n    raise RuntimeError("boom")\n')
+        type(self).counter += 1
+        ds = make_downstream(self.base, self.tpl, f"mig-{self.counter}", "v0.2.0", local_work=False)
+        with redirect_stderr(io.StringIO()) as err:
+            res = self.run_update(ds, source=str(tpl))
+        self.assertEqual(res.errors, ["v0.4.0.py failed: RuntimeError: boom"])
+        self.assertEqual(res.exit_code, template.EXIT_ERROR)
+        self.assertIn("Traceback", err.getvalue())
+        self.assertIn("RuntimeError: boom", err.getvalue())
 
 
 # --------------------------------------------------------------------------- tests: status, manifest
@@ -865,6 +1109,181 @@ class RealRepositoryTests(unittest.TestCase):
             self.assertTrue(cfg.manages(p), p)
             self.assertIn(e.mode, ("100644", "100755", "120000"), p)
             self.assertRegex(e.sha256, r"^[0-9a-f]{64}$")
+
+
+# --------------------------------------------------------------------------- tests: workflows
+
+
+WORKFLOWS = REAL_ROOT / ".github" / "workflows"
+
+
+def _mapping(lines: list[str], i: int, indent: int) -> dict[str, str]:
+    """The flat ``key: value`` block below ``lines[i]`` (indented deeper than ``indent``)."""
+    head = lines[i].split(":", 1)[1].split("#")[0].strip()
+    if head:  # permissions: read-all | write-all | {}
+        return {"*": head}
+    out: dict[str, str] = {}
+    for line in lines[i + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip()) <= indent:
+            break
+        key, _, value = line.strip().partition(":")
+        out[key.strip()] = value.split("#")[0].strip().strip("'\"")
+    return out
+
+
+def read_workflow(path: Path) -> tuple[dict[str, str] | None, dict[str, dict]]:
+    """``(top-level permissions, {job: {"permissions": dict | None, "uses": [action refs]}})``.
+
+    A reader for the layout of these workflows (two-space indentation, block mappings), not general YAML.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    top: dict[str, str] | None = None
+    jobs: dict[str, dict] = {}
+    job: dict | None = None
+    in_jobs = False
+    for i, line in enumerate(lines):
+        if re.match(r"^\S", line) and not line.startswith("#"):
+            in_jobs = line.startswith("jobs:")
+            job = None
+            if line.startswith("permissions:"):
+                top = _mapping(lines, i, 0)
+            continue
+        if not in_jobs:
+            continue
+        m = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if m:
+            job = jobs.setdefault(m.group(1), {"permissions": None, "uses": []})
+        elif job is not None:
+            if re.match(r"^    permissions:", line):
+                job["permissions"] = _mapping(lines, i, 4)
+            m = re.match(r"^\s+(?:- )?uses:\s*['\"]?([^'\"\s#]+)", line)
+            if m:
+                job["uses"].append(m.group(1))
+    return top, jobs
+
+
+def granted(perms: dict[str, str], scope: str) -> str:
+    """The access level ``perms`` (a permissions block) gives ``scope``: none, read or write."""
+    if "*" in perms:
+        return {"read-all": "read", "write-all": "write"}.get(perms["*"], "none")
+    return perms.get(scope, "none")
+
+
+def release_plan_script() -> str:
+    """The Python script of release.yml's "Resolve the tag" step (id: plan)."""
+    text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    m = re.search(r"\n\s+id: plan\n.*?python3 - <<'PY'\n(.*?)\n\s*PY\n", text, re.S)
+    assert m, "release.yml: the plan step's script was not found"
+    return textwrap.dedent(m.group(1))
+
+
+def run_release_plan(root: Path, tag: str, *, template_repo: bool = False) -> tuple[int, dict[str, str], str]:
+    """Run the plan step for ``tag`` in the repository ``root``: (exit code, step outputs, log)."""
+    out = root / "build" / "github-output.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("", encoding="utf-8")
+    env = dict(os.environ, TAG=tag, TEMPLATE_REPO="true" if template_repo else "false", GITHUB_OUTPUT=str(out),
+               PYTHONPATH=str(root / "tools"), TBOOK_ROOT=str(root))
+    r = subprocess.run([sys.executable, "-"], input=release_plan_script(), cwd=root, env=env, capture_output=True,
+                       text=True)
+    outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines() if "=" in line)
+    return r.returncode, outputs, r.stdout + r.stderr
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_jobs_have_the_permissions_their_actions_need(self):
+        """A job-level permissions block replaces the top-level one: it must grant what its actions use."""
+        needs = {
+            "actions/checkout": [("contents", ("read", "write"))],
+            # GET /repos/{owner}/{repo}/pages: refused without Pages access in private repositories.
+            "actions/configure-pages": [("pages", ("read", "write"))],
+            "actions/deploy-pages": [("pages", ("write",)), ("id-token", ("write",))],
+        }
+        seen = set()
+        for wf in sorted(WORKFLOWS.glob("*.yml")):
+            top, jobs = read_workflow(wf)
+            self.assertIsNotNone(top, f"{wf.name}: set top-level permissions")
+            for name, job in jobs.items():
+                perms = job["permissions"] if job["permissions"] is not None else top
+                for uses in job["uses"]:
+                    action = uses.split("@")[0]
+                    for scope, levels in needs.get(action, []):
+                        seen.add(action)
+                        self.assertIn(granted(perms, scope), levels,
+                                      f"{wf.name}, job {name}: {action} needs {scope}: {' or '.join(levels)}")
+        self.assertEqual(seen, set(needs), "the reader found every action it checks")
+
+    def test_reader(self):
+        _, jobs = read_workflow(WORKFLOWS / "pages.yml")
+        self.assertEqual(set(jobs), {"probe", "build", "deploy"})
+        self.assertEqual(jobs["deploy"]["permissions"], {"pages": "write", "id-token": "write"})
+        self.assertIn("actions/configure-pages@v5", jobs["build"]["uses"])
+
+
+class NoBooksTests(unittest.TestCase):
+    """Books repositories may delete books/example-monograph (skills/book-new) and may have no book yet.
+
+    What ci.yml and pages.yml run must then pass: there is nothing to build, which is not an error.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-nobooks-"))
+        cls.env = dict(os.environ, TBOOK_PYTHON=sys.executable)
+        cls.env.pop("TBOOK_ROOT", None)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def repository(self, name: str) -> Path:
+        root = self.tmp / name
+        root.mkdir()
+        copy_real_managed(root, example=False)
+        site = root / "site.toml"
+        site.write_text(re.sub(r"(?ms)^order\s*=\s*\[.*?\]", "order = []", site.read_text(encoding="utf-8")),
+                        encoding="utf-8")
+        return root
+
+    def run_ok(self, root: Path, *cmd: str) -> str:
+        r = subprocess.run(list(cmd), cwd=root, env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"{' '.join(cmd)}:\n{r.stdout}{r.stderr}")
+        return r.stdout + r.stderr
+
+    def test_ci_and_pages_commands(self):
+        root = self.repository("zero")
+        tbook = str(root / "tbook")
+        self.assertIn("0 book(s), 0 error(s)", self.run_ok(root, tbook, "check"))
+        self.run_ok(root, tbook, "theme", "--check")
+        self.run_ok(root, tbook, "build", "html", "pdf", "epub")  # ci.yml build job
+        self.run_ok(root, tbook, "build", "all")  # pages.yml
+        self.assertTrue((root / "_site" / "index.html").is_file())
+        if shutil.which("node"):
+            for script in ("viz-validate.mjs", "slides-check.mjs", "viz-test.mjs"):  # ci.yml check and media jobs
+                self.run_ok(root, "node", str(root / "tools" / "node" / script))
+        # ci.yml's media job builds slides only when a deck exists.
+        self.assertEqual(list(root.glob("books/*/slides/*/slides.md")), [])
+
+    def test_release_plan(self):
+        root = self.repository("release")
+        rc, outputs, log = run_release_plan(root, "v2026.11.08")
+        self.assertEqual(rc, 1, "a release needs a book")
+        self.assertIn("there are no books", log)
+        self.assertEqual(run_release_plan(root, "v1.0.0", template_repo=True)[1].get("skip"), "true")
+        self.run_ok(root, str(root / "tbook"), "new-book", "my-book", "--title", "zh=我的书", "--title", "en=My Book")
+        # Only a semantic-version pre-release is a GitHub pre-release; date tags are ordinary releases.
+        for tag, pre in (("v2026.11.08", "false"), ("v2026-11-08", "false"), ("v20261108", "false"),
+                         ("v3.0.0", "false"), ("v3.0.0-rc.1", "true"), ("my-book-v0.1.0", "false")):
+            rc, outputs, log = run_release_plan(root, tag)
+            self.assertEqual(rc, 0, log)
+            self.assertEqual((outputs["books"], outputs["prerelease"]), ("my-book", pre), tag)
+        book_toml = root / "books" / "my-book" / "book.toml"
+        book_toml.write_text(re.sub(r'(?m)^version = "[^"]*"', 'version = "0.2.0-beta.1"',
+                                    book_toml.read_text(encoding="utf-8"), count=1), encoding="utf-8")
+        rc, outputs, log = run_release_plan(root, "my-book-v0.2.0-beta.1")
+        self.assertEqual((rc, outputs.get("prerelease")), (0, "true"), log)
 
 
 if __name__ == "__main__":

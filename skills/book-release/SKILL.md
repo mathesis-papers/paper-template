@@ -26,7 +26,8 @@ description: 发布一本书或整个书库的版本时使用：更新版本号�
    git tag <slug>-v<version>
    git push origin <slug>-v<version>
    ```
-   发布全部书时用 `v<日期或版本>`（模板仓库自身除外——那里的 `v*` 是模板版本）。
+   发布全部书时用 `v<日期或版本>`，例如 `v2026.11.08`、`v2026-11-08` 或 `v3.0.0`（模板仓库自身除外——那里的 `v*` 是模板版本）。
+   只有语义化版本的预发布才标为 GitHub pre-release：单本书看 `book.toml` 的 `version`（如 `1.0.0-rc.1`），全部书看 tag 中 `v` 之后的部分（如 `v3.0.0-rc.1`）；日期等其他形式（即使含 `-`）都是正式发布。
 5. `release.yml` 校验 tag 与 `book.toml` 版本一致，构建 PDF（屏幕版、印刷版）、EPUB 与幻灯片 PDF，创建 GitHub Release，说明中列出所钉的 trureturing 提交与定理数。
 6. 检查 Release 附件与 Pages 上的下载链接。
 

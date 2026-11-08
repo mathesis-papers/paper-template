@@ -25,11 +25,23 @@ changed                changed (differently)        conflict: keep local, write 
 absent (new file)      added, local file differs    conflict, as above
 =====================  ===========================  =========================================
 
+"Deleted locally" means the repository had the file: a file the base lists that is absent
+and that the repository's git history never contained (a repository adopting the template,
+whose copied manifest describes files it never had) is installed as if the base did not list
+it. Without git history to tell (no repository, a shallow clone) the base is trusted.
+
+Without ``--to`` the target is the newest stable release (a plain-directory ``--source`` is the
+target as given), and ``update`` never goes back: when that release is older than
+``template.toml``'s version, or has the same version but differs from the repository's manifest
+(a repository created from the template's main branch between releases), it changes nothing and
+says so; ``--to`` re-syncs or downgrades.
+
 Owned and excluded paths are never touched. After the files, ``update`` writes the new
 ``template.toml`` and ``template-manifest.json``, runs the migrations
 ``tools/migrations/v<X.Y.Z>.py`` (``migrate(root: Path) -> list[str]``) of every version
-in ``(old, new]`` from the new template, and writes a Markdown summary to
-``build/template-update.md`` (the body of the template-sync pull request).
+in ``(old, new]`` from the new template, each in a fresh Python process that imports
+``tbook`` from the fetched template (``TBOOK_ROOT`` = the repository), and writes a Markdown
+summary to ``build/template-update.md`` (the body of the template-sync pull request).
 
 Exit codes: 0 success, 1 error, 3 conflicts to merge by hand.
 
@@ -41,7 +53,6 @@ overrides it). Errors are English, like the rest of the CLI.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 import re
@@ -78,6 +89,7 @@ MODE_OTHER = "040000"  # a directory (or anything that is not a file) where a fi
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 MIGRATION_RE = re.compile(r"^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.py$")
+SHORT_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,39}$")  # what an abbreviated commit SHA looks like
 SKIP_NAMES = {"__pycache__", ".git", ".DS_Store", "node_modules"}
 
 # --------------------------------------------------------------------------- strings
@@ -105,6 +117,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "sum_source": "来源",
         "sum_counts": "新增 {added} · 更新 {updated} · 删除 {removed} · 冲突 {conflicts} · 保留本地改动 {kept}",
         "sum_up_to_date": "托管文件已是最新，无需改动。",
+        "sum_title_none": "模板 {old}：无需升级",
+        "not_newer_older": "最新发布 {new} 比本书库的模板版本 {old} 旧。不带 `--to` 的升级从不降级，因此没有改动任何文件；确需降级时用 `--to {new}`。",
+        "not_newer_same": "本书库已是最新发布的版本号 {new}，但托管文件来自同一版本号下的另一个快照（例如两次发布之间的模板 main 分支），换成发布版会撤销较新的改动，因此没有改动任何文件；下一个版本发布后再升级。确需与发布版同步时用 `--to {new}`。",
         "sec_added": "新增",
         "sec_updated": "更新",
         "sec_removed": "删除",
@@ -156,6 +171,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "sum_source": "Source",
         "sum_counts": "{added} added · {updated} updated · {removed} removed · {conflicts} conflicts · {kept} local changes kept",
         "sum_up_to_date": "Managed files are up to date; nothing to change.",
+        "sum_title_none": "Template {old}: no update",
+        "not_newer_older": "The latest release ({new}) is older than this repository's template version {old}. Without `--to` an update never downgrades, so nothing was changed; pass `--to {new}` to downgrade on purpose.",
+        "not_newer_same": "This repository already has version {new}, the latest release, but its managed files come from another snapshot with that version number (for example the template's main branch between releases). Taking the release would revert newer changes, so nothing was changed; the next release will update it. Pass `--to {new}` to re-sync with the release anyway.",
         "sec_added": "Added",
         "sec_updated": "Updated",
         "sec_removed": "Removed",
@@ -295,8 +313,8 @@ class TemplateConfig:
         if not path.is_file():
             raise TemplateError(
                 f"{TEMPLATE_TOML} not found in {root}; a repository that was not created from the template "
-                "can adopt it by copying tbook, tools/, template.toml and template-manifest.json "
-                "(docs/UPGRADING.md §5)"
+                "can adopt it: copy tbook, tools/ and template.toml from a template release, then run "
+                "./tbook template update, which installs the other managed files (docs/UPGRADING.md §5)"
             )
         return cls.from_bytes(path.read_bytes(), str(path))
 
@@ -758,15 +776,51 @@ def _safe_relpath(p: str) -> bool:
     return bool(p) and not p.startswith("/") and ".." not in parts and "" not in parts and ".git" not in parts
 
 
+def never_installed(root: Path, base: Manifest | None) -> set[str]:
+    """Files the base manifest lists that are absent here and that the repository never had.
+
+    "Never had" means: not in the index and in no commit of HEAD's history (renames counted as
+    deletions). A repository that adopts the template by copying tbook, tools/, template.toml and
+    template-manifest.json has none of the other managed files; they must be installed, not kept
+    "deleted locally". Empty when this cannot be known: no base, not the root of a git repository,
+    or a shallow clone (whose history may not show a deletion).
+    """
+    if base is None:
+        return set()
+    missing = sorted(p for p in base.files
+                     if p not in SELF_FILES and _safe_relpath(p) and not os.path.lexists(root / p))
+    if not missing or not _is_repo_root(root):
+        return set()
+    shallow = _git(root, "rev-parse", "--is-shallow-repository")
+    if shallow.returncode != 0 or shallow.stdout.decode("utf-8", "replace").strip() != "false":
+        return set()
+    has_head = _git(root, "rev-parse", "-q", "--verify", "HEAD^{commit}").returncode == 0
+    seen: set[str] = set()
+    for i in range(0, len(missing), 500):  # keep command lines short
+        specs = [f":(literal){p}" for p in missing[i:i + 500]]
+        queries = [("ls-files", "-z", "--cached", "--", *specs)]
+        if has_head:
+            queries.append(("log", "--no-renames", "--format=", "--name-only", "-z", "HEAD", "--", *specs))
+        for query in queries:
+            r = _git(root, *query)
+            if r.returncode != 0:
+                return set()
+            seen.update(n.strip("\n") for n in r.stdout.decode("utf-8", "surrogateescape").split("\0"))
+    return set(missing) - seen
+
+
 def plan_update(root: Path, local_cfg: TemplateConfig, base: Manifest | None, up: Upstream,
-                *, force: bool = False) -> list[Action]:
+                *, force: bool = False, never_had: set[str] | frozenset[str] = frozenset()) -> list[Action]:
+    """The three-way plan. ``never_had``: base files to treat as not in the base (see never_installed)."""
     base_files = base.files if base else {}
     theirs = up.manifest.files
     actions: list[Action] = []
     for p in sorted(set(base_files) | set(theirs)):
         if p in SELF_FILES or not _safe_relpath(p):
             continue
-        b, t = base_files.get(p), theirs.get(p)
+        b, t = (None if p in never_had else base_files.get(p)), theirs.get(p)
+        if b is None and t is None:  # listed only in a base that never applied here: nothing to do
+            continue
         if t is None and not up.cfg.manages(p):
             actions.append(Action(p, RELEASE))  # the template let go of it: it stays, owned locally
             continue
@@ -920,22 +974,74 @@ def find_migrations(directory: Path, old: str, new: str) -> list[Migration]:
     return sorted(found, key=lambda mg: parse_semver(mg.version))
 
 
-def run_migration(mig: Migration, root: Path) -> list[str]:
-    spec = importlib.util.spec_from_file_location(f"tbook_migration_{mig.version.replace('.', '_').replace('-', '_')}",
-                                                  mig.path)
-    if spec is None or spec.loader is None:
-        raise TemplateError(f"cannot load {mig.path}")
+# Runs one migration in a fresh interpreter: argv = migration file, repository root, result file (JSON).
+_MIGRATION_RUNNER = r"""
+import importlib.util, json, sys, traceback
+from pathlib import Path
+
+path, root, result = sys.argv[1:4]
+
+def done(**data):
+    with open(result, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+
+fn = notes = None
+try:
+    spec = importlib.util.spec_from_file_location("tbook_migration", path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     fn = getattr(module, "migrate", None)
-    if not callable(fn):
+    if callable(fn):
+        notes = fn(Path(root))
+except BaseException as exc:
+    traceback.print_exc()
+    done(error=f"{type(exc).__name__}: {exc}")
+    sys.exit(1)
+if not callable(fn):
+    done(missing=True)
+elif notes is None:
+    done(notes=[])
+elif isinstance(notes, str):
+    done(notes=[notes])
+else:
+    done(notes=[str(n) for n in notes])
+"""
+
+
+def run_migration(mig: Migration, root: Path, tools: Path | None = None) -> list[str]:
+    """Run ``mig`` in a fresh Python process and return its notes.
+
+    ``import tbook`` there loads the template the migration came from (``tools``, by default the
+    ``tools/`` directory holding ``tools/migrations/`` when it has ``tbook/``), never the modules this
+    process imported before the update; ``TBOOK_ROOT`` points ``tbook.paths`` at ``root``, which is
+    also the working directory.
+    """
+    if tools is None:
+        guess = mig.path.resolve().parent.parent
+        tools = guess if (guess / "tbook").is_dir() else None
+    env = dict(os.environ, TBOOK_ROOT=str(root), PYTHONDONTWRITEBYTECODE="1")
+    env.pop("PYTHONPATH", None)  # never the modules of the template this process runs
+    if tools is not None:
+        env["PYTHONPATH"] = str(tools)
+    with tempfile.TemporaryDirectory(prefix="tbook-migration-") as tmp:
+        result = Path(tmp) / "result.json"
+        try:
+            r = subprocess.run([sys.executable or "python3", "-P", "-c", _MIGRATION_RUNNER, str(mig.path),
+                                str(root), str(result)], cwd=root, env=env, stderr=subprocess.PIPE)
+        except OSError as exc:
+            raise TemplateError(f"cannot run Python for {mig.name}: {exc}") from exc
+        if r.stderr:
+            sys.stderr.write(r.stderr.decode("utf-8", "replace"))
+        try:
+            data = json.loads(result.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise TemplateError(f"{mig.name} exited with status {r.returncode} without a result") from None
+    if data.get("missing"):
         raise TemplateError(f"{mig.name} defines no migrate(root) function")
-    notes = fn(root)
-    if notes is None:
-        return []
-    if isinstance(notes, str):
-        return [notes]
-    return [str(n) for n in notes]
+    if "error" in data:
+        raise TemplateError(str(data["error"]))
+    return [str(n) for n in data.get("notes", [])]
 
 
 # --------------------------------------------------------------------------- changelog
@@ -982,6 +1088,8 @@ class UpdateResult:
     dry_run: bool = False
     changelog: str = ""
     summary: str = ""
+    # Set (to the explaining string key) when the latest release is not newer: nothing was planned.
+    no_update: str = ""
 
     def of(self, *kinds: str) -> list[Action]:
         return [a for a in self.actions if a.kind in kinds]
@@ -992,6 +1100,8 @@ class UpdateResult:
 
     @property
     def changed(self) -> bool:
+        if self.no_update:
+            return False
         return bool(self.of(ADD, UPDATE, REMOVE, CONFLICT)) or self.old_version != self.new_version
 
     @property
@@ -1011,13 +1121,22 @@ def _md_list(items: list[str], limit: int = 300) -> list[str]:
 def render_summary(res: UpdateResult, lang: str) -> str:
     up = res.upstream
     t = lambda key, **kw: _t(lang, key, **kw)  # noqa: E731
-    title = t("sum_title_dry" if res.dry_run else "sum_title", old=res.old_version, new=res.new_version)
+    if res.no_update:
+        title = t("sum_title_none", old=res.old_version)
+    else:
+        title = t("sum_title_dry" if res.dry_run else "sum_title", old=res.old_version, new=res.new_version)
     lines = [f"## {title}", ""]
     if up is not None:
         src = up.source
         ref = up.ref[len("refs/tags/"):] if up.ref.startswith("refs/tags/") else up.ref
         where = f"`{src}`" + (f" @ `{ref}`" if ref else "") + (f" (`{up.commit[:12]}`)" if up.commit else "")
         lines += [f"{t('sum_source')}{t('colon')}{where}", ""]
+    if res.no_update:
+        lines += [t(res.no_update, old=res.old_version, new=res.new_version), ""]
+        problems = res.errors + res.warnings + (up.warnings if up else [])
+        if problems:
+            lines += [f"### {t('sec_warnings')}", ""] + _md_list(problems) + [""]
+        return "\n".join(lines).rstrip() + "\n"
     added, updated, removed = res.of(ADD), res.of(UPDATE), res.of(REMOVE)
     lines.append(t("sum_counts", added=len(added), updated=len(updated), removed=len(removed),
                    conflicts=len(res.conflicts), kept=len(res.of(KEEP))))
@@ -1093,10 +1212,24 @@ def update(root: Path, *, to: str | None = None, source: str | None = None, dry_
             if to:
                 raise TemplateError(f"--to needs a git source; {src} is a plain directory")
             up = load_upstream(Path(src), source=src, ref="", commit="")
+            latest = False  # the directory given is the target
         else:
             tags = remote_tags(src)
             ref, label = resolve_target(to, tags, local_cfg.tag_prefix, src)
-            commit = fetch_upstream(src, ref, Path(tmp) / "template")
+            latest = not to  # the newest stable release, picked automatically
+            short_sha = bool(to) and ref == to and SHORT_SHA_RE.match(ref) is not None
+            if short_sha and _is_local(src):
+                # git fetch needs a full object name; a local repository expands an abbreviated SHA.
+                r = _git(Path(src), "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+                if r.returncode == 0:
+                    ref = r.stdout.decode("utf-8", "replace").strip()
+            try:
+                commit = fetch_upstream(src, ref, Path(tmp) / "template")
+            except TemplateError as exc:
+                if short_sha and not _is_local(src):
+                    raise TemplateError(f"{exc}\n(an abbreviated commit SHA is expanded only in a local git "
+                                        "source; pass the full 40-character SHA, a tag or a branch)") from None
+                raise
             up = load_upstream(Path(tmp) / "template", source=src, ref=label, commit=commit)
             if label.startswith(local_cfg.tag_prefix) and parse_semver(label[len(local_cfg.tag_prefix):]):
                 if label[len(local_cfg.tag_prefix):] != up.cfg.version:
@@ -1106,13 +1239,28 @@ def update(root: Path, *, to: str | None = None, source: str | None = None, dry_
                                 "(pass --force to switch templates)")
         old_v, new_v = local_cfg.version, up.cfg.version
         ko, kn = parse_semver(old_v), parse_semver(new_v)
+        # Without --to, never go back: an older release, or the same version from another snapshot (a
+        # repository created from the template's main branch between releases), would revert newer files.
+        no_update = ""
+        if latest and ko is not None and kn is not None:
+            if kn < ko:
+                no_update = "not_newer_older"
+            elif kn == ko and base is not None and base.files != up.manifest.files:
+                no_update = "not_newer_same"
+        if no_update:
+            return UpdateResult(old_version=old_v, new_version=new_v, actions=[], upstream=up,
+                                warnings=warnings, dry_run=dry_run, no_update=no_update)
         if ko is not None and kn is not None and kn < ko:
             warnings.append(f"{new_v} is older than {old_v}: this is a downgrade; migrations do not run backwards")
         for entry in local_cfg.owned + local_cfg.exclude:
             if entry not in up.cfg.owned + up.cfg.exclude:
                 warnings.append(f"{TEMPLATE_TOML} [managed] entry {entry!r} is not in the new template.toml; "
                                 "add it back if you still need it")
-        actions = plan_update(root, local_cfg, base, up, force=force)
+        never_had = never_installed(root, base)
+        if never_had:
+            warnings.append(f"{len(never_had)} file(s) listed in {MANIFEST_NAME} were never in this repository "
+                            "(not in its git history): installed as new files, not kept as deleted locally")
+        actions = plan_update(root, local_cfg, base, up, force=force, never_had=never_had)
         res = UpdateResult(old_version=old_v, new_version=new_v, actions=actions, upstream=up,
                            warnings=warnings, dry_run=dry_run)
         changelog_file = up.dir / CHANGELOG
@@ -1127,10 +1275,10 @@ def update(root: Path, *, to: str | None = None, source: str | None = None, dry_
                 _write_self(root, up)
                 for mig in migrations:
                     try:
-                        res.migrations.append((mig.name, run_migration(mig, root)))
+                        res.migrations.append((mig.name, run_migration(mig, root, up.dir / "tools")))
                     except Exception as exc:  # noqa: BLE001 - report any migration failure with its name
-                        res.errors.append(_t(_lang(root), "migration_failed", name=mig.name,
-                                             error=f"{type(exc).__name__}: {exc}"))
+                        error = str(exc) if isinstance(exc, TemplateError) else f"{type(exc).__name__}: {exc}"
+                        res.errors.append(_t(_lang(root), "migration_failed", name=mig.name, error=error))
                         break
     return res
 

@@ -21,11 +21,11 @@ description: 升级或完善书库模板本身时使用：把下游书库更新�
 
 1. 工作区干净（`git status` 无改动），新建分支 `template-update/<version>`。
 2. `./tbook template status` —— 查看当前模板版本，以及本地被改过的托管文件。被改过的文件在升级时不会被覆盖，会产生冲突。
-3. `./tbook template update --dry-run`（默认目标是最新的 `v*` 发布；`--to v0.3.0` 指定版本）。读摘要。
+3. `./tbook template update --dry-run`（默认目标是最新的 `v*` 正式发布，且从不倒退：它不比当前版本新时什么也不改，摘要说明原因；`--to v0.3.0` 指定版本，也用于有意降级或与发布重新同步）。读摘要。
 4. `./tbook template update`。结果：
    - 本地未改的托管文件 → 直接替换/新增/删除；
    - 本地改过而上游也改了 → **冲突**：保留本地文件，上游版本写在旁边的 `<file>.template-new`。逐个比较合并，然后删除 `.template-new`。若本地改动本该回馈上游，按 B 处理；若只是临时补丁，通常直接采用上游版本。
-   - 版本间的迁移脚本 `tools/migrations/v<X.Y.Z>.py` 会自动运行；按其输出检查书的内容（例如语法变更）。
+   - 版本间的迁移脚本 `tools/migrations/v<X.Y.Z>.py` 会自动运行（取自新版本模板，各在新的 Python 进程中运行）；按其输出检查书的内容（例如语法变更）。
 5. 读 `docs/CHANGELOG.md` 中跨越的各版本说明，处理“需要手动操作”的条目。
 6. 重新安装依赖（`pip install -r requirements.txt`、`npm ci`），运行 `./tbook doctor`、`./tbook check`、`./tbook build all`。
 7. 提交（摘要见 `build/template-update.md`，可直接作 PR 正文），开 PR，CI 通过后合并。

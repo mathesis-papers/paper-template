@@ -4,7 +4,12 @@
 #                                                                     books/<slug>/book.toml [book].version
 #   git tag v<anything> && git push origin v<anything>                every book (not in the template
 #                                                                     repository, where v* tags are template
-#                                                                     releases: see template-release.yml)
+#                                                                     releases: see template-release.yml),
+#                                                                     e.g. v2026.11.08, v2026-11-08 or v3.0.0
+#
+# A release is marked as a GitHub pre-release only when its version is a semantic-version pre-release:
+# the book.toml version of a one-book tag (1.0.0-rc.1), or the part after "v" of an all-books tag
+# (v3.0.0-rc.1). Any other form, dates with "-" included, makes an ordinary release.
 #
 # The release carries, per book, the PDFs (screen + print), the EPUB of every edition and the slide PDFs
 # (<slug>-<deck>-<lang>.pdf); its notes list each book's version, editions, theorem count and the pinned
@@ -59,6 +64,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
+          import re
           import sys
 
           from tbook import config
@@ -75,6 +81,10 @@ jobs:
               print(f"::error title=Release::{msg}")
               sys.exit(1)
 
+          def is_prerelease(version):
+              """Only a semantic-version pre-release (1.0.0-rc.1); v2026-11-08 is an ordinary release."""
+              return re.fullmatch(r"\d+\.\d+\.\d+-[0-9A-Za-z.-]+(?:\+[0-9A-Za-z.-]+)?", version) is not None
+
           # <slug>-v<version>: the longest known slug wins (slugs may themselves contain "-v").
           slug = max((s for s in by_slug if tag.startswith(s + "-v")), key=len, default=None)
           if slug:
@@ -85,7 +95,7 @@ jobs:
                        f"{book.version}. Update book.toml (or delete the tag) and tag again.")
               selected = [book]
               title = f"{book.primary.title} {book.version}"
-              prerelease = "-" in book.version
+              prerelease = is_prerelease(book.version)
           elif tag.startswith("v"):
               if os.environ["TEMPLATE_REPO"] == "true":
                   print(f"::notice title=Release::{tag} is a template release in the template repository; "
@@ -97,7 +107,7 @@ jobs:
               selected = books
               site = config.load_site()
               title = f"{site.text(site.title, site.default_language)} {tag}"
-              prerelease = "-" in tag
+              prerelease = is_prerelease(tag[1:])
           else:
               known = ", ".join(sorted(by_slug)) or "none"
               fail(f"tag {tag} names no book (expected <slug>-v<version> or v<version>; books: {known})")
