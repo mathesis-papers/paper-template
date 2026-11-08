@@ -95,7 +95,7 @@ $$
 | ``[`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`` | 指向所钉提交上 Lean 源文件对应行的永久链接 |
 | `[该定理][lt]` + `[lt]: lean:D5/…/Module.name` | 引用式写法，同上；尖括号 `(<lean:…>)` 与自动链接 `<lean:…>`（显示为 GID）也可以。各种写法见表下说明 |
 | `[第二章](ch02-refutation-observation.md)` | 章节链接（HTML 为页面链接，PDF/EPUB 为内部跳转） |
-| `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章；片段照抄 HTML 页面上的锚点即可，标题含公式时也一样（`## 关于 $\beta$ 的估计` 的片段是 `#关于-β-的估计`） |
+| `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章；片段照抄 HTML 页面上的锚点即可，标题含公式或脚注时也一样（`## 关于 $\beta$ 的估计` 的片段是 `#关于-β-的估计`；`## 注释[^a]` 的片段是 `#注释1`，数字是该脚注在本章的编号） |
 | `![图注](../assets/figure.svg)` | 图片；放在 `assets/` 的图各语言共享 |
 | `![图注][fig]` + `[fig]: ../assets/figure.svg` | 引用式图片，同上 |
 | `![图注](<../assets/有 空格.svg>)` | 路径含空格时用尖括号 |

@@ -384,7 +384,9 @@ class HeadingHelpersTest(unittest.TestCase):
     def test_heading_slugs_follow_mdbook(self):
         self.assertEqual(tp.heading_slugs("小结"), ["小结"])
         self.assertEqual(tp.heading_slugs("Section B.1: *Why*?"), ["section-b1-why"])
-        self.assertEqual(tp.heading_slugs("The [`foo_bar`](x.md) _case_[^1]"), ["the-foo_bar-case"])
+        # A footnote reference is its number for mdBook, its label for Pandoc (here the second footnote).
+        self.assertEqual(tp.heading_slugs("The [`foo_bar`](x.md) _case_[^1]", notes={"0": 1, "1": 2}),
+                         ["the-foo_bar-case2", "the-foo_bar-case1"])
         self.assertEqual(tp.heading_slugs("Ünïcode Title"), ["ünïcode-title"])
         self.assertEqual(tp.heading_slugs("$!$"), [])
 
