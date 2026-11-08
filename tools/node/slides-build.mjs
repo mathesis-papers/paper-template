@@ -3,7 +3,8 @@
 //   node tools/node/slides-build.mjs [--book <slug>]… [--deck <name>]… [--lang <lang>]…
 //        [--out <dir>] [--base <site base path>] [--no-pdf] [--no-check] [--shots <dir>]
 //
-// For every deck and language edition (books/<slug>/slides/<deck>/slides[.<lang>].md):
+// For every deck and language edition (books/<slug>/slides/<deck>/slides.md for the book's first
+// language, slides.<lang>.md for the others):
 //   1. slidev build → <out>/<deck>/<lang>/, with --base <base><slug>/slides/<deck>/[<lang>/] and hash
 //      routing (GitHub Pages has no fallback for client-side routes). <base> is the URL path of the
 //      site root, e.g. "/books/" for https://owner.github.io/books/ (default "/").
@@ -22,8 +23,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, wr
 import { readFile } from 'node:fs/promises';
 import { extname, join, relative, resolve } from 'node:path';
 import {
-  ROOT, DEFAULT_LANG, argParser, basePath, booksWithDecks, buildPdfName, deckBase, deckLangs, deckNames,
-  i18n, pdfName, readEdition, sitePathOf, slidev, toPosix,
+  ROOT, argParser, basePath, booksWithDecks, buildPdfName, deckBase, deckLangs, deckNames,
+  i18n, pdfName, primaryLang, readEdition, sitePathOf, slidev, toPosix,
 } from './slides-lib.mjs';
 
 const TOLERANCE = 12; // px of body overflow tolerated; crossing the source line or the footer never is
@@ -217,12 +218,14 @@ try {
         const failedBefore = failures.length;
         delete entry.langs[ed.lang]; // recorded again below only if this edition builds cleanly
         const dir = join(OUT, deck, ed.lang);
-        const base = deckBase(BASE, book.slug, deck, ed.lang);
-        const up = ed.lang === DEFAULT_LANG ? '' : '../';
+        const base = deckBase(BASE, book, deck, ed.lang);
+        // the first language is published at <deck>/, the others at <deck>/<lang>/
+        const primary = primaryLang(book);
+        const up = ed.lang === primary ? '' : '../';
         const env = {
           VITE_SITE_INDEX: `${up}../`,
           VITE_SITE_LANG: ed.lang,
-          VITE_SITE_LANGS: JSON.stringify(siteLangs.map((l) => ({ lang: l, name: String(i18n(l)?.meta?.name ?? l), href: `${up}${l === DEFAULT_LANG ? '' : `${l}/`}` || './' }))),
+          VITE_SITE_LANGS: JSON.stringify(siteLangs.map((l) => ({ lang: l, name: String(i18n(l)?.meta?.name ?? l), href: `${up}${l === primary ? '' : `${l}/`}` || './' }))),
           VITE_SITE_PDF: NO_PDF ? '' : `${up}${pdfName(book.slug, deck, ed.lang)}`,
         };
         rmSync(dir, { recursive: true, force: true });
@@ -258,7 +261,7 @@ try {
           blurb: String(ed.meta.blurb ?? ''),
           slides: ed.count,
           dir: `${deck}/${ed.lang}/`,
-          site_path: sitePathOf(deck, ed.lang),
+          site_path: sitePathOf(book, deck, ed.lang),
           base,
           pdf: NO_PDF ? '' : buildPdfName(deck, ed.lang), // --no-pdf: never publish an older PDF
           pdf_name: pdfName(book.slug, deck, ed.lang),

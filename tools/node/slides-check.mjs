@@ -4,26 +4,28 @@
 //   node tools/node/slides-check.mjs [--book <slug>]… [--deck <name>]…
 //
 // For every books/<slug>/slides/<deck>/:
-//   - an edition file for every language of the book (slides.md for zh, slides.<lang>.md otherwise),
-//     and no file for a language the book does not have;
+//   - an edition file for every language of the book (slides.md for its first language, slides.<lang>.md
+//     for the others), no file for a language the book does not have, no slides.<first language>.md
+//     (slides.md would shadow it) and no `src:` slide imports (the checks would not see those slides);
 //   - headmatter: theme is the relative path to theme/slides, title, htmlAttrs.lang equal to the
 //     language's BCP 47 tag (theme/i18n/<lang>.toml meta.bcp47), deck.code / deck.title / deck.version;
 //     deck.code and deck.version identical in every language;
 //   - every language page for page: same slide count, and on each slide the same layout, bare, chapter,
 //     hide/disabled flags, presence of a section, and the same sequence of cited Lean GIDs;
-//   - every <LeanBadge gid> / <TheoremCard gid> is a GID present in trureturing.lock.json (TheoremCard
-//     GIDs must be Lean theorems unless kind="definition"); status="open" cites no GID;
+//   - every <LeanBadge gid> / <TheoremCard gid> (in any spelling Vue resolves, e.g. <lean-badge>) is a
+//     GID present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems
+//     get the green LEAN ✓); status="open" cites no GID;
 //   - no root-relative or file: links (the site is served under /<repo>/), no index.html in the deck;
 //   - no class name or attribute on an HTML element that UnoCSS (bundled with Slidev) would turn into
 //     a utility that overrides the theme.
-// Exit status 1 when any check fails.
+// Exit status 1 when any check fails; 0 (nothing to check) when no book has a deck.
 //
 // Adapted from chrono-company-slides scripts/check.mjs (Apache-2.0).
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DECK_RE, GID_RE, ROOT, argParser, bcp47, booksWithDecks, deckLangs, deckNames, editionFile, loadLock,
-  readEdition, themeRef, toPosix,
+  DECK_RE, GID_RE, PRIMARY_FILE, ROOT, argParser, bcp47, booksWithDecks, deckLangs, deckNames, editionFile,
+  loadLock, primaryLang, readEdition, themeRef, toPosix,
 } from './slides-lib.mjs';
 
 const cli = argParser(process.argv.slice(2));
@@ -32,8 +34,11 @@ const deckFilter = cli.all('--deck');
 const errors = [];
 const fail = (msg) => errors.push(msg);
 
-// Component tags whose `gid` the check verifies.
-const TAG_RE = /<(LeanBadge|TheoremCard)\b((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+// Component tags whose `gid` the check verifies. TAG_RE finds every start tag; `component` resolves its
+// name as Vue does (capitalize(camelize(tag))), so <lean-badge> and <leanBadge> are LeanBadge too.
+const TAG_RE = /<([A-Za-z][\w-]*)(?=[\s/>])((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+const COMPONENTS = new Set(['LeanBadge', 'TheoremCard']);
+const component = (tag) => { const n = tag.replace(/-(\w)/g, (_, c) => c.toUpperCase()); return n[0].toUpperCase() + n.slice(1); };
 const ATTR_RE = /([:@]?[\w.-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/g;
 
 function attrsOf(text) {
@@ -48,6 +53,8 @@ const stripCode = (md) => md.replace(/^(\s*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[^
 function citations(content, bad) {
   const out = [];
   for (const m of stripCode(content).matchAll(TAG_RE)) {
+    const tag = component(m[1]);
+    if (!COMPONENTS.has(tag)) continue;
     const attrs = attrsOf(m[2]);
     let gid = attrs.gid;
     if (attrs[':gid'] !== undefined) {
@@ -55,7 +62,7 @@ function citations(content, bad) {
       if (lit) gid = lit[2];
       else bad(`<${m[1]} :gid="${attrs[':gid']}">: write gid as a literal string so it can be checked`);
     }
-    out.push({ tag: m[1], gid: typeof gid === 'string' ? gid.trim() : '', attrs });
+    out.push({ tag, gid: typeof gid === 'string' ? gid.trim() : '', attrs });
   }
   return out;
 }
@@ -66,8 +73,9 @@ const ABS_LINK = [
   /url\(\s*["']?(\/(?!\/)[^"')]*)/gi,
 ];
 
+const books = booksWithDecks(bookSlugs);
 const lock = loadLock();
-if (!lock) fail('trureturing.lock.json not found: run ./tbook pin');
+if (!lock && books.length) fail('trureturing.lock.json not found: run ./tbook pin');
 const decls = lock?.declarations ?? {};
 
 // UnoCSS collisions (see theme/slides/uno.config.ts, whose blocklist is honoured here).
@@ -98,7 +106,6 @@ async function unoConflicts(md) {
   return out;
 }
 
-const books = booksWithDecks(bookSlugs);
 let editionCount = 0;
 let deckCount = 0;
 for (const book of books) {
@@ -109,11 +116,13 @@ for (const book of books) {
     if (!DECK_RE.test(deck)) fail(`${at}: deck names are kebab-case (a-z, 0-9, -)`);
     if (existsSync(join(dir, 'index.html'))) fail(`${at}/index.html: Slidev merges it into every page; delete it`);
     const langs = deckLangs(book, deck);
+    const primary = primaryLang(book);
     for (const name of readdirSync(dir)) {
-      if (/^slides\..+\.md$/.test(name) && !langs.some((l) => editionFile(l) === name)) fail(`${at}/${name}: not an edition file (slides.md or slides.<lang>.md)`);
+      if (name === `slides.${primary}.md`) fail(`${at}/${name}: ${primary} is the book's first language, whose edition is ${PRIMARY_FILE}; this file is never read (move its slides into ${PRIMARY_FILE} and delete it)`);
+      else if (/^slides\..+\.md$/.test(name) && !langs.some((l) => editionFile(book, l) === name)) fail(`${at}/${name}: not an edition file (${PRIMARY_FILE} for ${primary}, the book's first language, or slides.<lang>.md)`);
     }
-    for (const lang of langs) if (!book.languages.includes(lang)) fail(`${at}/${editionFile(lang)}: ${lang} is not an edition of this book (book.toml editions: ${book.languages.join(', ')})`);
-    for (const lang of book.languages) if (!langs.includes(lang)) fail(`${at}: missing ${editionFile(lang)} (every deck has an edition for each language of the book: ${book.languages.join(', ')})`);
+    for (const lang of langs) if (!book.languages.includes(lang)) fail(`${at}/${editionFile(book, lang)}: ${lang} is not an edition of this book (book.toml editions: ${book.languages.join(', ')})`);
+    for (const lang of book.languages) if (!langs.includes(lang)) fail(`${at}: missing ${editionFile(book, lang)} (every deck has an edition for each language of the book: ${book.languages.join(', ')}; ${PRIMARY_FILE} is ${primary})`);
     const eds = [];
     for (const lang of book.languages.filter((l) => langs.includes(l))) eds.push(await readEdition(book, deck, lang));
     if (!eds.length) continue;
@@ -128,6 +137,9 @@ for (const book of books) {
       if (ed.head.htmlAttrs?.lang !== want) fail(`${where}: headmatter must set htmlAttrs.lang: "${want}" (the language of the file)`);
       for (const k of ['code', 'title', 'version']) if (!ed.meta[k]) fail(`${where}: deck.${k} is missing (header and footer need it)`);
       if (!ed.count) fail(`${where}: no slides`);
+      ed.all.forEach((s, i) => {
+        if (s.frontmatter && 'src' in s.frontmatter) fail(`${where} slide ${i + 1}: src: imports slides from another file, which the checks (Lean citations, page-for-page parity) do not read; write the slides in this file`);
+      });
       ed.cites = ed.slides.map((s, i) => citations(s.content ?? '', (msg) => fail(`${where} slide ${i + 1}: ${msg}`)));
       ed.slides.forEach((s, i) => {
         const here = `${where} slide ${i + 1}`;
@@ -140,7 +152,8 @@ for (const book of books) {
           if (!GID_RE.test(c.gid)) { fail(`${here}: ${c.gid} is not a GID (<module path>.<name>, e.g. D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`); continue; }
           const d = decls[c.gid];
           if (!d) fail(`${here}: ${c.gid} is not in trureturing.lock.json; slides may only cite declarations the lock resolves (cite it in the book and run ./tbook pin --refresh)`);
-          else if (c.tag === 'TheoremCard' && c.attrs.kind !== 'definition' && d.kind !== 'theorem') fail(`${here}: ${c.gid} is a Lean ${d.kind}; a TheoremCard must cite a theorem (or say kind="definition")`);
+          // LEAN ✓ means a kernel-checked theorem; a definition gets the neutral badge only with kind="definition"
+          else if (c.attrs.kind !== 'definition' && d.kind !== 'theorem') fail(`${here}: ${c.gid} is a Lean ${d.kind}; a ${c.tag} must cite a theorem (or say kind="definition")`);
         }
         const body = stripCode(s.content ?? '');
         for (const re of ABS_LINK) for (const m of body.matchAll(re)) fail(`${here}: link ${m[1]} is absolute; the site lives under /<repo>/, use a relative or https:// link`);

@@ -12,6 +12,8 @@ const LOCAL: Record<string, Record<string, string>> = {
     'slides.badge_unverified_title': '该声明不在 trureturing.lock.json 中：未经 Lean 内核验证',
     'slides.badge_argued': 'ARGUED',
     'slides.badge_argued_title': '有论证，但未经 Lean 内核验证',
+    'slides.badge_defined': 'LEAN DEF',
+    'slides.badge_defined_title': '在 Lean 中给出的定义：定义不是定理，没有需要验证的结论',
     'slides.no_lean': '尚无 Lean 证明',
     'slides.book': '书',
     'slides.version': '版本',
@@ -26,6 +28,8 @@ const LOCAL: Record<string, Record<string, string>> = {
     'slides.badge_unverified_title': 'Not in trureturing.lock.json: not kernel-verified in Lean',
     'slides.badge_argued': 'ARGUED',
     'slides.badge_argued_title': 'Argued, but not kernel-verified in Lean',
+    'slides.badge_defined': 'LEAN DEF',
+    'slides.badge_defined_title': 'Defined in Lean: a definition, not a theorem, so there is no claim to verify',
     'slides.no_lean': 'No Lean proof yet',
     'slides.book': 'Book',
     'slides.version': 'Version',
@@ -47,7 +51,7 @@ function lookup(table: any, dotted: string): string | undefined {
   return node == null ? undefined : String(node)
 }
 
-/** The deck's edition language (zh for slides.md, <lang> for slides.<lang>.md). */
+/** The deck's edition language (the book's first language for slides.md, <lang> for slides.<lang>.md). */
 export const lang: string = tr.lang
 
 /** Look up an interface string such as t('badge.lean') or t('slides.source'). */

@@ -15,15 +15,15 @@ description: 为书做演示文稿时使用：按 chrono-company-slides 方案�
 
 ## 原则
 
-1. **定理卡只引用已验证的定理。** `<TheoremCard cite="thm-…" gid="…">` 的编号、GID 由 `./tbook check` 对照书核对；`<LeanBadge gid>` 只有 GID 在锁文件中才是绿色 `LEAN ✓`，否则显示红色 `UNVERIFIED`。开放问题用 `status="open"`，不带 `gid`。
-2. **各语言逐页对应。** `slides.md`（第一语言）与 `slides.<lang>.md` 页数相同，逐页的 `layout`、`bare`、`chapter`、`class` 与 `section` 是否存在一致；英文自然，不逐字硬译。
-3. **颜色只来自令牌**；绿色只给 Lean 已验证，琥珀色只给“当前”（`.tile.now`），红色标开放问题，紫色标论证未验证。不要用与 UnoCSS 工具类同名的类（`c-*`、`mt` 等）。
+1. **定理卡只引用已验证的定理。** `<TheoremCard cite="thm-…" gid="…">` 的编号、GID 由 `./tbook check` 对照书核对；`<LeanBadge gid>` 与定理卡只有在锁文件把 GID 解析为 Lean `theorem` 时才是绿色 `LEAN ✓`，锁文件中没有的 GID 显示红色 `UNVERIFIED`。定义卡写 `kind="definition"`：可以引用 Lean 定义，显示青色中性的 `LEAN DEF`，不是“已验证”；不写 `kind="definition"` 却引用非定理，检查会报错。开放问题用 `status="open"`，不带 `gid`。`<lean-badge>`、`<theorem-card>` 等写法同样受检查。
+2. **各语言逐页对应。** `slides.md` 是书的第一语言（`book.toml` 的 `editions` 第一项），其他语言各一个 `slides.<lang>.md`，页数相同，逐页的 `layout`、`bare`、`chapter`、`class` 与 `section` 是否存在一致；英文自然，不逐字硬译。不要建 `slides.<第一语言>.md`（会被 `slides.md` 遮蔽，检查报错），不要用 `src:` 导入别的文件的幻灯片（检查读不到，报错）。
+3. **颜色只来自令牌**；绿色只给 Lean 已验证，琥珀色只给“当前”（`.tile.now`），红色标开放问题，紫色标论证未验证，青色是中性（定义）。主题类 `.mt`、`.mb-0`、`.grow` 与 UnoCSS 工具类同名，已列入 `theme/slides/uno.config.ts` 的 `blocklist`，可以用；不要自创其他与 UnoCSS 工具类同名的类（如 `c-*`），`slides-check` 会报出不在 `blocklist` 中的冲突。
 4. **画布 1920×1080，不能溢出**：构建会逐页检查版面溢出与系统字体回退，任何一项失败都会让构建失败。
 
 ## 流程
 
 ```bash
-./tbook slides new <book> <deck> "<中文标题>" "<English title>"   # 从 templates/slides/ 新建 slides.md 与 slides.en.md
+./tbook slides new <book> <deck> "<中文标题>" "<English title>"   # 从 templates/slides/ 新建 slides.md（第一语言）与 slides.<lang>.md
 npx slidev books/<book>/slides/<deck>/slides.md                  # 本地预览，改动即时生效
 ```
 
@@ -39,7 +39,7 @@ npx slidev books/<book>/slides/<deck>/slides.md                  # 本地预览�
    ./tbook build slides --book <book>       # 构建、逐页版面检查、导出 PDF（需要 Chromium）
    ```
 
-   输出在 `build/slides/<book>/<deck>/<lang>/` 与 `build/slides/<book>/<deck>-<lang>.pdf`。快速迭代时可设 `TBOOK_SLIDES_NO_PDF=1` 跳过 PDF。
+   输出在 `build/slides/<book>/<deck>/<lang>/` 与 `build/slides/<book>/<deck>-<lang>.pdf`。快速迭代时可设 `TBOOK_SLIDES_NO_PDF=1` 跳过 PDF；此时不发布 PDF，章节卡片、幻灯片目录与演示页都不给 PDF 链接，发布前去掉它重新构建。
 6. 嵌入章节——**所有语言版本都要加**，`src` 相同，只翻译说明：
 
    ```markdown
@@ -49,7 +49,7 @@ npx slidev books/<book>/slides/<deck>/slides.md                  # 本地预览�
    ```
 
    HTML 中为链接卡片（在线演示、下载 PDF）；PDF/EPUB 中为标题与在线地址。
-7. `./tbook build site --book <book> && ./tbook serve`：站点在 `<slug>/slides/` 发布索引、各语言演示（`<deck>/`、`<deck>/en/`）与 PDF（`<slug>-<deck>-<lang>.pdf`）；Release 也附上这些 PDF。
+7. `./tbook build site --book <book> && ./tbook serve`：站点在 `<slug>/slides/` 发布索引、各语言演示（第一语言在 `<deck>/`，其他语言在 `<deck>/<lang>/`）与 PDF（`<slug>-<deck>-<lang>.pdf`）；Release 也附上这些 PDF。
 
 ## 常见问题
 
