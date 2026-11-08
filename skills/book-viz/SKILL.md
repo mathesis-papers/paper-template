@@ -64,6 +64,7 @@ node tools/node/viz-server.mjs                       # http://127.0.0.1:8766/sit
 | --- | --- |
 | `check` 报 draft 不能嵌入 | 完成第 5 步，把状态改为 `live` |
 | `LEAN ✓` 链接 404 或 GID 未登记 | GID 不在锁文件中：`./tbook pin --refresh`；GID 必须是已冻结的声明 |
+| “is a Lean def, not a theorem” | 登记表 `lean` 与页面 `data-lean-gid` 只能引用种类为 `theorem` 的声明（显示为 LEAN ✓）；定义写成 `data-trureturing-path="<module>.lean"` 或 `theory` 中的 `{trureturing}/<path>` |
 | iframe 内显示完整页眉 | 页面没有处理 `?embed=1`（共享运行时会处理，确认引用了 `shell.js`） |
 | 缩略图过期 | 重新运行 `viz-thumbs.mjs`；CI 不重新生成缩略图 |
 | 手机宽度横向滚动 | 网格列用 `minmax(0, 1fr)`，长数字允许换行 |

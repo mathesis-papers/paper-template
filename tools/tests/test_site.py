@@ -2,9 +2,10 @@
 
 Run: PYTHONPATH=tools python -m unittest discover -s tools/tests -p 'test_site.py'
 
-Everything runs on temporary books and fake build outputs: no mdBook, Typst, Node or network.
-Media modules (viz, film, slides) and covers are replaced by fakes, so these tests do not depend
-on the state of those components. The test that reads trureturing's lean-toolchain through the
+Everything runs on temporary books and fake build outputs: no mdBook, Typst or network. Node runs
+only the language-switch scripts against a stub DOM (skipped without node). Media modules (viz, film,
+slides) and covers are replaced by fakes, so these tests do not depend on the state of those
+components or on the example book. The test that reads trureturing's lean-toolchain through the
 ledger is skipped without a trureturing checkout ($TRURETURING_DIR or ../trureturing).
 """
 
@@ -140,7 +141,8 @@ def fake_media(viz_items=None, slides_items=None, film_items=None, *, viz_build=
 
 VIZ_ITEM = {"kind": "viz", "id": "carry", "code": "GOLDEN//CARRY", "title": {"zh": "进位", "en": "Carry"},
             "summary": {"zh": "摘要", "en": "Summary"}, "href": "viz/carry/", "thumb": "viz/carry/thumb.jpg",
-            "hub": "viz/", "lean": [{"gid": GID_3V, "label": "deficit_three_valued", "url": "https://example.org/x"}]}
+            "hub": "viz/", "lean": [{"gid": GID_3V, "label": "deficit_three_valued", "url": "https://example.org/x",
+                                     "kind": "theorem"}]}
 SLIDES_ITEM = {"kind": "slides", "id": "overview", "languages": ["zh", "en"], "title": {"zh": "概览", "en": "Overview"},
                "blurb": {"zh": "简介", "en": "Blurb"}, "slides": 12,
                "href": {"zh": "slides/overview/", "en": "slides/overview/en/"},
@@ -199,6 +201,17 @@ class SiteHelpersTest(unittest.TestCase):
             self.assertTrue(site.t("zh", key) and site.t("en", key))
         self.assertEqual(site.t("en", "all_theorems", n=3), "All 3 theorems")
         self.assertEqual(site.t("fr", "skip"), "Skip to content")  # unknown language falls back to English
+
+    def test_lean_chips_verify_theorems_only(self):
+        chips = site._lean_chips([
+            {"gid": GID_3V, "label": "deficit_three_valued", "url": "https://example.org/t", "kind": "theorem"},
+            {"gid": "D5/S1/Deficit/DeficitInteger.deficit", "label": "deficit", "url": "https://example.org/d", "kind": "def"},
+            {"gid": GID_INT, "label": "deficit_integer"},  # kind unknown: not presented as verified
+        ])
+        self.assertEqual(chips.count("LEAN ✓"), 1)
+        self.assertIn('<span class="k ok">LEAN ✓</span> <a href="https://example.org/t"', chips)
+        self.assertIn('<span class="k dim">LEAN</span> <a href="https://example.org/d"', chips)
+        self.assertIn('<span class="k dim">LEAN</span> <code>deficit_integer</code>', chips)
 
     def test_bi_collapses_identical(self):
         bi = site.Bi(["zh", "en"])
@@ -359,6 +372,67 @@ class SiteBuildTest(SiteCase):
         with self.assertRaises(site.SiteError):
             self.run_build([book], only={"html"})
 
+    def test_only_for_one_book_keeps_the_others(self):
+        """`./tbook build viz --book b` republishes b's media; the hub and manifest still list every book."""
+        first, second = make_book(self.tmp, "first-book"), make_book(self.tmp, "second-book", title_en="Second Book")
+        unbuilt = make_book(self.tmp, "never-published")
+        for book in (first, second):
+            fake_build(self.build_root, book)
+        with mock.patch.object(config, "load_books", return_value=[first, second, unbuilt]):
+            self.run_build([first, second])
+            self.run_build([second], media=fake_media(viz_items=[VIZ_ITEM]), only={"viz"})
+        slugs = [b["slug"] for b in json.loads((self.out / "manifest.json").read_text())["books"]]
+        self.assertEqual(slugs, ["first-book", "second-book"])
+        index = (self.out / "index.html").read_text()
+        self.assertIn('aria-labelledby="book-first-book"', index)
+        self.assertIn('aria-labelledby="book-second-book"', index)
+        self.assertNotIn("never-published", index)
+        self.assertIn('id="viz"', (self.out / "second-book" / "index.html").read_text())
+        self.assertNotIn('id="viz"', (self.out / "first-book" / "index.html").read_text())  # not republished
+        self.assertFalse((self.out / "first-book" / "viz").exists())
+        self.assertTrue((self.out / "first-book" / "zh" / "ch01.html").exists())
+
+    def test_print_page_media_point_at_the_book(self):
+        """print.html sits in <lang>/: media of nested chapters are re-pointed from data-tr-src/-poster."""
+        book = make_book(self.tmp)
+        fake_build(self.build_root, book)
+        nested = ('<iframe class="tr-viz-frame" src="../../viz/carry/index.html?embed=1&amp;lang=zh" '
+                  'data-tr-src="viz/carry/index.html?embed=1&amp;lang=zh" title="A &gt; B > C"></iframe>\n'
+                  '<video class="tr-film-player" controls="" poster="../../films/001-x/poster.jpg" '
+                  'data-tr-poster="films/001-x/poster.jpg"><source src="https://x.org/a.mp4"></video>\n'
+                  '<iframe class="sidebar-iframe-outer" src="toc.html"></iframe>\n'
+                  '<iframe src="https://example.org/viz/?embed=1"></iframe>')
+        write(self.build_root / "html" / book.slug / "zh" / "print.html", nested)
+        out = self.run_build([book])
+        printed = (out / "test-book" / "zh" / "print.html").read_text()
+        self.assertIn('src="../viz/carry/index.html?embed=1&amp;lang=zh" data-tr-src=', printed)
+        self.assertIn('poster="../films/001-x/poster.jpg" data-tr-poster=', printed)
+        self.assertIn('<source src="https://x.org/a.mp4">', printed)
+        self.assertIn('<iframe class="sidebar-iframe-outer" src="toc.html">', printed)
+        self.assertIn('<iframe src="https://example.org/viz/?embed=1">', printed)
+        self.assertNotIn("../../", printed)
+        self.assertEqual(site.fix_print_media("<p>no media</p>"), "<p>no media</p>")
+
+    def test_unpublished_film_has_no_watch_button(self):
+        book = make_book(self.tmp)
+        fake_build(self.build_root, book)
+        base = {"kind": "film", "title": {"zh": "影片", "en": "Film"}, "href": "films/index.html#001-a",
+                "hub": "films/", "poster": "films/001-a/poster.jpg"}
+        items = [dict(base, id="001-a", published=False, watch_url="", note={"zh": "尚未发布", "en": "Not released yet"}),
+                 dict(base, id="002-b", published=True, watch_url="https://github.com/o/r/releases/download/t/b.mp4")]
+
+        def film_build(site_, book_, dest):
+            write(Path(dest) / "index.html", "films")
+            (Path(dest) / "001-a").mkdir(parents=True)
+            (Path(dest) / "001-a" / "poster.jpg").write_bytes(b"jpg")
+
+        out = self.run_build([book], media=fake_media(film_items=items, film_build=film_build))
+        films = (out / "test-book" / "index.html").read_text().split('id="films"', 1)[1].split("</section>", 1)[0]
+        self.assertEqual(films.count('class="btn"'), 2)  # 002-b: Watch in zh and en; nothing for 001-a
+        self.assertIn('href="https://github.com/o/r/releases/download/t/b.mp4"', films)
+        self.assertIn('<span class="muted">Not released yet</span>', films)
+        self.assertIn('<span class="muted">尚未发布</span>', films)
+
     def test_refuses_to_wipe_foreign_directory(self):
         self.out.mkdir()
         write(self.out / "precious.txt", "keep me")
@@ -380,6 +454,72 @@ class SiteBuildTest(SiteCase):
         for _tag, _attr, value in parse(text).links:
             self.assertFalse(value.startswith(("assets/", "../")), value)
         self.assertIn(f'href="{serve.base_path(self.site)}"', text)
+
+
+# --------------------------------------------------------------------------- shared language choice
+
+
+# Runs a language-switch script against a stub DOM; prints the language it settles on and what it stored.
+LANG_HARNESS = r"""
+const vm = require('vm'), fs = require('fs');
+const [file, search, stored, navLang, click] = JSON.parse(process.argv[1]);
+const store = new Map(Object.entries(stored)), attrs = {}, handlers = {};
+const root = { dataset: {}, lang: '', setAttribute(k, v) { attrs[k] = String(v); }, getAttribute(k) { return k in attrs ? attrs[k] : null; },
+               classList: { toggle() {} } };
+attrs['data-langs'] = 'zh en';
+attrs['data-default-lang'] = 'zh';
+const button = (lang) => ({ dataset: { langSet: lang }, getAttribute: (k) => (k === 'data-lang-set' ? lang : null), setAttribute() {},
+                            closest() { return this; }, addEventListener(ev, fn) { (handlers['btn-' + lang] = handlers['btn-' + lang] || []).push(fn); } });
+const buttons = [button('zh'), button('en')];
+const document = { documentElement: root, title: '', querySelectorAll: (s) => (s === '[data-lang-set]' ? buttons : []),
+                   addEventListener(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); } };
+const ctx = { document, navigator: { language: navLang, languages: [navLang] }, location: { search, href: 'https://x.org/p' + search },
+              localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
+              URLSearchParams, URL, history: { replaceState() {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }),
+              setTimeout, clearTimeout, setInterval, console };
+ctx.window = ctx; ctx.addEventListener = () => {};
+vm.runInNewContext(fs.readFileSync(file, 'utf8'), ctx, { filename: file });
+(handlers.DOMContentLoaded || []).forEach((fn) => fn());
+if (click) {
+  const b = buttons.find((x) => x.dataset.langSet === click);
+  (handlers['btn-' + click] || []).forEach((fn) => fn({ currentTarget: b, target: b }));
+  (handlers.click || []).forEach((fn) => fn({ target: b }));
+}
+process.stdout.write(JSON.stringify({ lang: root.dataset.lang || attrs['data-lang'], stored: Object.fromEntries(store) }));
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "node not available")
+class SharedLanguageTest(unittest.TestCase):
+    """The library, landing pages, visualizations and films page remember the language under one key, tr-lang."""
+
+    SCRIPTS = {"site": paths.THEME / "site" / "site.js", "viz": paths.THEME / "viz" / "shell.js",
+               "films": paths.THEME / "film" / "site" / "films.js"}
+
+    def run_script(self, which: str, *, search: str = "", stored=None, nav: str = "zh-CN", click: str = "") -> dict:
+        import subprocess
+
+        args = json.dumps([str(self.SCRIPTS[which]), search, stored or {}, nav, click])
+        r = subprocess.run(["node", "-e", LANG_HARNESS, args], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_a_choice_made_anywhere_carries_over(self):
+        for picked_on in self.SCRIPTS:
+            stored = self.run_script(picked_on, nav="zh-CN", click="en")["stored"]
+            self.assertEqual(stored.get("tr-lang"), "en", picked_on)
+            for other in self.SCRIPTS:
+                self.assertEqual(self.run_script(other, stored=stored, nav="zh-CN")["lang"], "en", f"{picked_on} → {other}")
+
+    def test_query_beats_choice_and_browser_language_is_the_fallback(self):
+        for which in self.SCRIPTS:
+            self.assertEqual(self.run_script(which, search="?lang=zh", stored={"tr-lang": "en"})["lang"], "zh", which)
+            self.assertEqual(self.run_script(which, nav="en-US")["lang"], "en", which)
+            self.assertEqual(self.run_script(which, nav="zh-TW")["lang"], "zh", which)
+
+    def test_older_keys_are_still_read(self):
+        self.assertEqual(self.run_script("viz", stored={"trv-lang": "en"})["lang"], "en")
+        self.assertEqual(self.run_script("films", stored={"tr-films-lang": "en"})["lang"], "en")
 
 
 # --------------------------------------------------------------------------- serve

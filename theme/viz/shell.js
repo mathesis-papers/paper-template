@@ -1,7 +1,8 @@
 /* trureturing books · shared runtime for book-local visualizations (window.TRV), published as <slug>/viz/assets/shell.js
    Adapted from trureturing-visualize/assets/shell.js (Apache-2.0, the-omega-institute); the API is the same, so pages
    written for trureturing-visualize port unchanged:
-     TRV.L(zh, en), TRV.lang(), TRV.setLang(l), TRV.onLang(fn)   language (?lang= beats the remembered choice beats the browser)
+     TRV.L(zh, en), TRV.lang(), TRV.setLang(l), TRV.onLang(fn)   language (?lang= beats the remembered choice beats the browser;
+                                                                  remembered site-wide under localStorage "tr-lang")
      TRV.palette, TRV.rgb, TRV.fonts                              colours read from the design tokens (tokens.css)
      TRV.fitCanvas, TRV.toast, TRV.glitch, TRV.startGlitch, TRV.drawer, TRV.mulberry32, TRV.gauss, TRV.smooth, TRV.reduceMotion
    Additions for books:
@@ -22,11 +23,15 @@
   if (embed) root.dataset.embed = '1';
   if (thumbMode) root.dataset.thumbMode = '1';
 
-  /* ---------- language: ?lang= beats the remembered choice, which beats the browser language ---------- */
-  const LANGS = ['zh', 'en'], KEY = 'trv-lang';
+  /* ---------- language: ?lang= beats the remembered choice, which beats the browser language ----------
+     The choice is remembered under "tr-lang", shared with the library, the book landing pages, the films page and
+     the slide decks, so a language picked anywhere on the site carries over ("trv-lang" is read for older choices). */
+  const LANGS = ['zh', 'en'], KEY = 'tr-lang', OLD_KEYS = ['trv-lang'];
   function detectLang() {
     const q = params.get('lang'); if (LANGS.includes(q)) return q;
-    try { const s = localStorage.getItem(KEY); if (LANGS.includes(s)) return s; } catch (e) { /* storage may be blocked */ }
+    try {
+      for (const k of [KEY, ...OLD_KEYS]) { const s = localStorage.getItem(k); if (LANGS.includes(s)) return s; }
+    } catch (e) { /* storage may be blocked */ }
     return /^zh/i.test(navigator.language || '') ? 'zh' : 'en';
   }
   let lang = detectLang();

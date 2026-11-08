@@ -12,11 +12,17 @@ import { ID_RE, RESERVED, TEMPLATES, resolveBook, registryPath, readRegistry, wr
 export const PAGE_FILES = ['index.html', 'style.css', 'main.js'];
 export const TEST_TEMPLATE = 'test.mjs';
 
-export function fill(text, { slug, id, code, title, titleEn }) {
+/** HTML-escape like Python's html.escape(s, quote=True). */
+const escHtml = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#x27;');
+
+/** Fill the placeholders of a template (same as fill_template in tools/tbook/viz.py). In an HTML template the code and
+    titles are HTML-escaped; in a script or stylesheet, where they only appear in comments, a "*\/" is broken up. */
+export function fill(text, { slug, id, code, title, titleEn }, { html = true } = {}) {
+  const val = (s) => (html ? escHtml(s) : s.replaceAll('*/', '* /'));
   const [head, ...rest] = code.split('//');
-  const codeHtml = rest.length ? `${head}<b>//</b>${rest.join('//')}` : code;
-  return text.replaceAll('__BOOK__', slug).replaceAll('__ID__', id).replaceAll('__CODE_HTML__', codeHtml).replaceAll('__CODE__', code)
-    .replaceAll('__TITLE_EN__', titleEn || title).replaceAll('__TITLE__', title);
+  const codeHtml = rest.length ? `${val(head)}<b>//</b>${val(rest.join('//'))}` : val(code);
+  return text.replaceAll('__BOOK__', slug).replaceAll('__ID__', id).replaceAll('__CODE_HTML__', codeHtml).replaceAll('__CODE__', val(code))
+    .replaceAll('__TITLE_EN__', val(titleEn || title)).replaceAll('__TITLE__', val(title));
 }
 
 export function scaffold(book, { id, code, title, titleEn = '', added = new Date().toISOString().slice(0, 10) }) {
@@ -28,11 +34,13 @@ export function scaffold(book, { id, code, title, titleEn = '', added = new Date
   if ((reg.visualizations || []).some((v) => v.id === id)) throw new Error(`${id} is already registered in ${rel(registryPath(book))}`);
   const vars = { slug: book.slug, id, code, title, titleEn };
   fs.mkdirSync(dest, { recursive: true });
-  for (const name of PAGE_FILES) fs.writeFileSync(path.join(dest, name), fill(fs.readFileSync(path.join(TEMPLATES, name), 'utf8'), vars));
+  for (const name of PAGE_FILES) {
+    fs.writeFileSync(path.join(dest, name), fill(fs.readFileSync(path.join(TEMPLATES, name), 'utf8'), vars, { html: name.endsWith('.html') }));
+  }
   const testFile = path.join(book.dir, 'viz', 'tests', `${id}.test.mjs`);
   if (!fs.existsSync(testFile)) {
     fs.mkdirSync(path.dirname(testFile), { recursive: true });
-    fs.writeFileSync(testFile, fill(fs.readFileSync(path.join(TEMPLATES, TEST_TEMPLATE), 'utf8'), vars));
+    fs.writeFileSync(testFile, fill(fs.readFileSync(path.join(TEMPLATES, TEST_TEMPLATE), 'utf8'), vars, { html: false }));
   }
   reg.version = reg.version || 1;
   reg.visualizations = reg.visualizations || [];

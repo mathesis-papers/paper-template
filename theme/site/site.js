@@ -3,8 +3,9 @@
 
    Every user-visible string is in the page once per interface language, on elements with data-l="<lang>";
    the page's inline <style> hides all but the language named by <html data-lang>. The language is chosen by
-   ?lang=<code>, then the remembered choice (localStorage "tr-lang", shared with the slides pages), then the
-   browser's languages, then <html data-default-lang> (the first language of site.toml).
+   ?lang=<code>, then the remembered choice (localStorage "tr-lang", shared with the visualizations, the films
+   page and the slide decks), then the browser's languages, then <html data-default-lang> (the first language
+   of site.toml).
    Loaded synchronously in <head>, so the right language is set before the first paint. Without JavaScript the
    default language shows. Other attributes read here:
      data-langs="zh en"            interface languages of the page

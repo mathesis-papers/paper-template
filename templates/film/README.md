@@ -62,9 +62,10 @@ This directory is the starting point of `./tbook film new`. Every film follows t
 | `released`, `duration` | `YYYY-MM-DD`，`m:ss`（`tts` 步骤会提示实际时长） · the `tts` step prints the narrated length |
 | `resolution` | 固定 `1920x1080@<fps>` · always 1920×1080 |
 | `narration`, `subtitles` | 旁白语言/引擎/声音；字幕只支持 `zh`、`en` · subtitles are `zh` and/or `en` |
-| `lean` | 片中引用的 GID，必须都在锁文件中；片中、视频页与 Release 说明都以 LEAN ✓ 链接到所钉提交 · GIDs cited by the film; all must be in the lock |
-| `release_tag` | `film-<书 slug>-<NNN>-v<k>`；发布后不再改动，新剪辑递增 `v<k>` · never changes once published; bump `v<k>` for a new cut |
-| `outputs` | Release 资产文件名；书中的播放地址是 `https://github.com/<repo>/releases/download/<release_tag>/<outputs.narrated>` · release asset names |
+| `lean` | 片中引用的定理 GID，必须都在锁文件中且种类为 `theorem`；片中、视频页与 Release 说明都以 LEAN ✓ 链接到所钉提交 · theorems cited by the film; each must be in the lock with kind `theorem` |
+| `release_tag` | 下一次由 `film.yml` 构建并发布的 tag：`film-<书 slug>-<NNN>-v<k>`；发布后不再改动，新剪辑递增 `v<k>` · the tag film.yml builds and publishes; never changes once published; bump `v<k>` for a new cut |
+| `published_tag` | 已发布的 Release tag（`film.yml` 发布 `release_tag` 之后改成它并提交）；`null` 表示尚未发布：书、落地页与视频页只显示海报和“尚未发布”，不嵌入播放器与下载链接。递增 `release_tag` 时保留旧值，书继续指向已发布的版本 · the published release tag (set it after film.yml has released `release_tag`); `null` until then, and the book shows the poster and a not-released note instead of a dead player |
+| `outputs` | Release 资产文件名；书中的播放地址是 `https://github.com/<repo>/releases/download/<published_tag>/<outputs.narrated>` · release asset names |
 
 ## script.json
 

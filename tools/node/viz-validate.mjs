@@ -12,12 +12,13 @@
 //     thumbnail: "<id>/thumb.jpg", status: "live"|"draft", added: "YYYY-MM-DD", tags, tags_en,
 //     theory: [{ label, label_en, href, href_en? }], lean: [{ gid, label? }] } ] }
 //   theory hrefs: https://…, {trureturing}/<path> (pinned commit), or ../<lang>/<chapter>.html (this book).
-//   lean gids must be in trureturing.lock.json; pages and the hub link them at the pinned commit.
+//   lean gids (and page data-lean-gid links) must be theorems of trureturing.lock.json; pages and the hub link them
+//   at the pinned commit and mark them LEAN ✓.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  ROOT, THEME_VIZ, TEMPLATES, ID_RE, STATUSES, RESERVED, RUNTIME_FILES,
+  ROOT, THEME_VIZ, TEMPLATES, ID_RE, STATUSES, RESERVED, RUNTIME_FILES, FORMAL_KINDS,
   listBooks, resolveBook, vizDir, registryPath, readLock, parseGid, pinnedRefs, rel
 } from './viz-common.mjs';
 
@@ -141,6 +142,7 @@ export function validateBook(book, { only = GROUPS, lock = readLock() } = {}) {
       if (!parseGid(ref.gid)) err(regFile, `${at}: lean[${k}]: not a declaration GID: ${ref.gid}`);
       else if (!lock) err(regFile, `${at}: lean[${k}]: ${ref.gid} cannot be linked: trureturing.lock.json is missing (run ./tbook pin)`);
       else if (!(lock.declarations || {})[ref.gid]) err(regFile, `${at}: lean[${k}]: ${ref.gid} is not in trureturing.lock.json; cite it in a chapter and run ./tbook pin --refresh`);
+      else if (!FORMAL_KINDS.includes(lock.declarations[ref.gid].kind)) err(regFile, `${at}: lean[${k}]: ${ref.gid} is a Lean ${lock.declarations[ref.gid].kind}, not a theorem; lean lists the theorems the visualization cites (shown as LEAN ✓)`);
     }
     seen.add(v.id);
     if (!ID_RE.test(v.id || '')) continue;
@@ -175,6 +177,7 @@ export function validateBook(book, { only = GROUPS, lock = readLock() } = {}) {
         if (r.kind === 'gid') {
           if (!parseGid(r.value)) err(page, `data-lean-gid="${r.value}" is not a declaration GID`);
           else if (lock && !(lock.declarations || {})[r.value]) err(page, `data-lean-gid="${r.value}" is not in trureturing.lock.json; cite it in a chapter and run ./tbook pin --refresh`);
+          else if (lock && !FORMAL_KINDS.includes(lock.declarations[r.value].kind)) err(page, `data-lean-gid="${r.value}" names a Lean ${lock.declarations[r.value].kind}, not a theorem; data-lean-gid cites verified theorems (LEAN ✓); link a definition with data-trureturing-path="<module>.lean"`);
         } else if (!r.value || r.value.includes('..') || r.value.startsWith('/')) err(page, `data-trureturing-path="${r.value}" must be a repository-relative path`);
       }
     }

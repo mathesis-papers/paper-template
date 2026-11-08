@@ -25,8 +25,9 @@ Media modules (viz, film, slides) are optional: a module that is missing, not im
 omitted. Any other failure is reported and raised as :class:`SiteError` after the rest of the
 site has been written, so CI does not deploy a site with silently missing parts.
 
-``only={"viz"}`` (or ``{"films"}``, ``{"slides"}``) republishes just those parts into an
-existing site and regenerates the pages, which are computed from what is present in ``out_dir``.
+``only={"viz"}`` (or ``{"films"}``, ``{"slides"}``) republishes just those parts of the given
+books into an existing site and regenerates the pages, which are computed from what is present in
+``out_dir``; the hub and the manifest keep every configured book already published there.
 """
 
 from __future__ import annotations
@@ -446,6 +447,31 @@ def _ignore_hidden(_dir: str, names: list[str]) -> list[str]:
     return [n for n in names if n.startswith(".")]
 
 
+# an <iframe> / <video> start tag (quote-aware: mdBook re-serializes attributes and may leave a raw ">" in them)
+_BOOK_PATH_TAG_RE = re.compile(r'<(?:iframe|video)\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-(?:src|poster)=")(?:[^>"]|"[^"]*")*>', re.I)
+
+
+def fix_print_media(page_html: str, prefix: str = "../") -> str:
+    """Repair media URLs in mdBook's ``<lang>/print.html``.
+
+    print.html copies every chapter to ``<lang>/`` and rewrites ``<a href>`` and ``<img src>`` for the new
+    depth, but not the ``src`` of iframes or the ``poster`` of videos, so the embeds of chapters in
+    subdirectories would point above the book. Embeds carry those targets relative to the book (``<slug>/``)
+    in ``data-tr-src`` / ``data-tr-poster`` (tbook.viz / tbook.film ``render_embed``); ``prefix`` is the path
+    from the page to ``<slug>/``.
+    """
+    def repl(m: re.Match) -> str:
+        tag = m.group(0)
+        for data, attr in (("data-tr-src", "src"), ("data-tr-poster", "poster")):
+            value = re.search(rf'\s{data}="([^"]*)"', tag)
+            if value:
+                url = prefix + value.group(1)
+                tag = re.sub(rf'(\s{attr}=")[^"]*(")', lambda a: a.group(1) + url + a.group(2), tag, count=1)
+        return tag
+
+    return _BOOK_PATH_TAG_RE.sub(repl, page_html)
+
+
 def publish_html(book: config.Book, bdir: Path, build_root: Path) -> None:
     for ed in book.editions:
         src = build_root / "html" / book.slug / ed.lang
@@ -454,6 +480,9 @@ def publish_html(book: config.Book, bdir: Path, build_root: Path) -> None:
             shutil.rmtree(dst)
         if (src / "index.html").is_file():
             shutil.copytree(src, dst, ignore=_ignore_hidden)
+            printed = dst / "print.html"
+            if printed.is_file():
+                printed.write_text(fix_print_media(printed.read_text(encoding="utf-8")), encoding="utf-8")
 
 
 def publish_downloads(book: config.Book, bdir: Path, build_root: Path) -> None:
@@ -902,6 +931,7 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
 
 
 def _lean_chips(refs: list) -> str:
+    """Lean citations of a media item: green LEAN ✓ only for ``kind == "theorem"``, a plain LEAN link otherwise."""
     chips = []
     for r in refs or []:
         if not isinstance(r, dict):
@@ -911,7 +941,8 @@ def _lean_chips(refs: list) -> str:
         if not label:
             continue
         code = f"<code>{esc(label)}</code>"
-        chips.append('<span><span class="k ok">LEAN ✓</span> '
+        chip = '<span class="k ok">LEAN ✓</span>' if r.get("kind") in lean.FORMAL_KINDS else '<span class="k dim">LEAN</span>'
+        chips.append(f"<span>{chip} "
                      + (f'<a href="{esc(url)}" rel="noopener">{code}</a>' if url else code) + "</span>")
     return f'<div class="refs">{"".join(chips)}</div>' if chips else ""
 
@@ -958,8 +989,10 @@ def films_section(bi: Bi, view: BookView) -> str:
         img = (f'<img src="{esc(poster)}" alt="" loading="lazy" decoding="async" width="1280" height="720">'
                if poster and _exists(view.bdir, poster) else "")
 
+        unpublished = it.get("published") is False  # the release does not exist yet: no Watch button
+
         def watch_link(lang: str) -> str:
-            return _loc(it.get("watch_url") or it.get("url"), lang, langs) or page_link
+            return _loc(it.get("watch_url") or it.get("url"), lang, langs) or ("" if unpublished else page_link)
 
         title = bi.text(lambda lang: _loc(it.get("title"), lang, langs) or str(it.get("id", "")))
         heading = f'<a href="{esc(page_link)}">{title}</a>' if page_link else title
@@ -967,9 +1000,14 @@ def films_section(bi: Bi, view: BookView) -> str:
         summary_html = (f'<p class="sum">{bi.text(lambda lang: _loc(it.get("summary") or it.get("blurb") or it.get("description"), lang, langs))}</p>'
                         if summary else "")
         meta = " · ".join(esc(str(it.get(k))) for k in ("duration", "released") if it.get(k))
-        watch = bi.span(lambda lang: (f'<a class="btn" href="{esc(watch_link(lang))}" rel="noopener">'
-                                      f'{esc(config.s(lang, "ui.watch"))} <span aria-hidden="true">▸</span></a>')
-                        if watch_link(lang) else "")
+        def action(lang: str) -> str:
+            if watch_link(lang):
+                return (f'<a class="btn" href="{esc(watch_link(lang))}" rel="noopener">'
+                        f'{esc(config.s(lang, "ui.watch"))} <span aria-hidden="true">▸</span></a>')
+            note = _loc(it.get("note"), lang, langs)  # e.g. "not released yet"
+            return f'<span class="muted">{esc(note)}</span>' if note else ""
+
+        watch = bi.span(action)
         thumb_target = page_link or watch_link(bi.langs[0])
         cards.append(
             '<article class="mcard panel">'
@@ -1250,11 +1288,30 @@ def _load_lock() -> lean.Lock | None:
         return None
 
 
+def _site_books(books: list[config.Book], out: Path) -> list[config.Book]:
+    """The books of a media-only rebuild's pages: ``books`` plus every other configured book already
+    published in ``out`` (``<out>/<slug>/``), in site order, so the hub and manifest keep listing them."""
+    try:
+        configured = config.load_books()
+    except config.ConfigError as exc:
+        _warn(f"cannot list the configured books ({exc}); the hub lists only the rebuilt ones")
+        configured = []
+    selected = {b.slug: b for b in books}
+    ordered = []
+    for b in configured:
+        if b.slug in selected:
+            ordered.append(selected.pop(b.slug))
+        elif (out / b.slug).is_dir():
+            ordered.append(b)
+    return ordered + list(selected.values())
+
+
 def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_root: Path | None = None) -> Path:
     """Assemble the site into ``out_dir`` and return it (see the module docstring).
 
-    ``only`` ⊆ {"viz", "films", "slides"} republishes those parts into an existing site;
-    ``build_root`` overrides ``build/`` (tests).
+    ``only`` ⊆ {"viz", "films", "slides"} republishes those parts of ``books`` into an existing site; the
+    hub, landing pages and manifest are then regenerated for every configured book present in ``out_dir``,
+    not only ``books``. ``build_root`` overrides ``build/`` (tests).
     """
     out = Path(out_dir)
     build_root = Path(build_root) if build_root else paths.BUILD
@@ -1269,7 +1326,8 @@ def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_roo
     out.mkdir(parents=True, exist_ok=True)
     problems: list[str] = []
     views: list[BookView] = []
-    for book in books:
+    rebuilt = {b.slug for b in books}
+    for book in books if parts is None else _site_books(list(books), out):
         bdir = out / book.slug
         bdir.mkdir(parents=True, exist_ok=True)
         models = load_book_models(book)
@@ -1278,7 +1336,7 @@ def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_roo
             publish_downloads(book, bdir, build_root)
             publish_covers(site, book, bdir, models, lock)
         for part in MEDIA_PARTS:
-            if parts is None or part in parts:
+            if book.slug in rebuilt and (parts is None or part in parts):
                 err = publish_media(site, book, part, bdir / part)
                 if err:
                     problems.append(err)

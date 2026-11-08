@@ -262,8 +262,8 @@ SCENES.lean = S => {
 /* one Lean citation by short name: LEAN ✓ chip + the declaration's full name */
 function leanRef(x, y, short, a) {
   if (a <= 0) return;
-  const r = DATA.lean.find(z => z.short === short);
-  if (!r) { window.FILM_ERRORS.push(`film.json does not cite ${short}`); return; }
+  const r = DATA.lean.find(z => z.short === short && z.kind === 'theorem');
+  if (!r) { window.FILM_ERRORS.push(`film.json does not cite the theorem ${short}`); return; }
   const head = STR.en.lean || 'LEAN ✓', wh = tw(head, 18, F.mono, 700, 1) + 20;
   fillBox(x, y - 24, wh, 32, C.lean, a);
   txt(head, x + 10, y - 2, { size: 18, fam: F.mono, w: 700, c: C.bg, a, ls: 1 });

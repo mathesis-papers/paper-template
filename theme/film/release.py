@@ -6,8 +6,9 @@
   python3 theme/film/release.py notes <film dir> [sha]   release notes (Markdown): subject commit, Lean citations, files
   python3 theme/film/release.py assets <film dir>        the release files under out/, one path per line (must all exist)
 
-The tag must equal film.json "release_tag", so the address embedded in the book
-(https://github.com/<repo>/releases/download/<release_tag>/<asset>) is the one this release creates.
+The tag must equal film.json "release_tag". Once the release exists, set film.json "published_tag" to it
+(and commit): the book embeds https://github.com/<repo>/releases/download/<published_tag>/<asset>, and shows
+the poster with a "not released yet" note while published_tag is null.
 """
 
 from __future__ import annotations

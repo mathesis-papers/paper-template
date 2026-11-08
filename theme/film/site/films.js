@@ -1,11 +1,23 @@
-// trureturing books · films page: the 中 / EN switch. Chinese is the default; ?lang=en (or the stored choice) selects
-// English. Only toggles html[data-lang], html[lang] and the title; the page is complete without this script.
+// trureturing books · films page: the 中 / EN switch. The language is ?lang=, else the choice remembered under
+// localStorage "tr-lang" (shared with the library, the book landing pages, the visualizations and the slide decks,
+// so a language picked anywhere on the site carries over; "tr-films-lang" is read for older choices), else the
+// browser language. Only toggles html[data-lang], html[lang] and the title; the page is complete without this script.
 (function () {
   'use strict';
-  var KEY = 'tr-films-lang';
+  var KEY = 'tr-lang', OLD_KEYS = ['tr-films-lang'];
   var root = document.documentElement;
-  function stored() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+  function known(v) { return v === 'zh' || v === 'en' ? v : null; }
+  function stored() {
+    var keys = [KEY].concat(OLD_KEYS);
+    for (var i = 0; i < keys.length; i++) {
+      var v = null;
+      try { v = localStorage.getItem(keys[i]); } catch (e) { return null; }
+      if (known(v)) return v;
+    }
+    return null;
+  }
   function store(v) { try { localStorage.setItem(KEY, v); } catch (e) { /* private mode: keep the choice for this page only */ } }
+  function browser() { return /^zh/i.test(navigator.language || '') ? 'zh' : 'en'; }
   function apply(lang) {
     lang = lang === 'en' ? 'en' : 'zh';
     root.setAttribute('data-lang', lang);
@@ -17,7 +29,7 @@
   }
   var q = null;
   try { q = new URLSearchParams(location.search).get('lang'); } catch (e) { /* very old browsers */ }
-  apply(q || stored() || 'zh');
+  apply(known(q) || stored() || browser());
   document.addEventListener('DOMContentLoaded', function () {
     apply(root.getAttribute('data-lang'));
     document.addEventListener('click', function (ev) {
@@ -26,6 +38,10 @@
       var lang = b.getAttribute('data-lang-set');
       store(lang);
       apply(lang);
+      try {  // a ?lang= in the address would override the new choice on reload
+        var u = new URL(location.href);
+        if (u.searchParams.has('lang')) { u.searchParams.set('lang', lang); history.replaceState(null, '', u); }
+      } catch (e) { /* ignore */ }
     });
   });
 })();

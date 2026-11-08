@@ -7,8 +7,10 @@ tools/node/viz-test.mjs); this file covers the registry checks, embeds, the publ
 
 from __future__ import annotations
 
+import html.parser
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -26,10 +28,23 @@ NODE = viz.node_executable()
 EXAMPLE = paths.BOOKS / "example-monograph"
 GID3 = "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"
 GIDI = "D5/S1/Deficit/DeficitInteger.deficit_integer"
+GIDDEF = "D5/S1/Deficit/DeficitInteger.deficit"  # a Lean def
+# Downstream repositories may delete the example book (skills/book-new); tests built on it skip then.
+needs_example = unittest.skipUnless(EXAMPLE.is_dir(), "books/example-monograph is absent")
 
 
 def example_book():
     return config.load_book("example-monograph")
+
+
+def fake_lock() -> lean.Lock:
+    """A lock with two theorems and one definition (independent of the repository's lock)."""
+    def decl(gid: str, kind: str) -> dict:
+        module, name = gid.rsplit(".", 1)
+        return {"module": module, "name": "D5.S1.Deficit." + name, "kind": kind, "statement_id": "sha256:x", "line": 7}
+
+    return lean.Lock(repo="the-omega-institute/trureturing", branch="dev", commit="a" * 40,
+                     declarations={GID3: decl(GID3, "theorem"), GIDI: decl(GIDI, "theorem"), GIDDEF: decl(GIDDEF, "def")})
 
 
 def fake_book(root: Path, slug: str = "tbook-viz-fixture"):
@@ -75,6 +90,7 @@ class RegistryChecks(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    @needs_example
     def test_example_book_is_clean(self):
         issues = viz.check(example_book())
         self.assertEqual([i.format() for i in issues if i.severity == "error"], [])
@@ -99,6 +115,7 @@ class RegistryChecks(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertIn(":3: not valid JSON", issues[0].message)
 
+    @needs_example
     def test_copied_fixture_is_clean(self):
         book = fake_book(self.tmp)
         copy_golden_carry(book)
@@ -132,6 +149,7 @@ class RegistryChecks(unittest.TestCase):
         (book.viz_dir / "stray").mkdir()
         return book
 
+    @needs_example
     def test_broken_registry_and_pages(self):
         book = self.broken_book()
         msgs = messages(viz.check_native(book, lock=self.lock))
@@ -158,6 +176,7 @@ class RegistryChecks(unittest.TestCase):
         for e in expect:
             self.assertTrue(any(e in m for m in msgs), f"missing problem {e!r} in:\n" + "\n".join(msgs))
 
+    @needs_example
     def test_registry_line_numbers(self):
         book = self.broken_book()
         issues = viz.check_native(book, lock=self.lock)
@@ -165,6 +184,7 @@ class RegistryChecks(unittest.TestCase):
         text = (book.viz_dir / "visualizations.json").read_text(encoding="utf-8")
         self.assertIn('"id": "half"', text.splitlines()[dup.line - 1])
 
+    @needs_example
     @unittest.skipUnless(NODE, "node not available")
     def test_node_validator_agrees_with_python(self):
         book = self.broken_book()
@@ -178,6 +198,7 @@ class RegistryChecks(unittest.TestCase):
         self.assertEqual(py - node, set(), "Python reports problems Node does not")
         self.assertEqual(node - py, set(), "Node reports problems Python does not")
 
+    @needs_example
     @unittest.skipUnless(NODE, "node not available")
     def test_node_validator_passes_the_example(self):
         r = subprocess.run([NODE, str(paths.TOOLS / "node" / "viz-validate.mjs"), str(EXAMPLE)],
@@ -185,6 +206,7 @@ class RegistryChecks(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("0 error(s)", r.stdout)
 
+    @needs_example
     @unittest.skipUnless(NODE, "node not available")
     def test_javascript_syntax_errors_are_reported_through_node(self):
         book = fake_book(self.tmp)
@@ -194,6 +216,7 @@ class RegistryChecks(unittest.TestCase):
         self.assertTrue(any(i.severity == "error" and "does not parse" in i.message and i.path.name == "main.js"
                             for i in issues), [i.format() for i in issues])
 
+    @needs_example
     @unittest.skipUnless(lean.Ledger("the-omega-institute/trureturing", offline=True).sources[0].__class__.__name__ == "GitSource",
                          "needs a local trureturing checkout (TRURETURING_DIR or ../trureturing)")
     def test_trureturing_paths_must_exist_at_the_pinned_commit(self):
@@ -209,9 +232,89 @@ class RegistryChecks(unittest.TestCase):
         self.assertTrue(any("Blueprint/D5/Nope.md does not exist in trureturing at the pinned commit" in m for m in msgs), msgs)
         self.assertTrue(any('data-trureturing-path="D5/S1/Digit/Nope.lean" does not exist' in m for m in msgs), msgs)
 
+    @needs_example
     def test_cited_gids(self):
         gids = {g for _, _, g in viz.cited_gids(example_book())}
         self.assertEqual(gids, {GID3, GIDI})
+
+
+@unittest.skipUnless(NODE, "node not available")
+class NodeToolsWithoutVisualizations(unittest.TestCase):
+    """A books repository without visualizations (or without the example book): the Node tools are no-ops."""
+
+    def test_validate_and_test_succeed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = {**os.environ, "TBOOK_ROOT": str(root)}
+            for books in (False, True):  # no books/ at all, then a book without viz/
+                if books:
+                    fake_book(root / "books", "plain-book")
+                for script, args in (("viz-validate.mjs", []), ("viz-test.mjs", []), ("viz-test.mjs", ["--shard", "2/3"])):
+                    r = subprocess.run([NODE, str(paths.TOOLS / "node" / script), *args], capture_output=True, text=True,
+                                       cwd=root, env=env, timeout=120)
+                    self.assertEqual(r.returncode, 0, f"{script} {args} (books={books}): {r.stdout}{r.stderr}")
+            self.assertIn("0 error(s)", subprocess.run([NODE, str(paths.TOOLS / "node" / "viz-validate.mjs")], capture_output=True,
+                                                       text=True, cwd=root, env=env, timeout=120).stdout)
+
+
+class TheoremCitations(unittest.TestCase):
+    """LEAN ✓ belongs to theorems only: the registry ``lean`` and page ``data-lean-gid`` must name theorems."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tbook-viz-"))
+        self.lock = fake_lock()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def book_citing(self, *gids: str):
+        book = fake_book(self.tmp / "books")
+        viz.scaffold(book, "fib-walk", "FIB//WALK", "斐波那契行走", "Fibonacci walk", added="2026-11-08")
+        reg = json.loads((book.viz_dir / "visualizations.json").read_text(encoding="utf-8"))
+        reg["visualizations"][0]["lean"] = [{"gid": g} for g in gids]
+        write_registry(book, reg)
+        page = book.viz_dir / "fib-walk" / "index.html"
+        links = "".join(f'<a data-lean-gid="{g}" href="#">{g}</a>' for g in gids)
+        page.write_text(page.read_text(encoding="utf-8").replace("</body>", f"<p>{links}</p>\n</body>"), encoding="utf-8")
+        return book
+
+    def kind_errors(self, issues) -> list[str]:
+        return sorted(i.message for i in issues if i.severity == "error" and "not a theorem" in i.message)
+
+    def test_definitions_are_refused(self):
+        book = self.book_citing(GID3, GIDDEF)
+        issues = viz.check_native(book, lock=self.lock)
+        self.assertEqual(self.kind_errors(issues), sorted([
+            f'data-lean-gid="{GIDDEF}" names a Lean def, not a theorem; data-lean-gid cites verified theorems (LEAN ✓); '
+            'link a definition with data-trureturing-path="<module>.lean"',
+            f"visualizations[0] (fib-walk): lean[1]: {GIDDEF} is a Lean def, not a theorem; lean lists the theorems "
+            "the visualization cites (shown as LEAN ✓)",
+        ]))
+        self.assertEqual([i.format() for i in issues if i.severity == "error" and GID3 in i.message], [])
+
+    def test_theorems_pass(self):
+        issues = viz.check_native(self.book_citing(GID3, GIDI), lock=self.lock)
+        self.assertEqual([i.format() for i in issues if i.severity == "error"], [])
+
+    @unittest.skipUnless(NODE, "node not available")
+    def test_node_validator_refuses_definitions_too(self):
+        book = self.book_citing(GID3, GIDDEF)
+        self.lock.save(self.tmp / "trureturing.lock.json")
+        r = subprocess.run([NODE, str(paths.TOOLS / "node" / "viz-validate.mjs"), "--json", "--only=lean", str(book.dir)],
+                           capture_output=True, text=True, cwd=paths.ROOT, timeout=120,
+                           env={**os.environ, "TBOOK_ROOT": str(self.tmp)})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        node = sorted(p["message"] for p in json.loads(r.stdout) if "not a theorem" in p["message"])
+        self.assertEqual(node, self.kind_errors(viz.check_native(book, lock=self.lock)))
+
+    def test_hub_card_marks_only_theorems_verified(self):
+        v = {"id": "fib-walk", "code": "FIB//WALK", "title": "斐波那契", "title_en": "Fib", "summary": "s",
+             "summary_en": "s", "lean": [{"gid": GID3}, {"gid": GIDDEF}]}
+        card = viz._card(v, self.lock, False)
+        self.assertEqual(card.count('<span class="k ok">LEAN ✓</span>'), 1)
+        self.assertIn('<span class="k">LEAN</span><a href="https://github.com/the-omega-institute/trureturing/blob/'
+                      + "a" * 40 + '/D5/S1/Deficit/DeficitInteger.lean#L7"', card)
+        self.assertEqual([r["kind"] for r in viz.lean_refs(v, self.lock)], ["theorem", "def"])
 
 
 class CheckRef(unittest.TestCase):
@@ -221,6 +324,7 @@ class CheckRef(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    @needs_example
     def test_local_and_external(self):
         book = example_book()
         self.assertIsNone(viz.check_ref(book, "golden-carry"))
@@ -229,6 +333,7 @@ class CheckRef(unittest.TestCase):
         self.assertIn("trureturing-visualize:<id>", viz.check_ref(book, "trureturing-visualize:Bad Id"))
         self.assertIn("expected the id", viz.check_ref(book, "../escape"))
 
+    @needs_example
     def test_draft_cannot_be_embedded(self):
         book = fake_book(self.tmp)
         copy_golden_carry(book)
@@ -242,6 +347,7 @@ class CheckRef(unittest.TestCase):
 
 
 class Links(unittest.TestCase):
+    @needs_example
     def test_pin_links(self):
         lock = lean.Lock.load()
         html_in = (f'<p><a class="x" data-lean-gid="{GID3}" href="https://old/link">a</a> '
@@ -254,6 +360,7 @@ class Links(unittest.TestCase):
         self.assertEqual(viz.pin_links(html_in, None), html_in)
         self.assertTrue(lock.source_url(GID3).endswith("DeficitThreeValued.lean#L264"))
 
+    @needs_example
     @unittest.skipUnless(NODE, "node not available")
     def test_node_pin_links_is_identical(self):
         lock = lean.Lock.load()
@@ -267,6 +374,7 @@ class Links(unittest.TestCase):
         self.assertEqual(r.stdout, viz.pin_links(page, lock))
         self.assertNotIn("0" * 40, r.stdout)
 
+    @needs_example
     def test_link_problem(self):
         book = example_book()
         ok = ["../", "../assets/theme.css", "../assets/tokens.css", "style.css", "thumb.jpg",
@@ -300,6 +408,7 @@ def _doc(path: str):
     return SimpleNamespace(chapter=SimpleNamespace(path=path), path=Path(path))
 
 
+@needs_example
 class Embeds(unittest.TestCase):
     def test_mdbook_iframe(self):
         book = example_book()
@@ -318,7 +427,8 @@ class Embeds(unittest.TestCase):
         book = example_book()
         ctx = _ctx(book, "en", "mdbook")
         out = viz.render_embed(_env(src="golden-carry"), ctx, "", _doc("part/sub/ch.md"))
-        self.assertIn('src="../../../viz/golden-carry/index.html?embed=1&amp;lang=en"', out)
+        self.assertIn('src="../../../viz/golden-carry/index.html?embed=1&amp;lang=en" '
+                      'data-tr-src="viz/golden-carry/index.html?embed=1&amp;lang=en"', out)  # for print.html
         self.assertIn(f'height="{viz.DEFAULT_HEIGHT}"', out)
         self.assertIn("Golden carry · the carry deficit", out)  # caption falls back to the English title
         self.assertIn(config.s("en", "ui.open_fullscreen"), out)
@@ -333,6 +443,7 @@ class Embeds(unittest.TestCase):
         ctx = _ctx(example_book(), "en", "mdbook")
         out = viz.render_embed(_env(src="trureturing-visualize:robin-lattice"), ctx, "", _doc("a.md"))
         self.assertIn(f'src="{viz.EXTERNAL_BASE}robin-lattice/?embed=1&amp;lang=en"', out)
+        self.assertNotIn("data-tr-src", out)  # absolute: nothing to repair in print.html
         self.assertIn(f'href="{viz.EXTERNAL_BASE}robin-lattice/?lang=en"', out)
 
     def test_pandoc_card_with_base_url(self):
@@ -400,6 +511,7 @@ class Publish(unittest.TestCase):
         viz.build(config.load_site(), example_book(), out)
         return out
 
+    @needs_example
     def test_build_layout_and_links(self):
         out = self.build(self.tmp / "viz")
         lock = lean.Lock.load()
@@ -426,6 +538,7 @@ class Publish(unittest.TestCase):
                     target = target / "index.html"
                 self.assertTrue(target.exists(), f"{f.name}: {url}")
 
+    @needs_example
     def test_hub(self):
         out = self.build(self.tmp / "viz")
         hub = (out / "index.html").read_text(encoding="utf-8")
@@ -443,6 +556,7 @@ class Publish(unittest.TestCase):
         self.assertEqual(reg["visualizations"][0]["lean"][0]["href"], lean.Lock.load().source_url(GID3))
         self.assertTrue(reg["visualizations"][0]["theory"][1]["href"].startswith("https://github.com/"))
 
+    @needs_example
     def test_build_is_deterministic(self):
         a, b = self.build(self.tmp / "a"), self.build(self.tmp / "b")
         files = sorted(p.relative_to(a) for p in a.rglob("*") if p.is_file())
@@ -450,12 +564,14 @@ class Publish(unittest.TestCase):
         for rel in files:
             self.assertEqual((a / rel).read_bytes(), (b / rel).read_bytes(), str(rel))
 
+    @needs_example
     def test_build_replaces_stale_output(self):
         out = self.tmp / "viz"
         (out / "old-viz").mkdir(parents=True)
         self.build(out)
         self.assertFalse((out / "old-viz").exists())
 
+    @needs_example
     def test_build_refuses_a_broken_registry(self):
         book = fake_book(self.tmp)
         copy_golden_carry(book)
@@ -464,6 +580,7 @@ class Publish(unittest.TestCase):
             viz.build(config.load_site(), book, self.tmp / "out")
         self.assertIn("thumbnail does not exist", str(cm.exception))
 
+    @needs_example
     def test_drafts_are_not_published(self):
         book = fake_book(self.tmp)
         copy_golden_carry(book)
@@ -481,6 +598,7 @@ class Publish(unittest.TestCase):
         viz.build(config.load_site(), fake_book(self.tmp), out)
         self.assertFalse(out.exists())
 
+    @needs_example
     def test_items(self):
         items = viz.items(example_book())
         self.assertEqual(len(items), 1)
@@ -539,12 +657,55 @@ class Scaffold(unittest.TestCase):
             self.assertEqual((py_book.viz_dir / rel).read_text(encoding="utf-8"),
                              (js_book.viz_dir / rel).read_text(encoding="utf-8"), str(rel))
 
+    QUOTED = ("quote-viz", 'Q//"V"', '黄金 "进位" & <比较> */', "Golden 'carry' & <compare> */")
+
+    def test_scaffold_escapes_titles(self):
+        book = fake_book(self.tmp)
+        viz.scaffold(book, *self.QUOTED, added="2026-11-08")
+        page = (book.viz_dir / "quote-viz" / "index.html").read_text(encoding="utf-8")
+
+        class Collect(html.parser.HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.attrs, self.tags = {}, []
+
+            def handle_starttag(self, tag, attrs):
+                self.tags.append(tag)
+                self.attrs.setdefault(tag, dict(attrs))
+
+        p = Collect()
+        p.feed(page)
+        self.assertEqual(p.attrs["html"]["data-title-en"], "Q//\"V\" · Golden 'carry' & <compare> */")
+        self.assertEqual(p.attrs["h1"]["data-text"], 'Q//"V"')
+        self.assertNotIn("compare", p.tags)
+        self.assertIn("Q<b>//</b>&quot;V&quot;</h1>", page)
+        # main.js names the titles in its opening comment, which must not end early
+        head = (book.viz_dir / "quote-viz" / "main.js").read_text(encoding="utf-8").splitlines()[0]
+        self.assertEqual(head, '/* Q//"V" · 黄金 "进位" & <比较> * /')
+        self.assertEqual(viz.entry(book, "quote-viz")["title_en"], self.QUOTED[3])  # the registry keeps the text
+        self.assertEqual([i.format() for i in viz.check_native(book, lock=fake_lock()) if i.severity == "error"], [])
+
+    @unittest.skipUnless(NODE, "node not available")
+    def test_node_scaffold_escapes_identically(self):
+        py_book, js_book = fake_book(self.tmp / "py"), fake_book(self.tmp / "js")
+        viz.scaffold(py_book, *self.QUOTED, added=date.today().isoformat())
+        r = subprocess.run([NODE, str(paths.TOOLS / "node" / "viz-new.mjs"), str(js_book.dir), *self.QUOTED],
+                           capture_output=True, text=True, cwd=paths.ROOT, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for rel in ("quote-viz/index.html", "quote-viz/main.js", "quote-viz/style.css", "tests/quote-viz.test.mjs"):
+            self.assertEqual((py_book.viz_dir / rel).read_text(encoding="utf-8"),
+                             (js_book.viz_dir / rel).read_text(encoding="utf-8"), rel)
+        r = subprocess.run([NODE, "--check", str(js_book.viz_dir / "quote-viz" / "main.js")], capture_output=True,
+                           text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     @unittest.skipUnless(NODE, "node not available")
     def test_template_scripts_parse(self):
         for f in sorted((paths.TEMPLATES / "viz").glob("*.*js")):
             r = subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True, timeout=60)
             self.assertEqual(r.returncode, 0, f"{f.name}: {r.stderr}")
 
+    @needs_example
     def test_cli(self):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
@@ -578,8 +739,10 @@ class Strings(unittest.TestCase):
         for key, value in re.findall(r"'?([a-z-]+)'?: '(#[0-9a-f]{6})'", fallback):
             self.assertEqual(tokens["screen"][key], value, f"shell.js fallback {key} drifted from tokens.json")
         for name in ("style.css", "main.js"):
-            text = (EXAMPLE / "viz" / "golden-carry" / name).read_text(encoding="utf-8")
-            self.assertFalse(re.search(r"#[0-9a-fA-F]{6}\b", text), name)
+            for page_dir in (paths.TEMPLATES / "viz", EXAMPLE / "viz" / "golden-carry"):
+                if page_dir.is_dir():  # the example book may have been deleted downstream
+                    text = (page_dir / name).read_text(encoding="utf-8")
+                    self.assertFalse(re.search(r"#[0-9a-fA-F]{6}\b", text), f"{page_dir.name}/{name}")
 
 
 if __name__ == "__main__":
