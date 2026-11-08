@@ -675,6 +675,93 @@ class AdoptionTests(TemplateFixture):
         self.assertEqual(k["tools/fixture/deleted-locally-changed-upstream.txt"], CONFLICT)
         self.assertEqual(k["tools/fixture/replace.txt"], CONFLICT, "deleted locally, changed upstream")
 
+    def merged_update_branch(self, merge: str) -> Path:
+        """An update PR to 0.2.0 that also deletes a file 0.2.0 added, merged into main with ``merge``."""
+        type(self).counter += 1
+        ds = make_downstream(self.base, self.tpl, f"merged-{self.counter}", "v0.1.0", local_work=False)
+        git(ds, "checkout", "-q", "-b", "template-update/0.2.0")
+        res = self.run_update(ds)
+        self.assertEqual((res.errors, res.conflicts, res.new_version), ([], [], "0.2.0"))
+        self.assertIn("tools/fixture/new-script.sh", {a.path for a in res.of(ADD)})
+        git(ds, "add", "-A")
+        git(ds, "commit", "-q", "-m", "Update template to 0.2.0")
+        git(ds, "rm", "-q", "tools/fixture/new-script.sh")
+        git(ds, "commit", "-q", "-m", "Not this script")
+        git(ds, "checkout", "-q", "main")
+        write(ds / "books" / "meanwhile.md", "work on main\n")
+        git(ds, "add", "-A")
+        git(ds, "commit", "-q", "-m", "Meanwhile on main")
+        if merge == "squash":
+            git(ds, "merge", "-q", "--squash", "template-update/0.2.0")
+            git(ds, "commit", "-q", "-m", "Template update 0.1.0 → 0.2.0 (#1)")
+        else:
+            git(ds, "merge", "-q", "--no-ff", "-m", "Merge pull request #1", "template-update/0.2.0")
+        self.assertFalse((ds / "tools" / "fixture" / "new-script.sh").exists())
+        self.assertEqual(TemplateConfig.load(ds).version, "0.2.0")
+        return ds
+
+    def test_deletion_on_a_merged_branch_stays_deleted(self):
+        """A file deleted on a branch merged with a merge commit was in HEAD's history: it stays deleted.
+
+        git log simplifies history by default and skips the side branch (the merge is TREESAME to its first
+        parent for that path), which made the file "never installed" and every later update re-add it.
+        """
+        ds = self.merged_update_branch("merge")
+        self.assertEqual(template.never_installed(ds, Manifest.load(ds)), set())
+        res = self.run_update(ds, to="v0.2.0", dry_run=True)
+        self.assertEqual(res.of(ADD, UPDATE, REMOVE, CONFLICT), [], "nothing to re-add")
+        self.assertEqual([(a.path, a.kind, a.reason) for a in res.actions if a.path == "tools/fixture/new-script.sh"],
+                         [("tools/fixture/new-script.sh", KEEP, "kept_deleted")])
+        self.assertFalse(any("never in this repository" in w for w in res.warnings), res.warnings)
+        res = self.run_update(ds)  # what template-sync runs: the latest release is the current version
+        self.assertEqual(res.of(ADD, UPDATE, REMOVE, CONFLICT), [])
+        self.assertEqual(git(ds, "status", "--porcelain", "--", "tools", ".github"), "",
+                         "a clean tree: template-sync opens no pull request")
+
+    def test_never_installed_reads_the_full_history(self):
+        """Every commit reachable from HEAD counts, merged side branches and merge resolutions included."""
+        type(self).counter += 1
+        repo = self.base / f"history-{self.counter}"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "root")
+        git(repo, "checkout", "-q", "-b", "side")
+        write(repo / "x" / "side.txt", "added and deleted on a merged branch\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "add on side")
+        git(repo, "rm", "-q", "x/side.txt")
+        git(repo, "commit", "-q", "-m", "delete on side")
+        git(repo, "checkout", "-q", "main")
+        write(repo / "x" / "main.txt", "main\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "work on main")
+        git(repo, "branch", "other")
+        # A merge whose resolution adds x/merge.txt (in neither parent) …
+        git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+        write(repo / "x" / "merge.txt", "only in a merge resolution\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "merge side")
+        # … and a later merge whose resolution drops it again.
+        git(repo, "checkout", "-q", "other")
+        write(repo / "x" / "other.txt", "other\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "work on other")
+        git(repo, "checkout", "-q", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-commit", "other")
+        git(repo, "rm", "-q", "x/merge.txt")
+        git(repo, "commit", "-q", "-m", "merge other")
+        entry = template.Entry("0" * 64, "100644")
+        base = Manifest(template="t", version="0.1.0",
+                        files={p: entry for p in ("x/side.txt", "x/merge.txt", "x/never.txt", "x/main.txt")})
+        self.assertEqual(template.never_installed(repo, base), {"x/never.txt"})
+
+    def test_deletion_in_a_squashed_branch_is_reinstalled(self):
+        """docs/UPGRADING.md §2: after a squash merge the file was never in main's history, so it is new."""
+        ds = self.merged_update_branch("squash")
+        self.assertEqual(template.never_installed(ds, Manifest.load(ds)), {"tools/fixture/new-script.sh"})
+        res = self.run_update(ds, to="v0.2.0", dry_run=True)
+        self.assertEqual([a.path for a in res.of(ADD)], ["tools/fixture/new-script.sh"])
+
     def test_shallow_clone_trusts_the_base(self):
         """A shallow clone cannot show old deletions, so the base manifest decides as before."""
         ds = self.downstream()
@@ -1273,17 +1360,24 @@ class NoBooksTests(unittest.TestCase):
         self.assertIn("there are no books", log)
         self.assertEqual(run_release_plan(root, "v1.0.0", template_repo=True)[1].get("skip"), "true")
         self.run_ok(root, str(root / "tbook"), "new-book", "my-book", "--title", "zh=我的书", "--title", "en=My Book")
-        # Only a semantic-version pre-release is a GitHub pre-release; date tags are ordinary releases.
+        # Only a semantic-version pre-release is a GitHub pre-release; date tags are ordinary releases, a
+        # same-day suffix included (2026.11.10-2 parses as a semantic version, but it is a date).
         for tag, pre in (("v2026.11.08", "false"), ("v2026-11-08", "false"), ("v20261108", "false"),
-                         ("v3.0.0", "false"), ("v3.0.0-rc.1", "true"), ("my-book-v0.1.0", "false")):
+                         ("v2026.11.08-2", "false"), ("v2026.11.10-2", "false"), ("v2026.12.31-rc.1", "false"),
+                         ("v2026-11-08-2", "false"), ("v2026.11.08.2", "false"), ("v20261108-2", "false"),
+                         ("v3.0.0", "false"), ("v3.0.0+build.5", "false"), ("v3.0.0-rc.1", "true"),
+                         ("v1.2.0-rc.1", "true"), ("v3.0.0-rc.1+b.5", "true"), ("v0.2.0-beta", "true"),
+                         ("v1.02.0-rc.1", "false"), ("v2026.1.5-2", "true"),  # not zero-padded: no date
+                         ("my-book-v0.1.0", "false")):
             rc, outputs, log = run_release_plan(root, tag)
             self.assertEqual(rc, 0, log)
             self.assertEqual((outputs["books"], outputs["prerelease"]), ("my-book", pre), tag)
         book_toml = root / "books" / "my-book" / "book.toml"
-        book_toml.write_text(re.sub(r'(?m)^version = "[^"]*"', 'version = "0.2.0-beta.1"',
-                                    book_toml.read_text(encoding="utf-8"), count=1), encoding="utf-8")
-        rc, outputs, log = run_release_plan(root, "my-book-v0.2.0-beta.1")
-        self.assertEqual((rc, outputs.get("prerelease")), (0, "true"), log)
+        for version, pre in (("0.2.0-beta.1", "true"), ("2026.11.10-2", "false")):  # one book: its book.toml version
+            book_toml.write_text(re.sub(r'(?m)^version = "[^"]*"', f'version = "{version}"',
+                                        book_toml.read_text(encoding="utf-8"), count=1), encoding="utf-8")
+            rc, outputs, log = run_release_plan(root, f"my-book-v{version}")
+            self.assertEqual((rc, outputs.get("prerelease")), (0, pre), log)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,9 @@
 # (build/template-update.md). Conflicts (local edits to managed files that the template also changed) are
 # committed as <file>.template-new next to the local file and flagged in the PR title. Without the `to`
 # input the update never goes back: when the latest release is not newer, nothing changes and no pull
-# request is opened (a downgrade or re-sync needs `to`).
+# request is opened (a downgrade or re-sync needs `to`). A new managed file deleted on the update branch
+# stays deleted when the pull request is merged with a merge commit; after a squash merge it was never in
+# the history, so the next run installs it again (docs/UPGRADING.md §2).
 #
 # Tokens:
 #   - Pull requests opened with the default GITHUB_TOKEN do not trigger other workflows (CI will not run
