@@ -30,8 +30,12 @@ Source layout (``books/<slug>/films/``)::
       "style": "…",
       "narration": {"language": "en", "engine": "Kokoro-82M v1.0 (onnx)", "voice": "af_heart"},
       "subtitles": ["zh", "en"],
-      "lean": ["D5/S1/Deficit/DeficitThreeValued.deficit_three_valued", …],   GIDs, all in trureturing.lock.json
-      "release_tag": "film-<slug>-<NNN>-v<k>",
+      "lean": ["D5/S1/Deficit/DeficitThreeValued.deficit_three_valued", …],   theorems cited (LEAN ✓): GIDs of
+                                                  trureturing.lock.json with kind "theorem"
+      "release_tag": "film-<slug>-<NNN>-v<k>",   the tag film.yml builds and publishes next
+      "published_tag": null | "film-<slug>-<NNN>-v<j>",   the release that exists (j ≤ k); set it after film.yml
+                                                  has published the tag. Until then the book shows the poster
+                                                  and "not released yet" instead of a player and links
       "outputs": {"narrated": "<asset>.mp4", "music_only": "<asset>.mp4", "cover": "<asset>.jpg",
                   "narrated_720p": "<asset>.mp4", "music_only_720p": "<asset>.mp4"}     (720p optional)
     }
@@ -231,6 +235,12 @@ class Film:
     def release_tag(self) -> str:
         return str((self.meta or {}).get("release_tag") or "")
 
+    @property
+    def published_tag(self) -> str:
+        """The release whose videos exist on GitHub Releases ('' until film.yml has published one)."""
+        value = (self.meta or {}).get("published_tag")
+        return value if isinstance(value, str) else ""
+
     def output(self, key: str) -> str:
         outputs = (self.meta or {}).get("outputs") or {}
         value = outputs.get(key) if isinstance(outputs, dict) else None
@@ -356,8 +366,12 @@ def external_ref(src: str) -> dict[str, str] | None:
 
 
 def urls(site: config.Site, film: Film) -> dict[str, str]:
-    """Release URLs of a local film (empty strings when the GitHub repository is unknown)."""
-    repo, tag = site.repo, film.release_tag
+    """URLs of a local film: the release assets of its ``published_tag`` and the films page on the site.
+
+    The asset and release-page URLs are empty strings while the film is unpublished (no ``published_tag``:
+    the release does not exist yet, so the embed shows the poster and a note) or the repository is unknown.
+    """
+    repo, tag = site.repo, film.published_tag
     out = {key: release_asset_url(repo, tag, film.output(key)) for key in REQUIRED_OUTPUTS + OPTIONAL_OUTPUTS}
     out["page"] = release_page_url(repo, tag)
     out["site"] = site.book_url(film.book.slug, "films") + f"/#{film.id}" if site.base_url else ""
@@ -511,16 +525,28 @@ def validate_meta(meta: dict, film_dir: Path, book: config.Book, lock: lean.Lock
             except lean.LeanError as exc:
                 err(f"film.json: {exc}")
                 continue
+            res = lock.get(gid) if lock is not None else None
             if lock is None:
                 err(f"film.json: {gid}: trureturing.lock.json is missing or unreadable; run ./tbook pin")
-            elif lock.get(gid) is None:
+            elif res is None:
                 err(f"film.json: {gid} is not in trureturing.lock.json; cite it in a chapter or run ./tbook pin --refresh")
+            elif res.kind not in lean.FORMAL_KINDS:
+                err(f"film.json: {gid} is a Lean {res.kind}, not a theorem; lean lists the theorems the film cites "
+                    "(shown as LEAN ✓)")
     tag = meta.get("release_tag")
     parsed = parse_tag(tag) if isinstance(tag, str) else None
     if not parsed:
         err(f"film.json: release_tag must look like {default_tag(book.slug, num or 'NNN')}")
     elif parsed[0] != book.slug or parsed[1] != num:
         err(f"film.json: release_tag {tag} must start with film-{book.slug}-{num}- (this book and film number)")
+    published = meta.get("published_tag")
+    if published is not None:
+        done = parse_tag(published) if isinstance(published, str) else None
+        if not done or done[0] != book.slug or done[1] != num:
+            err(f"film.json: published_tag must be null or the tag of a published release of this film "
+                f"(film-{book.slug}-{num or 'NNN'}-v<k>), got {published!r}")
+        elif parsed and done[2] > parsed[2]:
+            err(f"film.json: published_tag {published} is newer than release_tag {tag}")
     outputs = meta.get("outputs")
     if not isinstance(outputs, dict):
         err("film.json: outputs must be an object {narrated, music_only, cover}")
@@ -791,8 +817,10 @@ def items(book) -> list[dict]:
     ({lang: text}; summary may be empty), ``duration``, ``released``,
     ``href`` ("films/index.html#<id>") and ``poster`` ("films/<id>/poster.jpg", "" when missing) relative to the
     landing page, ``poster_file`` (absolute source path or None), ``hub`` ("films/"), ``release_tag``,
+    ``published`` (whether the videos can be linked) and ``note`` ({lang: "not released yet"} when not),
     ``watch_url`` / ``download_url`` (the narrated release asset), ``release_url`` (the release page),
-    ``cover_url``, ``narration``, ``subtitles`` and ``lean`` ([{gid, name, short, kind, url}]).
+    ``cover_url`` (these four are "" until ``published_tag`` is set), ``narration``, ``subtitles`` and
+    ``lean`` ([{gid, name, short, kind, url}]).
     """
     site = config.load_site()
     lock = _lock()
@@ -816,6 +844,8 @@ def items(book) -> list[dict]:
             "poster": f"films/{film.id}/{POSTER}" if film.poster.is_file() else "",
             "poster_file": film.poster if film.poster.is_file() else None,
             "release_tag": film.release_tag,
+            "published": bool(u["narrated"]),
+            "note": {} if u["narrated"] else {lang: t(lang, "unpublished") for lang in langs},
             "watch_url": u["narrated"],
             "download_url": u["narrated"],
             "release_url": u["page"],
@@ -895,7 +925,7 @@ def release_notes(film: Film, sha: str = "") -> str:
         lines += ["", "Lean theorems cited (kernel-verified and frozen in trureturing at the pinned commit):", ""]
         for r in refs:
             link = f"[`{r['name']}`]({r['url']})" if r["url"] else f"`{r['name']}`"
-            lines.append(f"- LEAN ✓ {link} — `{r['gid']}`")
+            lines.append(f"- {'LEAN ✓ ' if r['kind'] in lean.FORMAL_KINDS else ''}{link} — `{r['gid']}`")
     narration = meta.get("narration") or {}
     lines += ["", "Files:", ""]
     lines.append(f"- `{film.output('narrated')}`: {narration.get('language', 'en').upper()} AI narration "
@@ -941,7 +971,7 @@ def render_embed(env, ctx, inner: str, doc) -> str:
         film_page = up + f"films/index.html?lang={lang}#{film.id}"
         if not film.poster.is_file():
             ctx.issues.append(f"{doc.path}: film {film.id}: no {POSTER}; the player has no poster")
-        if not watch:
+        if film.published_tag and not watch:
             ctx.issues.append(f"{doc.path}: film {film.id}: the GitHub repository is unknown (site.repo), "
                               "so the release asset cannot be linked")
     else:
@@ -958,6 +988,10 @@ def render_embed(env, ctx, inner: str, doc) -> str:
             links.append(f'<a href="{esc(film_page)}">{esc(t(lang, "page"))}</a>')
         if watch:
             poster_attr = f' poster="{esc(cover)}"' if cover else ""
+            if film is not None and cover:
+                # the poster relative to the book (<slug>/): mdBook's print.html copies chapters of every depth to
+                # <lang>/ without rewriting video posters; tbook.site.fix_print_media repairs them from this
+                poster_attr += f' data-tr-poster="{esc(f"films/{film.id}/{POSTER}")}"'
             player = (f'<video class="tr-film-player" controls preload="none" playsinline{poster_attr} '
                       f'title="{esc(head)}">\n<source src="{esc(watch)}" type="video/mp4">\n</video>')
         elif cover:
@@ -1057,7 +1091,9 @@ def _film_card(site: config.Site, film: Film, lock: lean.Lock | None) -> str:
         name = esc(r["name"])
         link = (f'<a href="{esc(r["url"])}" target="_blank" rel="noopener" title="{esc(r["gid"])}"><code>{name}</code></a>'
                 if r["url"] else f"<code>{name}</code>")
-        refs.append(f'<li><span class="k ok">LEAN ✓</span>{link}</li>')
+        # green LEAN ✓ only for a locked theorem; anything else (check refuses it) is a plain Lean link
+        chip = '<span class="k ok">LEAN ✓</span>' if r["kind"] in lean.FORMAL_KINDS else '<span class="k">LEAN</span>'
+        refs.append(f"<li>{chip}{link}</li>")
     lean_block = ""
     if refs:
         lean_block = (f'<div class="lean"><h4>{_pair("lean_title")}</h4><ul>{"".join(refs)}</ul></div>')
@@ -1174,10 +1210,12 @@ def published_registry(site: config.Site, book: config.Book, lock: lean.Lock | N
             "id": film.id, "number": film.number, "title": film.title("en"), "title_zh": film.title("zh"),
             "summary": film.summary("en"), "summary_zh": film.summary("zh"),
             "duration": film.meta.get("duration", ""), "released": film.meta.get("released", ""),
-            "release_tag": film.release_tag, "subject_commit": film.meta.get("subject_commit", ""),
+            "release_tag": film.release_tag, "published_tag": film.published_tag or None,
+            "subject_commit": film.meta.get("subject_commit", ""),
             "poster": f"{film.id}/{POSTER}" if film.poster.is_file() else "",
             "urls": {k: v for k, v in u.items() if v},
-            "lean": [{"gid": r["gid"], "name": r["name"], "href": r["url"]} for r in lean_refs(film.lean, lock)],
+            "lean": [{"gid": r["gid"], "name": r["name"], "href": r["url"], "kind": r["kind"]}
+                     for r in lean_refs(film.lean, lock)],
         })
     return data
 
@@ -1321,6 +1359,9 @@ def cli(args) -> int:
                 watch = urls(site, film)["narrated"]
                 if watch:
                     print(f"    {watch}")
+                elif not film.published_tag:
+                    print(f"    not published: after film.yml has released {film.release_tag or 'the tag'}, "
+                          "set published_tag in film.json")
         if not count:
             print("no films")
         return 0

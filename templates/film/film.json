@@ -19,6 +19,7 @@
   ],
   "lean": [],
   "release_tag": "@@TAG@@",
+  "published_tag": null,
   "outputs": {
     "narrated": "@@OUT_NARRATED@@",
     "music_only": "@@OUT_MUSIC_ONLY@@",

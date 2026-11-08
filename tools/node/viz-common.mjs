@@ -21,6 +21,8 @@ export const TEMPLATES = path.join(ROOT, 'templates', 'viz');
 export const LOCK_FILE = path.join(ROOT, 'trureturing.lock.json');
 export const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const STATUSES = ['live', 'draft'];
+/** Lean kinds that may be cited as verified results (LEAN ✓); same as tbook.lean.FORMAL_KINDS. */
+export const FORMAL_KINDS = ['theorem'];
 /** Directory names inside books/<slug>/viz/ that are not visualizations. */
 export const RESERVED = ['tests', 'assets'];
 /** Files of theme/viz/ published into <slug>/viz/assets/ (hub.html is a template, not an asset). */

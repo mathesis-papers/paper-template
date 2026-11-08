@@ -215,11 +215,13 @@ check('the end-of-playback toast is in English', /^Normalized after 1 carry: sig
 
 /* ---------- hub round trip (the crumb leads to ../ = the book's visualization index) ---------- */
 await page.click('.crumb'); await page.waitForLoadState('load');
+// the hub lists every live visualization of the book; check this one's card, not the total
 check('the crumb opens the hub, which keeps the language and lists this visualization', (await D(() => document.documentElement.dataset.lang)) === 'en'
-  && (await D(() => document.querySelectorAll('.card').length)) === 1 && (await D(() => !!document.querySelector('.card[data-viz="golden-carry"] img[src="golden-carry/thumb.jpg"]'))));
+  && (await D(() => document.querySelectorAll('.card[data-viz="golden-carry"]').length)) === 1 && (await D(() => !!document.querySelector('.card[data-viz="golden-carry"] img[src="golden-carry/thumb.jpg"]'))));
+check('the choice is remembered under the site-wide key tr-lang', (await D(() => localStorage.getItem('tr-lang'))) === 'en');
 left = await cjkLeftovers(page);
 check('no visible Chinese on the English hub', left.length === 0, left.slice(0, 6).join(' | '));
-await page.click('.card .enter'); await page.waitForLoadState('load');
+await page.click('.card[data-viz="golden-carry"] .enter'); await page.waitForLoadState('load');
 await page.waitForFunction(() => window.GC_DEBUG && GC_DEBUG.frames() > 0, null, { timeout: 30000 });
 check('the hub card opens this page', (await D(() => document.body.dataset.vizId)) === ID);
 

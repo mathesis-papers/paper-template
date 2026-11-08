@@ -350,11 +350,12 @@ function badgeQ(S, seq) {
   seq.forEach(e => { const s0 = e[0] === 0 && !e[1] ? 0 : phraseAt(S, e[0], e[1]); if (S.u >= s0) { cur = e; st = s0; } });
   badge(clamp((S.u - st) / 0.5) * clamp(S.u / 0.8) * clamp((S.d - S.u) / 0.5), cur[2]);
 }
-/* LEAN ✓ declaration chips: the film's citations (DATA.lean) at the pinned commit */
+/* LEAN ✓ declaration chips: the film's citations (DATA.lean) at the pinned commit. Only theorems get the green
+   chip (./tbook check refuses any other kind in film.json "lean"). */
 function leanList(x, y, a, o = {}) {
   if (a <= 0) return y;
   const size = o.size || 22, gap = o.gap || 44, align = o.align || 'left';
-  for (const r of DATA.lean) {
+  for (const r of DATA.lean.filter(z => z.kind === 'theorem')) {
     const head = STR.en.lean || 'LEAN ✓', wh = tw(head, size * 0.72, F.mono, 700, 1) + 18, wn = tw(r.name, size, F.mono, 700);
     const total = wh + 14 + wn, x0 = align === 'center' ? x - total / 2 : x;
     fillBox(x0, y - size * 0.95, wh, size * 1.25, C.lean, a * 0.95);

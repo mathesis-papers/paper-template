@@ -15,7 +15,7 @@ description: 为书做讲解视频时使用：按 trureturing-film 方案新建�
 
 ## 原则
 
-1. **视频是讲解，不是证明。** 片中只有 `film.json` 的 `lean` 列出、且在锁文件中的定理可以标 `LEAN ✓`；屏幕上的计算用 `badge(a, 'computed')`，论证用 `argued`，开放问题用 `open`。
+1. **视频是讲解，不是证明。** 片中只有 `film.json` 的 `lean` 列出、且在锁文件中种类为 `theorem` 的声明可以标 `LEAN ✓`（`lean` 列出定义会被 `./tbook check` 报错）；屏幕上的计算用 `badge(a, 'computed')`，论证用 `argued`，开放问题用 `open`。
 2. **片中的数字必须精确算出或取自所钉提交。**
 3. **旁白英文自然，字幕中文准确**，各一行，不逐字硬译。旁白与字幕写在 `script.json`，它是唯一的时间来源。
 4. **颜色只来自令牌**（`C.lean` 绿、`C.now` 琥珀、`C.open` 红、`C.argued` 紫，其余 `C.cyan`、`C.mag`、`C.white`、`C.dim`）。
@@ -53,7 +53,7 @@ theme/film/film.sh $F setup          # 一次：pip 包、Kokoro 模型（.cache
    git push origin film-<book>-<NNN>-v1
    ```
 
-   `film.yml` 在 CI 上合成旁白、配乐、逐帧渲染、编码并创建 Release（1080p 旁白版、纯配乐版、720p 版、封面）。首次 TTS 后若实际时长不同，按日志更新 `film.json` 的 `duration`。已发布的标签不再改动；新剪辑递增 `v<k>` 并同步 `release_tag`。
+   `film.yml` 在 CI 上合成旁白、配乐、逐帧渲染、编码并创建 Release（1080p 旁白版、纯配乐版、720p 版、封面）。首次 TTS 后若实际时长不同，按日志更新 `film.json` 的 `duration`。Release 出现后把 `film.json` 的 `published_tag` 设为该标签并提交：在此之前书、落地页与视频页只显示海报和“尚未发布”，不嵌入播放器（播放地址指向 `published_tag` 的 Release，避免嵌入不存在的资产）。已发布的标签不再改动；新剪辑递增 `v<k>` 并同步 `release_tag`，新 Release 出现后再更新 `published_tag`。
 6. 嵌入章节——**所有语言版本都要加**，`src` 相同，只翻译图注：
 
    ```markdown
@@ -70,7 +70,7 @@ theme/film/film.sh $F setup          # 一次：pip 包、Kokoro 模型（.cache
 | 现象 | 处理 |
 | --- | --- |
 | `check` 警告 `subject_commit` 与所钉提交不同 | 视频依据的提交过期；复核片中陈述后更新 `subject_commit`，必要时发新剪辑 |
-| 视频页显示“尚未发布” | 还没推送 `release_tag` 标签，或 CI 失败（查看 `film.yml` 运行日志） |
+| 视频页显示“尚未发布” | `film.json` 的 `published_tag` 为 `null`：还没推送 `release_tag` 标签，或 CI 失败（查看 `film.yml` 运行日志），或 Release 已发布但还没把 `published_tag` 设为该标签 |
 | 数学符号显示为方框 | 用 `F.math` 字体；CI 安装 `fonts-dejavu-core`、`fonts-freefont-ttf` 作后备 |
 | Safari 不播放 | Release 资产以 `application/octet-stream` 提供；“观看/下载”链接始终可用 |
 

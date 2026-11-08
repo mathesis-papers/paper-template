@@ -24,6 +24,7 @@
     "D5/S1/Deficit/DeficitInteger.deficit_integer"
   ],
   "release_tag": "film-example-monograph-001-v1",
+  "published_tag": null,
   "outputs": {
     "narrated": "example-monograph_001_narrated_EN_subs_ZH-EN.mp4",
     "music_only": "example-monograph_001_music_only_subs_ZH-EN.mp4",

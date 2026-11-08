@@ -32,17 +32,21 @@ relative to ``viz/`` and Lean references cite GIDs)::
                      href: https://…, {trureturing}/<path> (that path at the pinned commit), or a chapter of
                      this book relative to viz/, e.g. ../zh/ch01-golden-deficit.html (href_en for English)
         "lean": [{"gid": "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued", "label"?: "…"}]
-                     every GID must be in trureturing.lock.json; links point at the pinned commit
+                     the theorems the visualization cites (shown as LEAN ✓): every GID must be in
+                     trureturing.lock.json with kind "theorem"; links point at the pinned commit
     }]}
 
-Pages cite Lean with ``<a data-lean-gid="GID" href="…">`` and other trureturing files with
+Pages cite Lean theorems with ``<a data-lean-gid="GID" href="…">`` (a theorem of the lock: pages mark these
+LEAN ✓) and other trureturing files, definitions included, with
 ``<a data-trureturing-path="Blueprint/…" href="…">``; :func:`pin_links` (and tools/node/viz-server.mjs for local
 preview) rewrite those hrefs to the pinned commit, so a re-pin never leaves a page pointing at an old commit.
 
 Embedding in a chapter: ``::: {.viz src="golden-carry" height="560"}`` (a local id) or
 ``src="trureturing-visualize:<id>"`` (a page of https://the-omega-institute.github.io/trureturing-visualize/).
 HTML gets an ``<iframe>`` of ``<id>/index.html?embed=1&lang=<lang>``; PDF/EPUB get the thumbnail, the caption
-and the address of the interactive version (:func:`render_embed`).
+and the address of the interactive version (:func:`render_embed`). The iframe of a local visualization also
+carries its target relative to the book in ``data-tr-src``: mdBook's print.html copies chapters of every depth
+to ``<lang>/`` without rewriting iframe sources, and :func:`tbook.site.fix_print_media` repairs them from it.
 
 The same registry and page rules are implemented for Node in tools/node/viz-validate.mjs; :func:`check` runs
 them natively and calls that script (when ``node`` is available) only for the JavaScript syntax check.
@@ -515,11 +519,15 @@ def check_native(book, *, lock: lean.Lock | None = None, ledger: lean.Ledger | N
             except lean.LeanError:
                 err(reg_file, line, f"{at}: lean[{k}]: not a declaration GID: {gid}")
                 continue
+            res = lock.get(gid) if lock is not None else None
             if lock is None:
                 err(reg_file, line, f"{at}: lean[{k}]: {gid} cannot be linked: trureturing.lock.json is missing (run ./tbook pin)")
-            elif lock.get(gid) is None:
+            elif res is None:
                 err(reg_file, line, f"{at}: lean[{k}]: {gid} is not in trureturing.lock.json; cite it in a chapter "
                                     "and run ./tbook pin --refresh")
+            elif res.kind not in lean.FORMAL_KINDS:
+                err(reg_file, line, f"{at}: lean[{k}]: {gid} is a Lean {res.kind}, not a theorem; lean lists the "
+                                    "theorems the visualization cites (shown as LEAN ✓)")
         seen.add(vid)
         if not ID_RE.match(vid):
             continue
@@ -585,8 +593,12 @@ def check_page(book, vid: str, page: Path, ids: set[str], *, lock=None, ledger=N
             except lean.LeanError:
                 err(line, f'data-lean-gid="{value}" is not a declaration GID')
                 continue
-            if lock is not None and lock.get(value) is None:
+            res = lock.get(value) if lock is not None else None
+            if lock is not None and res is None:
                 err(line, f'data-lean-gid="{value}" is not in trureturing.lock.json; cite it in a chapter and run ./tbook pin --refresh')
+            elif res is not None and res.kind not in lean.FORMAL_KINDS:
+                err(line, f'data-lean-gid="{value}" names a Lean {res.kind}, not a theorem; data-lean-gid cites verified '
+                          'theorems (LEAN ✓); link a definition with data-trureturing-path="<module>.lean"')
         else:
             if not value or ".." in value or value.startswith("/"):
                 err(line, f'data-trureturing-path="{value}" must be a repository-relative path')
@@ -712,11 +724,13 @@ def render_embed(env, ctx, inner: str, doc) -> str:
     if problem:
         ctx.issues.append(f"{doc.path}: {problem}")
     if ctx.target == "mdbook":
+        book_src = ""  # the iframe target relative to the book (<slug>/), for pages at another depth
         if external:
             page = EXTERNAL_BASE + vid + "/"
         else:
             depth = (doc.chapter.path or "").count("/")
             page = "../" * (depth + 1) + f"viz/{vid}/index.html"
+            book_src = f' data-tr-src="{esc(f"viz/{vid}/index.html?embed=1&lang={lang}")}"'
         frame = f"{page}?embed=1&lang={lang}"
         full = f"{page}?lang={lang}"
         h = _height(env, ctx)
@@ -724,7 +738,7 @@ def render_embed(env, ctx, inner: str, doc) -> str:
         label = f"{code} · {title}" if code else title
         return "\n".join([
             f'<figure class="tr-media tr-viz" data-viz="{esc(src)}">',
-            f'<iframe class="tr-viz-frame" src="{esc(frame)}" title="{esc(label)}" loading="lazy" height="{h}" '
+            f'<iframe class="tr-viz-frame" src="{esc(frame)}"{book_src} title="{esc(label)}" loading="lazy" height="{h}" '
             f'style="height:{h}px" allow="fullscreen" allowfullscreen></iframe>',
             '<figcaption class="tr-media-caption">',
             "",
@@ -810,7 +824,9 @@ def _card(v: dict, lock: lean.Lock | None, featured: bool) -> str:
     for ref in lean_refs(v, lock):
         target = f'<a href="{esc(ref["url"])}" target="_blank" rel="noopener" title="{esc(ref["gid"])}"><code>{esc(ref["label"])}</code></a>' \
             if ref["url"] else f'<code title="{esc(ref["gid"])}">{esc(ref["label"])}</code>'
-        refs.append(f'<div><span class="k ok">LEAN ✓</span>{target}</div>')
+        # green LEAN ✓ only for a locked theorem; anything else (check refuses it) is a plain Lean link
+        chip = '<span class="k ok">LEAN ✓</span>' if ref["kind"] in lean.FORMAL_KINDS else '<span class="k">LEAN</span>'
+        refs.append(f"<div>{chip}{target}</div>")
     tags_zh, tags_en = list(v.get("tags") or []), list(v.get("tags_en") or v.get("tags") or [])
     tags = ""
     if tags_zh or tags_en:
@@ -957,7 +973,7 @@ def published_registry(book, lock: lean.Lock | None) -> dict:
         e["theory"] = [{**ref, "href": _theory_hrefs(ref, lock)["zh"],
                         **({"href_en": _theory_hrefs(ref, lock)["en"]} if "href_en" in ref else {})}
                        for ref in v.get("theory") or [] if isinstance(ref, dict)]
-        e["lean"] = [{"gid": r["gid"], "label": r["label"], "href": r["url"]} for r in lean_refs(v, lock)]
+        e["lean"] = [{"gid": r["gid"], "label": r["label"], "href": r["url"], "kind": r["kind"]} for r in lean_refs(v, lock)]
         out.append(e)
     data: dict[str, Any] = {"version": 1, "book": book.slug}
     if lock:
@@ -1002,12 +1018,20 @@ def build(site, book, out_dir: Path) -> None:
 # --------------------------------------------------------------------------- scaffolding and CLI
 
 
-def fill_template(text: str, *, slug: str, viz_id: str, code: str, title: str, title_en: str) -> str:
-    """Placeholders of templates/viz/ (same as ``fill`` in tools/node/viz-new.mjs)."""
+def fill_template(text: str, *, slug: str, viz_id: str, code: str, title: str, title_en: str,
+                  html_text: bool = True) -> str:
+    """Placeholders of templates/viz/ (same as ``fill`` in tools/node/viz-new.mjs).
+
+    In an HTML template (``html_text``) the code and titles are HTML-escaped, so quotes, ``&`` and ``<`` stay
+    text; in a script or stylesheet, where they only appear in comments, a ``*/`` is broken up instead.
+    """
+    def val(s: str) -> str:
+        return html.escape(s, quote=True) if html_text else s.replace("*/", "* /")
+
     head, sep, tail = code.partition("//")
-    code_h = f"{head}<b>//</b>{tail}" if sep else code
+    code_h = f"{val(head)}<b>//</b>{val(tail)}" if sep else val(code)
     return (text.replace("__BOOK__", slug).replace("__ID__", viz_id).replace("__CODE_HTML__", code_h)
-            .replace("__CODE__", code).replace("__TITLE_EN__", title_en or title).replace("__TITLE__", title))
+            .replace("__CODE__", val(code)).replace("__TITLE_EN__", val(title_en or title)).replace("__TITLE__", val(title)))
 
 
 def scaffold(book, viz_id: str, code: str, title: str, title_en: str = "", *, added: str | None = None) -> list[Path]:
@@ -1029,12 +1053,14 @@ def scaffold(book, viz_id: str, code: str, title: str, title_en: str = "", *, ad
     created = []
     for name in PAGE_FILES:
         out = dest / name
-        out.write_text(fill_template((TEMPLATES_VIZ / name).read_text(encoding="utf-8"), **fill), encoding="utf-8")
+        out.write_text(fill_template((TEMPLATES_VIZ / name).read_text(encoding="utf-8"), **fill,
+                                     html_text=name.endswith(".html")), encoding="utf-8")
         created.append(out)
     test = book.viz_dir / "tests" / f"{viz_id}.test.mjs"
     if not test.exists():
         test.parent.mkdir(parents=True, exist_ok=True)
-        test.write_text(fill_template((TEMPLATES_VIZ / TEST_TEMPLATE).read_text(encoding="utf-8"), **fill), encoding="utf-8")
+        test.write_text(fill_template((TEMPLATES_VIZ / TEST_TEMPLATE).read_text(encoding="utf-8"), **fill,
+                                      html_text=False), encoding="utf-8")
         created.append(test)
     reg["visualizations"].append({
         "id": viz_id, "code": code, "title": title, "title_en": title_en, "summary": "", "summary_en": "",
