@@ -10,6 +10,7 @@ typst, Java/epubcheck or the example book's Lean lock skip themselves when unava
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -20,7 +21,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from tbook import config, cover, lean, paths
+from tbook import config, cover, lean, mathrender, paths
 from tbook import pandoc as tp
 from tbook.model import load_edition
 
@@ -64,7 +65,9 @@ en = "978-3-16-148410-0"
 paper = "a5"
 """,
     "assets/fig.svg": SVG,
+    "assets/data.csv": "a,b\n1,2\n",
     "en/img/dot.png": PNG_1PX,
+    "en/files/table.csv": "c,d\n3,4\n",
     "en/SUMMARY.md": """# Summary
 
 [Preface](README.md)
@@ -103,7 +106,16 @@ Define $x$ and see [B](./b.md).
 
 ## Sub A {#sub-a}
 
-Text.
+Text with a note[^n]. Thanks @alice; a norm $\\norm{x}$ and $\\floor{y}$; see
+[the summary of B](b.md#summary) and [this summary](#summary).
+
+[^n]: NOTE-A-TEXT
+
+Download [the data](../assets/data.csv) or [the table](files/table.csv).
+
+## Summary
+
+Summary of A.
 """,
     "en/part/a1.md": """# Section A.1
 
@@ -117,9 +129,19 @@ Back to [the definition](../a.md#def-a), ![f](../../assets/fig.svg), [missing](.
 
 ## Section B {#sec-b}
 
-::: remark
-See [@def-a] and the [sub section](a.md#sub-a).
+::: {.remark title="Case of [@def-a]"}
+See [@def-a] and the [sub section](a.md#sub-a). Another note[^n].
+
+[^n]: NOTE-B-TEXT
 :::
+
+## Summary
+
+Summary of B.
+
+## Bound $x^2$ for $\\norm{x}$
+
+Text.
 """,
     "en/appendix.md": "Text of the appendix with a [dangling](#nowhere) link.\n",
 }
@@ -179,11 +201,19 @@ Is it minimal?
 """
 
 
+BASE_URL = "https://example.org/books/"
+
+
+def fixture_site() -> config.Site:
+    """The repository's site with a fixed base URL (links to files point there)."""
+    return dataclasses.replace(config.load_site(), base_url=BASE_URL)
+
+
 class StagingTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-test-pandoc-"))
-        cls.site = config.load_site()
+        cls.site = fixture_site()
         cls.book = make_book(cls.tmp)
         cls.ed = cls.book.edition("en")
         cls.model = load_edition(cls.ed)
@@ -227,8 +257,37 @@ class StagingTest(unittest.TestCase):
 
     def test_nested_chapter_headings_shift(self):
         self.assertTrue(self.heading("Section A.1").startswith("## Section A.1 {#ch-part-a1 .tr-chapter"))
-        self.assertEqual(self.heading("Deeper"), "### Deeper")
+        self.assertEqual(self.heading("Deeper"), "### Deeper {#deeper}")
         self.assertEqual(self.heading("Sub A"), "## Sub A {#sub-a}")
+
+    def test_footnotes_scoped_per_chapter(self):
+        # Both chapters define [^n]; in one document Pandoc would give both the last text.
+        self.assertIn("note[^ch-a--n].", self.md)
+        self.assertIn("[^ch-a--n]: NOTE-A-TEXT", self.md)
+        self.assertIn("note[^ch-b--n].", self.md)
+        self.assertIn("[^ch-b--n]: NOTE-B-TEXT", self.md)
+        self.assertNotIn("[^n]", self.md)
+
+    def test_repeated_heading_links_stay_in_their_chapter(self):
+        # "Summary" exists in a.md and b.md: each keeps a distinct id, and a link resolves in
+        # the chapter it names (b.md#summary → B's summary), as the HTML edition does.
+        self.assertEqual(self.heading("Summary").split(" {")[0], "## Summary")
+        ids = re.findall(r"^## Summary \{#([^}]+)\}$", self.md, re.M)
+        self.assertEqual(ids, ["summary", "ch-b--summary"])
+        self.assertIn("[the summary of B](#ch-b--summary)", self.md)
+        self.assertIn("[this summary](#summary)", self.md)
+        self.assertIn("## Bound $x^2$ for $\\norm{x}$ {#bound-x2-for-normx}", self.md)
+
+    def test_plain_file_links_point_to_the_site(self):
+        # Pandoc embeds images only: a relative link to a CSV is dead in the PDF and breaks the EPUB.
+        self.assertIn(f"[the data]({BASE_URL}test-book/en/_book/assets/data.csv)", self.md)
+        self.assertIn(f"[the table]({BASE_URL}test-book/en/files/table.csv)", self.md)
+        self.assertNotIn("_book/en/files/table.csv", self.stage.files)
+
+    def test_macros_defined_before_the_first_chapter(self):
+        head = self.md.split("\n# ", 1)[0]
+        self.assertIn("\\newcommand{\\norm}[1]{\\left\\lVert #1\\right\\rVert}", head)
+        self.assertEqual(head.strip(), mathrender.newcommands())
 
     def test_parts(self):
         self.assertTrue(self.heading("Part One").startswith("# Part One {#tr-part-1 .tr-part .unnumbered"))
@@ -314,6 +373,45 @@ class HeadingHelpersTest(unittest.TestCase):
     def test_chapter_slug(self):
         self.assertEqual(tp.chapter_slug("part 1/Intro.md"), "ch-part-1-intro")
 
+    def test_heading_slugs_follow_mdbook(self):
+        self.assertEqual(tp.heading_slugs("小结"), ["小结"])
+        self.assertEqual(tp.heading_slugs("Section B.1: *Why*?"), ["section-b1-why"])
+        self.assertEqual(tp.heading_slugs("The [`foo_bar`](x.md) _case_[^1]"), ["the-foo_bar-case"])
+        self.assertEqual(tp.heading_slugs("Ünïcode Title"), ["ünïcode-title"])
+        self.assertEqual(tp.heading_slugs("$!$"), [])
+
+    def test_scope_footnotes(self):
+        md = "A[^1] and [^x].\n\n[^1]: one\n\n```\n[^1]\n```\n\n`[^1]` and ^[inline]\n"
+        out = tp.scope_footnotes(md, "ch-a")
+        self.assertIn("A[^ch-a--1] and [^x].", out)  # [^x] is not defined here: left alone
+        self.assertIn("[^ch-a--1]: one", out)
+        self.assertIn("```\n[^1]\n```", out)
+        self.assertIn("`[^1]` and ^[inline]", out)
+        self.assertEqual(tp.scope_footnotes("no notes [^1]\n", "ch-a"), "no notes [^1]\n")
+
+    def test_assign_heading_ids(self):
+        chapters = [("a.md", "# A\n\n## Summary\n\n## Summary\n\n## Own {#own}\n"),
+                    ("b.md", "# B {#b-title}\n\n## Summary\n\n## Own\n\n::: {.remark #thm-x}\n:::\n\n## thm-x\n")]
+        taken = {"thm-x", "ch-a", "b-title"}
+        ids = tp.assign_heading_ids(chapters, {"a.md": "ch-a", "b.md": "b-title"}, taken)
+        self.assertEqual(list(ids.by_line["a.md"].values()), ["summary", "summary-1"])
+        self.assertEqual(list(ids.by_line["b.md"].values()), ["b-title--summary", "b-title--own", "b-title--thm-x"])
+        self.assertEqual(ids.anchors["a.md"], {"a": "ch-a", "summary": "summary", "summary-1": "summary-1"})
+        # b.md: its title has an explicit id; "thm-x" is an id of its own (the remark), so the
+        # heading slug "thm-x" does not take it over.
+        self.assertEqual(ids.anchors["b.md"], {"summary": "b-title--summary", "own": "b-title--own"})
+        self.assertLessEqual({"summary", "summary-1", "b-title--summary"}, taken)
+
+    def test_file_links_without_base_url_keep_their_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ed = make_book(Path(tmp)).edition("en")
+            warnings: list[str] = []
+            linker = tp._Linker(Path(tmp) / "stage", ed, {"a.md": "ch-a"}, warnings, set(), online="")
+            self.assertEqual(linker.rewrite_line("Get [the table](files/table.csv).", "a.md"), "Get the table.")
+            self.assertEqual(linker.rewrite_line("See ![dot](img/dot.png).", "a.md"), "See ![dot](_book/en/img/dot.png).")
+            self.assertEqual(linker.rewrite_line("[t]: files/table.csv", "a.md"), "[t]: files/table.csv")
+        self.assertTrue(any("base_url" in w for w in warnings), warnings)
+
 
 @unittest.skipUnless(have_pandoc(), "pandoc not available")
 class LuaFilterTest(unittest.TestCase):
@@ -359,6 +457,29 @@ class LuaFilterTest(unittest.TestCase):
         md = "`D5.S3.ConceptDynamics.Restoration.target_recovery_criterion`\n"
         self.assertIn("#tr-code-break(", run_filters(md, "typst"))
         self.assertIn(".<wbr/>", run_filters(md, "html5"))
+
+    TITLED = ('# C {#ch-c .tr-chapter}\n\nThanks @alice.\n\n'
+              ':::::: {#rem-x .tr-env .remark tr-kind="remark" tr-status="informal" tr-label="Remark" '
+              'tr-number="1.1" tr-ref="Remark 1.1" tr-title="Case of [@thm-x] for $\\\\norm{v}$"}\n'
+              'Body $\\norm{w}$.\n::::::\n')
+
+    def test_at_signs_are_text_not_citations(self):
+        # A Typst #cite needs a bibliography the book does not have: the PDF build would fail.
+        out = run_filters(self.TITLED, "typst", self.META)
+        self.assertNotIn("#cite", out)
+        self.assertIn("Thanks \\@alice.", out)
+        self.assertIn("title: [Case of \\[\\@thm-x\\] for", out)
+        self.assertNotIn("<thm-x>", out)
+
+    def test_macros_reach_titles_and_body(self):
+        meta = {**self.META, "tr-tex-macros": mathrender.newcommands()}
+        typst = run_filters(mathrender.newcommands() + "\n\n" + self.TITLED, "typst", meta)
+        self.assertNotIn("norm", typst)
+        self.assertIn("for $∥v∥$]", typst)  # the title, read by tr-env.lua with the macros
+        self.assertIn("Body $∥w∥$.", typst)
+        html = run_filters(mathrender.newcommands() + "\n\n" + self.TITLED, "html5", meta)
+        self.assertNotIn("\\norm", html)
+        self.assertNotIn("newcommand", html)
 
 
 class MetadataTest(unittest.TestCase):
@@ -441,6 +562,34 @@ class MetadataTest(unittest.TestCase):
             self.assertIn(b"<title>One two</title>", z.read("EPUB/text/ch001.xhtml"))
             self.assertTrue(all(i.date_time == (2026, 1, 2, 0, 0, 0) for i in infos))
 
+    def test_finalize_epub_declares_mathml_in_nav(self):
+        # Pandoc copies heading MathML into nav.xhtml but declares `mathml` only for chapters
+        # (epubcheck OPF-014).
+        math = b'<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>'
+        opf = (b'<package><manifest>\n'
+               b'<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />\n'
+               b'<item id="c1" href="text/ch001.xhtml" media-type="application/xhtml+xml" properties="mathml" />\n'
+               b'<item id="c2" href="text/ch002.xhtml" media-type="application/xhtml+xml" />\n'
+               b'<item id="c3" href="text/ch003.xhtml" media-type="application/xhtml+xml" />\n'
+               b'</manifest></package>')
+        raw = self.tmp / "math.epub"
+        with zipfile.ZipFile(raw, "w") as z:
+            z.writestr("mimetype", "application/epub+zip")
+            z.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="EPUB/content.opf" '
+                                                 'media-type="application/oebps-package+xml" /></rootfiles></container>')
+            z.writestr("EPUB/content.opf", opf)
+            z.writestr("EPUB/nav.xhtml", b"<nav><a href='text/ch001.xhtml#h'>T " + math + b"</a></nav>")
+            z.writestr("EPUB/text/ch001.xhtml", b"<html><body><h1>T " + math + b"</h1></body></html>")
+            z.writestr("EPUB/text/ch002.xhtml", b"<html><body><p>" + math + b"</p></body></html>")
+            z.writestr("EPUB/text/ch003.xhtml", b"<html><body><p>no math</p></body></html>")
+        out = tp.finalize_epub(raw, self.tmp / "math-out.epub", specified_fonts=False, epoch=0)
+        with zipfile.ZipFile(out) as z:
+            new = z.read("EPUB/content.opf").decode("utf-8")
+        self.assertIn('href="nav.xhtml" media-type="application/xhtml+xml" properties="nav mathml" />', new)
+        self.assertIn('href="text/ch001.xhtml" media-type="application/xhtml+xml" properties="mathml" />', new)
+        self.assertIn('href="text/ch002.xhtml" media-type="application/xhtml+xml" properties="mathml"/>', new)
+        self.assertIn('href="text/ch003.xhtml" media-type="application/xhtml+xml" />', new)
+
 
 @unittest.skipUnless(have_pandoc() and have_typst(), "pandoc or typst not available")
 class BuildTest(unittest.TestCase):
@@ -449,7 +598,7 @@ class BuildTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-test-build-"))
-        cls.site = config.load_site()
+        cls.site = fixture_site()
         cls.book = make_book(cls.tmp)
         cls.ed = cls.book.edition("en")
         cls.model = load_edition(cls.ed)
@@ -469,6 +618,19 @@ class BuildTest(unittest.TestCase):
         self.assertIn('#tr-part(id: "tr-part-1"', main)
         self.assertIn('#tr-media(kind: "viz")[', main)
         self.assertNotIn("<nowhere>", main)
+        # Each chapter keeps its own footnote text.
+        self.assertIn("note#footnote[NOTE-A-TEXT]", main)
+        self.assertIn("note#footnote[NOTE-B-TEXT]", main)
+        # "@alice" is text, not a citation (Typst would demand a bibliography).
+        self.assertNotIn("#cite", main)
+        # Macros are expanded in math (no raw TeX fallback), titles included.
+        self.assertNotIn("\\norm", main)
+        self.assertIn("a norm $∥x∥$ and $⌊y⌋$", main)
+        self.assertIn("== Bound $x^2$ for $∥x∥$", main)
+        # b.md#summary reaches B's "Summary", not A's.
+        self.assertIn("#link(<ch-b--summary>)[the summary of B]", main)
+        self.assertRegex(main, r"== Summary\s*<ch-b--summary>")
+        self.assertIn(f'#link("{BASE_URL}test-book/en/_book/assets/data.csv")[the data]', main)
 
     def test_pdf_rejects_unknown_variant(self):
         with self.assertRaises(tp.PandocError):
@@ -491,6 +653,16 @@ class BuildTest(unittest.TestCase):
             opf = z.read("EPUB/content.opf").decode("utf-8")
             css = z.read("EPUB/styles/stylesheet1.css").decode("utf-8")
             texts = "".join(z.read(n).decode("utf-8") for n in names if n.endswith(".xhtml"))
+            nav = z.read("EPUB/nav.xhtml").decode("utf-8")
+            chapter = {n: z.read(n).decode("utf-8") for n in names if re.search(r"text/ch\d+\.xhtml$", n)}
+        a = next(t for t in chapter.values() if "NOTE-A-TEXT" in t)
+        b = next(t for t in chapter.values() if "NOTE-B-TEXT" in t)
+        self.assertNotEqual(a, b)  # each note's text stays in its own chapter file
+        self.assertNotIn("NOTE-B-TEXT", a)
+        self.assertIn("<math", nav)  # "## Bound $x^2$ …" in the table of contents
+        self.assertRegex(opf, r'href="nav\.xhtml"[^>]*properties="nav mathml"')
+        self.assertIn(f'href="{BASE_URL}test-book/en/files/table.csv"', texts)
+        self.assertNotIn("\\norm", texts)  # expanded before MathML conversion (annotations too)
         self.assertIn("<dc:title id=\"epub-title-1\">Test Book</dc:title>", opf)
         self.assertIn('property="title-type">subtitle</meta>', opf)
         self.assertIn("<dc:language>en</dc:language>", opf)

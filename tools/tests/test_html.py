@@ -27,6 +27,7 @@ NODE = shutil.which("node")
 HAVE_KATEX = bool(NODE) and (paths.ROOT / "node_modules" / "katex" / "package.json").exists()
 MDBOOK = os.environ.get("MDBOOK") or shutil.which("mdbook")
 LOCK = lean.Lock.load()
+EXAMPLE = paths.BOOKS / "example-monograph"
 
 
 def texs(text: str) -> list[str]:
@@ -100,8 +101,27 @@ class FindMathTest(unittest.TestCase):
         self.assertEqual(texs("$x\ny$"), ["x\ny"])  # soft line break inside inline math
 
     def test_table_row_pipe(self):
-        self.assertEqual(texs(r"| $\|x\|$ | b |"), ["|x|"])
+        # "\|" is the norm bar in a table row too: Pandoc (PDF/EPUB) keeps it, and the formula
+        # is rendered before mdBook splits the row, so HTML must not turn it into "|".
+        self.assertEqual(texs(r"| $\|x\|$ | b |"), [r"\|x\|"])
         self.assertEqual(texs(r"text $\|x\|$"), [r"\|x\|"])
+        self.assertEqual(texs(r"| $|x|$ | b |"), ["|x|"])
+
+
+class MacroTest(unittest.TestCase):
+    def test_newcommands_count_arguments(self):
+        self.assertEqual(mathrender.newcommands({"\\a": "x #1 #2", "\\b": "y", "\\c": ""}),
+                         "\\newcommand{\\a}[2]{x #1 #2}\n\\newcommand{\\b}{y}\n\\newcommand{\\c}{}")
+        self.assertIn("\\newcommand{\\norm}[1]{\\left\\lVert #1\\right\\rVert}", mathrender.newcommands())
+        self.assertIn("\\newcommand{\\Tr}{\\operatorname{Tr}}", mathrender.newcommands())
+
+    @unittest.skipUnless(HAVE_KATEX, "node and the katex package are required")
+    def test_katex_gets_the_macro_table(self):
+        answers = mathrender.render_formulas([(r"\norm{x} + \Tr A + \nicefrac{1}{2}", False)])
+        self.assertIn("html", answers[0], answers)
+        self.assertNotIn("lenient", answers[0])
+        self.assertIn("∥", answers[0]["html"])
+        self.assertIn('mathrm">Tr<', answers[0]["html"])
 
 
 # --------------------------------------------------------------------------- splicing
@@ -185,6 +205,8 @@ class RenderFilesTest(unittest.TestCase):
         self.assertEqual(out.count("\n"), 7)  # every formula stays on one line
         row = out.splitlines()[-1]
         self.assertEqual(row.count("|"), 3, row)  # no raw pipe from the formula splits the table
+        self.assertIn('aria-label="\\&#124;v\\&#124;"', row)  # the norm, as in the PDF and EPUB
+        self.assertIn("∥", row)
 
 
 # --------------------------------------------------------------------------- staging
@@ -279,6 +301,7 @@ class SummaryTest(unittest.TestCase):
         self.assertIn("- [第二章 乙]()", text)
 
 
+@unittest.skipUnless(EXAMPLE.is_dir(), "books/example-monograph was removed")
 class BookTomlTest(unittest.TestCase):
     def setUp(self):
         self.site = config.load_site()
@@ -308,6 +331,46 @@ class BookTomlTest(unittest.TestCase):
         self.assertEqual(out["site-url"], "/example-monograph/zh/")
         self.assertNotIn("git-repository-url", out)
         self.assertNotIn("edit-url-template", out)
+
+
+class EditLinkTest(unittest.TestCase):
+    PREFIX = "https://github.com/o/r/edit/main/books/b/zh/"
+
+    @staticmethod
+    def page(path: str) -> str:
+        # The menu-bar markup of mdBook 0.5.4, whose {path} is "<src>/<chapter>.md".
+        return (f'<div class="right-buttons"><a href="https://github.com/o/r" title="Git repository">G</a>\n'
+                f'<a href="{EditLinkTest.PREFIX}src/{path}" title="Suggest an edit" aria-label="Suggest an edit" '
+                f'rel="edit">\n<span class=fa-svg id="git-edit-button"><svg></svg></span>\n</a>\n</div>')
+
+    def test_src_dropped_and_generated_pages_lose_the_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "part").mkdir()
+            (out / "ch01.html").write_text(self.page("ch01.md"), encoding="utf-8")
+            (out / "part" / "sub.html").write_text(self.page("part/sub.md"), encoding="utf-8")
+            (out / "verification-ledger.html").write_text(self.page(ledger.LEDGER_FILE), encoding="utf-8")
+            (out / "toc.html").write_text("<p>no menu</p>", encoding="utf-8")
+            self.assertEqual(html.fix_edit_links(out, self.PREFIX, {ledger.LEDGER_FILE}), 3)
+            ch01 = (out / "ch01.html").read_text(encoding="utf-8")
+            sub = (out / "part" / "sub.html").read_text(encoding="utf-8")
+            led = (out / "verification-ledger.html").read_text(encoding="utf-8")
+        self.assertIn(f'href="{self.PREFIX}ch01.md"', ch01)
+        self.assertIn(f'href="{self.PREFIX}part/sub.md"', sub)
+        self.assertNotIn("/src/", ch01 + sub + led)
+        self.assertNotIn('rel="edit"', led)
+        self.assertIn('title="Git repository"', led)
+        self.assertEqual(html.fix_edit_links(Path(tmp), "", set()), 0)
+
+    def test_prefix(self):
+        site = dataclasses.replace(config.load_site(), repo="o/r")
+        with tempfile.TemporaryDirectory() as tmp:  # outside the repository: no edit link
+            outside = config.load_book(write_book(Path(tmp))).editions[0]
+            self.assertEqual(html.edit_url_prefix(site, outside), "")
+        if EXAMPLE.is_dir():
+            ed = config.load_book("example-monograph").edition("zh")
+            self.assertEqual(html.edit_url_prefix(site, ed), "https://github.com/o/r/edit/main/books/example-monograph/zh/")
+            self.assertEqual(html.edit_url_prefix(dataclasses.replace(site, repo=""), ed), "")
 
 
 class ThemeTest(unittest.TestCase):
@@ -422,6 +485,7 @@ class SearchIndexTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_KATEX and MDBOOK, "node, katex and mdBook are required")
+@unittest.skipUnless(EXAMPLE.is_dir(), "books/example-monograph was removed")
 class BuildExampleTest(unittest.TestCase):
     """Build both editions of books/example-monograph and check the published pages."""
 
@@ -499,6 +563,21 @@ class BuildExampleTest(unittest.TestCase):
         js = next((self.out / "zh").glob("searchindex*.js")).read_text(encoding="utf-8")
         self.assertIn('"亏":{', js)
         self.assertIn('"量":{"docs":{', js)
+
+    def test_edit_links_name_existing_source_files(self):
+        site = config.load_site()
+        seen = 0
+        for lang in ("zh", "en"):
+            for page in self.pages(lang):
+                for href in re.findall(r'<a href="([^"]+)"[^>]*rel="edit"', page.read_text(encoding="utf-8")):
+                    m = re.match(rf"https://github\.com/{re.escape(site.repo)}/edit/[^/]+/(.+)$", href)
+                    self.assertIsNotNone(m, href)
+                    self.assertTrue((paths.ROOT / m.group(1)).is_file(), f"{page.name} → {href}")
+                    seen += 1
+            ledger_page = (self.out / lang / "verification-ledger.html").read_text(encoding="utf-8")
+            self.assertNotIn('rel="edit"', ledger_page)  # generated: no source to edit
+        if site.repo:
+            self.assertGreater(seen, 0)
 
 
 if __name__ == "__main__":
