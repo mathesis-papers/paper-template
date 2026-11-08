@@ -2,7 +2,8 @@
 
 It understands just enough of Pandoc Markdown for the book conventions:
 
-* fenced code blocks (backticks or tildes) — always passed through verbatim;
+* fenced code blocks (backticks or tildes), also inside block quotes and list items —
+  always passed through verbatim;
 * fenced divs ``::: {.theorem #thm-x lean="…"}`` … ``:::`` (and ``::: theorem``),
   nested by stack, as in Pandoc;
 * inline code spans, so that ``[@ref]``, ``lean:`` links and math inside code are ignored;
@@ -15,8 +16,20 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
-FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
-DIV_OPEN_RE = re.compile(r"^(?P<colons>:{3,})\s*(?:\{(?P<attrs>[^{}]*)\}|(?P<word>[A-Za-z][\w-]*))\s*:*\s*$")
+# A top-level code fence. A backtick fence's info string cannot contain a backtick
+# (CommonMark), so ```` ```x``` ```` at the start of a line is inline code, not a fence.
+FENCE_RE = re.compile(r"^(?P<indent> {0,3})(?P<fence>`{3,}(?=[^`]*$)|~{3,})(?P<info>.*)$")
+# A code fence in any container: after block-quote markers (``> ```…``) and/or the
+# indentation of a list item. :func:`fence_end` decides where its block ends.
+CONTAINER_FENCE_RE = re.compile(
+    r"^(?P<quote>(?:[ \t]*>[ \t]?)*)(?P<indent>[ \t]*)(?P<fence>`{3,}(?=[^`]*$)|~{3,})(?P<info>.*)$")
+_QUOTE_RE = re.compile(r"^(?:[ \t]*>[ \t]?)*")
+# Quoted attribute values may contain braces (TeX in a title: ``title="$\mathbb{N}$"``).
+DIV_OPEN_RE = re.compile(
+    r"""^(?P<colons>:{3,})\s*(?:\{(?P<attrs>(?:[^{}"']|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')*)\}"""
+    r"""|(?P<word>[A-Za-z][\w-]*))\s*:*\s*$""")
+# A line that starts like a div opener with attributes; if DIV_OPEN_RE rejects it, say so.
+DIV_OPEN_LIKE_RE = re.compile(r"^:{3,}\s*\{")
 DIV_CLOSE_RE = re.compile(r"^:{3,}\s*$")
 ATTR_TOKEN_RE = re.compile(
     r"""\s*(?:
@@ -54,6 +67,18 @@ def escape_attr(v: str) -> str:
     return v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
 
+_ATTR_ESCAPE_RE = re.compile(r"""\\(["'\\])""")
+
+
+def unescape_attr(v: str) -> str:
+    """Undo the quoting escapes of an attribute value: only ``\\"``, ``\\'`` and ``\\\\``.
+
+    Every other backslash is kept, so TeX in a title survives: ``title="$\\varphi$ in
+    $\\{-1,0,1\\}$"`` stays ``$\\varphi$ in $\\{-1,0,1\\}$``. Inverse of :func:`escape_attr`.
+    """
+    return _ATTR_ESCAPE_RE.sub(r"\1", v)
+
+
 class AttrError(ValueError):
     pass
 
@@ -74,7 +99,7 @@ def parse_attrs(text: str) -> Attrs:
             attrs.classes.append(m.group("cls"))
         else:
             val = m.group("dq") if m.group("dq") is not None else m.group("sq") if m.group("sq") is not None else m.group("bare")
-            attrs.kv[m.group("key")] = re.sub(r"\\(.)", r"\1", val)
+            attrs.kv[m.group("key")] = unescape_attr(val)
         pos = m.end()
         while pos < len(text) and text[pos].isspace():
             pos += 1
@@ -119,6 +144,54 @@ class ScanIssue:
     message: str
 
 
+def _width(space: str) -> int:
+    return len(space.expandtabs(4))
+
+
+def fence_end(lines: list[str], i: int) -> int | None:
+    """If ``lines[i]`` opens a fenced code block, the index of the block's last line; else None.
+
+    The opener may sit in block quotes or list items (``> ```…``, an indented fence). The
+    block ends at its closing fence: the opener's block-quote depth and fence character, at
+    least as many characters, no info string, and at most 3 more columns of indentation, so a
+    ``> ```…`` or deeper-indented fence shown inside a code example is content, not a closer.
+    Without one it ends with its container: before the first line with fewer ``>`` markers,
+    or, nested in a list item, before the first non-blank line left of the item's content;
+    otherwise at the end of the text.
+    """
+    m = CONTAINER_FENCE_RE.match(lines[i])
+    if not m:
+        return None
+    depth, width = m.group("quote").count(">"), _width(m.group("indent"))
+    char, length = m.group("fence")[0], len(m.group("fence"))
+    for j in range(i + 1, len(lines)):
+        line = lines[j]
+        if depth and _QUOTE_RE.match(line).group(0).count(">") < depth:
+            return j - 1
+        if not depth and width >= 4 and line.strip() and _width(line[:len(line) - len(line.lstrip())]) < width - 3:
+            return j - 1
+        c = CONTAINER_FENCE_RE.match(line)
+        if (c and c.group("quote").count(">") == depth and c.group("fence")[0] == char
+                and len(c.group("fence")) >= length and not c.group("info").strip()
+                and _width(c.group("indent")) <= width + 3):
+            return j
+    return len(lines) - 1
+
+
+def fenced_code_lines(lines: list[str]) -> list[bool]:
+    """True for each line of a fenced code block (fences included), exactly as :func:`parse_blocks` sees them."""
+    mask = [False] * len(lines)
+    i = 0
+    while i < len(lines):
+        end = fence_end(lines, i)
+        if end is None:
+            i += 1
+            continue
+        mask[i:end + 1] = [True] * (end + 1 - i)
+        i = end + 1
+    return mask
+
+
 def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]:
     """Split Markdown into Text / Code / Div nodes (divs nested)."""
     issues = issues if issues is not None else []
@@ -140,19 +213,10 @@ def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]
     while i < len(lines):
         line = lines[i]
         lineno = i + 1
-        fm = FENCE_RE.match(line)
-        if fm:
-            fence = fm.group("fence")
-            block = [line]
-            j = i + 1
-            closer = re.compile(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*$")
-            while j < len(lines):
-                block.append(lines[j])
-                if closer.match(lines[j]):
-                    break
-                j += 1
-            container().append(Code(block, lineno))
-            i = j + 1
+        end = fence_end(lines, i)
+        if end is not None:
+            container().append(Code(lines[i:end + 1], lineno))
+            i = end + 1
             continue
         om = DIV_OPEN_RE.match(line)
         if om:
@@ -166,7 +230,10 @@ def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]
             stack.append(div)
             i += 1
             continue
-        if DIV_CLOSE_RE.match(line) and stack:
+        if DIV_OPEN_LIKE_RE.match(line):
+            issues.append(ScanIssue(lineno, "cannot parse this fenced div opening line (unbalanced quotes or "
+                                            "braces?); it is treated as text"))
+        elif DIV_CLOSE_RE.match(line) and stack:
             stack.pop().end = lineno
             i += 1
             continue

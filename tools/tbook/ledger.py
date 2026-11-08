@@ -3,6 +3,10 @@
 It lists each formal environment with its Lean declaration(s), each linked at the
 pinned commit, followed by the explicitly open items. The output is plain Markdown
 (pipe tables), rendered by every target.
+
+The ledger never claims more than the lock backs: a declaration the lock does not resolve
+is shown as plain text (no link), and an item whose declarations do not all resolve to Lean
+theorems is marked UNVERIFIED in the state column (``./tbook check`` rejects such a book).
 """
 
 from __future__ import annotations
@@ -46,20 +50,26 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
     if lock:
         out += [f"{s('ui.pinned_at')} [`{lock.commit[:12]}`]({lock.tree_url}) · `{lock.repo}`", ""]
     formal = [e for e in model.all_envs() if e.kind in FORMAL]
+    unverified = s("badge.unverified") or s("slides.badge_unverified") or "UNVERIFIED"
     if formal:
         out += [f"| {s('ledger.col_item')} | {s('ledger.col_title')} | {s('ledger.col_decl')} | {s('ledger.col_state')} |",
                 "| --- | --- | --- | --- |"]
         for env in formal:
             decls = []
             states = []
+            verified = bool(env.lean)
             for gid in env.lean:
                 res = lock.get(gid) if lock else None
                 name = res.name if res else gid
-                url = lock.source_url(gid) if lock else ""
+                url = lock.source_url(gid) if lock and res else ""
                 decls.append(f"[`{_cell(name)}`]({url})" if url else f"`{_cell(name)}`")
-                if lock:
-                    sid = (res.statement_id.split(":", 1)[-1][:10] if res and res.statement_id else "state")
+                if lock and res and res.kind in lean.FORMAL_KINDS:
+                    sid = res.statement_id.split(":", 1)[-1][:10] if res.statement_id else "state"
                     states.append(f"[`{sid}`]({lock.state_url(gid)})")
+                else:
+                    verified = False
+            if not verified:
+                states = [f"**{_cell(unverified)}**"]
             item = f"[{env.ref_text(lang)}]({href(env)})" if env.id else env.ref_text(lang)
             out.append(f"| {item} | {_cell(env.title) or '—'} | {' · '.join(decls)} | {' '.join(states) or '—'} |")
         out.append("")
