@@ -400,8 +400,17 @@ class Slide:
         return bool(self.frontmatter.get("hide") or self.frontmatter.get("disabled"))
 
 
-_FRONTMATTER_RE = re.compile(r"^---.*\r?\n([\s\S]*?)---")
-_YAML_BLOCK_RE = re.compile(r"^\s*```ya?ml([\s\S]*?)```")
+# JavaScript's whitespace (\s, trim()): @slidev/parser and Slidev's Markdown trim and match with it, so the code
+# here that reads a deck as they do uses it too (Python's differs: U+FEFF, U+0085, U+001C-U+001F).
+_JS_SPACE = "\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+_JS_SPACE_CHARS = ("\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+                   "\u2028\u2029\u202f\u205f\u3000\ufeff")
+_FRONTMATTER_RE = re.compile(r"^---[^\n\r\u2028\u2029]*\r?\n([\s\S]*?)---")
+_YAML_BLOCK_RE = re.compile(rf"^[{_JS_SPACE}]*```ya?ml([\s\S]*?)```")
+
+
+def _js_trim(s: str) -> str:
+    return s.strip(_JS_SPACE_CHARS)
 
 
 def _advance_comment(line: str, inside: bool) -> bool:
@@ -438,10 +447,10 @@ def _parse_slide(raw: str, index: int, line: int) -> Slide:
         fm = parse_yaml(data) if data else {}
     except YamlError as exc:
         fm, error = {}, str(exc)
-    content = content.strip()
+    content = _js_trim(content)
     comments = list(re.finditer(r"<!--([\s\S]*?)-->", content))
     if comments and comments[-1].end() >= len(content):  # trailing comment = speaker notes
-        content = content[:comments[-1].start()].strip()
+        content = _js_trim(content[:comments[-1].start()])
     return Slide(index=index, line=line, frontmatter=fm, content=content, error=error)
 
 
@@ -467,19 +476,19 @@ def split_slides(text: str) -> list[Slide]:
     i = 0
     while i < len(lines):
         raw_line = lines[i]
-        line = raw_line.rstrip()
+        line = raw_line.rstrip(_JS_SPACE_CHARS)
         if in_comment:
             in_comment = _advance_comment(raw_line, True)
         elif line.startswith("---"):
             cut(i)
             nxt = lines[i + 1] if i + 1 < len(lines) else None
-            if (len(line) < 4 or line[3] != "-") and nxt is not None and nxt.strip():
+            if (len(line) < 4 or line[3] != "-") and nxt is not None and _js_trim(nxt):
                 start = i
                 i += 1
-                while i < len(lines) and lines[i].rstrip() != "---":
+                while i < len(lines) and lines[i].rstrip(_JS_SPACE_CHARS) != "---":
                     i += 1
-        elif line.lstrip().startswith("```"):
-            level = re.match(r"^\s*`+", line).group(0)
+        elif line.lstrip(_JS_SPACE_CHARS).startswith("```"):
+            level = re.match(rf"[{_JS_SPACE}]*`+", line).group(0)
             j = i + 1
             while j < len(lines) and not lines[j].startswith(level):
                 j += 1
@@ -498,199 +507,788 @@ def count_slides(text: str) -> int:
     return sum(1 for s in split_slides(text) if not s.hidden)
 
 
-# --------------------------------------------------------------------------- fenced code (as Slidev's Markdown)
-# Slidev renders a slide with markdown-it (CommonMark, plus footnotes): a tag inside fenced code is shown as
-# text, every other tag is rendered. code_lines() finds the fenced code line by line by the CommonMark block
-# rules, as markdown-it applies them; slides-lib.mjs codeLines() is the same algorithm (keep them in step:
-# test_slides compares both with markdown-it). Not modelled, all rare in slides: $$ math blocks (``` there is
-# not a fence), link reference definitions over several lines, and markdown-it reading a list marker 4
-# columns right of its list as text.
+# --------------------------------------------------------------------------- code in a slide (as Slidev's Markdown)
+# Slidev 53 renders a slide with markdown-exit (markdown-it 14) as unplugin-vue-markdown sets it up: HTML on,
+# the HTML block rule of @mdit-vue/plugin-component (a Vue component tag such as <v-click> or <LeanBadge>
+# starts an HTML block that may interrupt a paragraph, a self-closing one fills just its line), GFM tables,
+# footnotes (markdown-it-footnote) and Slidev's own block rules: `<<< file` snippet imports, `::name::` slot
+# markers and `$$` math (on in every deck that has a `$$`). A tag inside a code block (fenced, indented or
+# imported) is shown as text; every other tag is rendered. code_lines() runs those block rules as markdown-it
+# does (same rule order, same lists of rules that may interrupt a paragraph, block quote, list or table, same
+# container offsets) and records the lines of the code blocks; slides-lib.mjs codeLines() is the same port
+# (keep them in step: test_slides compares both with the parser Slidev builds). Patterns use JavaScript's \s
+# (Unicode spaces), trim and case folding (ASCII only). Not modelled: what a deck adds itself (mdc/comark
+# syntax, setup/transformers.ts, Markdown options in vite.config).
 
 _NEWLINE_RE = re.compile(r"\r\n?|\n")  # line ends as markdown-it reads them
-_QUOTE_RE = re.compile(r" *>")  # a block quote goes on at a > after any indentation (markdown-it)
-_FENCE_OPEN_RE = re.compile(r"`{3,}(?=[^`]*$)|~{3,}")  # a backtick fence's info string has no backtick
-_FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,}) *$")
-_HR_RE = re.compile(r"(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
-_SETEXT_RE = re.compile(r"(?:=+|-+) *$")
-_LIST_RE = re.compile(r"(?:[-+*]|([0-9]{1,9})[.)])(?= |$)")
-_ATX_RE = re.compile(r"#{1,6}(?= |$)")
-_SLOT_RE = re.compile(r"::[ \t]*[\w.:-]+[ \t]*::[ \t]*$", re.A)  # Slidev's ::slot:: line
-_FOOTNOTE_RE = re.compile(r"\[\^[^\] ]+\]:")  # a footnote (Slidev's markdown-it-footnote): its lines indent 4
-_REF_RE = re.compile(  # a link reference definition on one line
-    r"""\[(?! *\])(?:[^\\\[\]]|\\.){1,999}\]: *(?:<(?:[^<>\\]|\\.)*>|[^ <][^ ]*)"""
-    r"""(?: +(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))? *$""")
+_S = f"[{_JS_SPACE}]"  # JavaScript's \s
 _BLOCK_TAGS = ("address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|"
                "dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|"
                "html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|"
                "summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")
-_OPEN_TAG = (r"<[A-Za-z][A-Za-z0-9-]*(?:\s+[a-zA-Z_:][a-zA-Z0-9:._-]*"
-             r"(?:\s*=\s*(?:[^\"'=<>`\x00-\x20]+|'[^']*'|\"[^\"]*\"))?)*\s*/?>")
-_CLOSE_TAG = r"</[A-Za-z][A-Za-z0-9-]*\s*>"
+# HTML's inline elements, less Vue's own (template, component, slot, …): any other tag is a component
+_INLINE_TAGS = ("a|abbr|acronym|audio|b|bdi|bdo|big|br|button|canvas|cite|code|data|datalist|del|dfn|em|embed|i|"
+                "iframe|img|input|ins|kbd|label|map|mark|meter|noscript|object|output|picture|progress|q|ruby|s|"
+                "samp|script|select|small|span|strong|sub|sup|svg|textarea|time|u|tt|var|video|wbr")
+_ATTR = (rf"(?:{_S}+[a-zA-Z_:@][a-zA-Z0-9:._-]*(?:{_S}*={_S}*(?:[^\"'=<>`\x00-\x20]+|'[^']*'|\"[^\"]*\"))?)")
+_OPEN_TAG = rf"<[A-Za-z][A-Za-z0-9\-]*{_ATTR}*{_S}*/?>"
+_CLOSE_TAG = rf"</[A-Za-z][A-Za-z0-9\-]*{_S}*>"
 # HTML blocks: (start, end (None: a blank line), may interrupt a paragraph). ``` inside one is HTML, not code.
 _HTML_BLOCKS = (
-    (re.compile(r"<(?:script|pre|style|textarea)(?=\s|>|$)", re.I | re.A),
-     re.compile(r"</(?:script|pre|style|textarea)>", re.I | re.A), True),
+    (re.compile(rf"<(?:script|pre|style)(?={_S}|>|\Z)", re.I | re.A),
+     re.compile(r"</(?:script|pre|style)>", re.I | re.A), True),
     (re.compile(r"<!--"), re.compile(r"-->"), True),
     (re.compile(r"<\?"), re.compile(r"\?>"), True),
     (re.compile(r"<![A-Z]"), re.compile(r">"), True),
     (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>"), True),
-    (re.compile(rf"</?(?:{_BLOCK_TAGS})(?=\s|/?>|$)", re.I | re.A), None, True),
-    (re.compile(rf"(?:{_OPEN_TAG}|{_CLOSE_TAG})\s*$"), None, False),
+    (re.compile(rf"</?(?:{_BLOCK_TAGS})(?={_S}|/?>|\Z)", re.I | re.A), None, True),
+    (re.compile(rf"</?(?!(?:{_INLINE_TAGS})(?![\w-]))[A-Za-z][A-Za-z0-9\-]*(?={_S}|/?>|\Z)", re.A), None, True),
+    (re.compile(rf"(?:{_OPEN_TAG}|{_CLOSE_TAG}){_S}*\Z"), None, False),
 )
+_COMPONENT = 6  # its tag alone on a line, self-closing or closed on the line, is just that line
+_ONE_LINE_TAG = re.compile(rf"<[A-Za-z][A-Za-z0-9\-]*{_ATTR}*{_S}*/>|<([A-Za-z][A-Za-z0-9\-]*){_ATTR}*{_S}*>"
+                           rf"[^\n\r\u2028\u2029]*</\1{_S}*>")
+_SLOT_RE = re.compile(rf"::{_S}*[\w.\-:]+{_S}*::{_S}*\Z", re.A)  # Slidev's ::slot:: line
+_DOT = r"[^\n\r\u2028\u2029]"  # JavaScript's .
+_SNIPPET_RE = re.compile(  # Slidev's <<< file import: path, #region, language, {meta}
+    rf"<<<[ \t]*([^{_JS_SPACE}]{_DOT}*?)(#[\w-]+)?[ \t]*(?:[ \t]([^{_JS_SPACE}]+?))?[ \t]*(\{{{_DOT}*)?\Z", re.A)
+_DELIMITER_CELL_RE = re.compile(r":?-+:?\Z")
+_BAD_PROTO_RE = re.compile(r"(?:vbscript|javascript|file|data):")
+_GOOD_DATA_RE = re.compile(r"data:image/(?:gif|png|jpeg|webp);")
+# the named character references that can make a link destination start with one of those schemes
+_NAMED_REFS = {"Tab": "\t", "NewLine": "\n", "nbsp": "\u00a0", "NonBreakingSpace": "\u00a0", "ensp": "\u2002",
+               "emsp": "\u2003", "emsp13": "\u2004", "emsp14": "\u2005", "numsp": "\u2007", "puncsp": "\u2008",
+               "thinsp": "\u2009", "ThinSpace": "\u2009", "hairsp": "\u200a", "VeryThinSpace": "\u200a",
+               "MediumSpace": "\u205f", "ThickSpace": "\u205f\u200a", "colon": ":", "semi": ";", "sol": "/",
+               "fjlig": "fj"}
+_UNESCAPE_RE = re.compile(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])|&#([0-9A-Za-z]{1,31});"
+                          rf"|&({'|'.join(sorted(_NAMED_REFS, key=len, reverse=True))});")
+_NUMERIC_RE = re.compile(r"[xX]([0-9a-fA-F]{1,8})|([0-9]{1,8})")
+_NUMERIC_PREFIX_RE = re.compile(r"[xX]([0-9a-fA-F]+)|([0-9]+)")
 
 
-def _html_block(body: str):
-    return next((h for h in _HTML_BLOCKS if h[0].match(body)), None) if body[:1] == "<" else None
+def _space(c: str) -> bool:
+    return c == " " or c == "\t"
 
 
-def _starts_block(body: str) -> bool:
-    """Whether ``body`` starts a block that ends a paragraph (list items and footnotes aside)."""
-    html = _html_block(body)
-    return bool(_FENCE_OPEN_RE.match(body) or body[0] == ">" or _HR_RE.match(body) or _ATX_RE.match(body)
-                or _SLOT_RE.match(body) or (html and html[2]))
+def _valid_entity(c: int) -> bool:
+    return not (0xD800 <= c <= 0xDFFF or 0xFDD0 <= c <= 0xFDEF or (c & 0xFFFF) in (0xFFFF, 0xFFFE) or c <= 0x08
+                or c == 0x0B or 0x0E <= c <= 0x1F or 0x7F <= c <= 0x9F or c > 0x10FFFF)
 
 
-def _lazy_line_ends(stack: list[int], keep: int, body: str) -> bool:
-    """A line indented 4 columns past the ``keep`` containers it continues is indented code, or text going on
-    lazily with an open paragraph. Whether a container it left ends that paragraph (and the line is code), as
-    markdown-it decides: a block quote lets it through as lazy text; a list item, or a container inside a
-    quote it left, sees it indented less than its content, so a block start ends the paragraph there."""
-    quoted = False  # a block quote let the line through
-    for i in range(keep, len(stack) + 1):
-        if i < len(stack) and stack[i] >= 0:
-            continue  # a list item: the block inside it decides
-        if i == len(stack) and quoted:
-            return False  # the paragraph takes what its quote let through
-        if i > keep and (_starts_block(body) or (_LIST_RE.match(body) and (quoted or i - keep > 1))
-                         or (i == len(stack) and _FOOTNOTE_RE.match(body))):
-            return True
-        quoted = True
-    return False
+def _unescape(s: str) -> str:
+    """A link destination as markdown-it unescapes it, as far as it can decide whether the link is allowed:
+    backslash escapes, numeric character references (``&#58;``; ``&#58x;`` as the entities decoder reads it,
+    any character that cannot matter as U+FFFD) and the named references in ``_NAMED_REFS``."""
+    def one(m: re.Match) -> str:
+        if m.group(1):
+            return m.group(1)
+        if m.group(3):
+            return _NAMED_REFS[m.group(3)]
+        name = m.group(2)
+        exact = _NUMERIC_RE.fullmatch(name)
+        if exact:
+            c = int(exact.group(1), 16) if exact.group(1) else int(exact.group(2))
+            return chr(c) if _valid_entity(c) else m.group(0)
+        lead = _NUMERIC_PREFIX_RE.match(name)
+        if not lead:
+            return m.group(0)
+        c = int(lead.group(1), 16) if lead.group(1) else int(lead.group(2))
+        rest = name[lead.end():]
+        bad = c == 0 or 0x80 <= c <= 0x9F or 0xD800 <= c <= 0xDFFF or c > 0x10FFFF
+        return ("\ufffd" if bad else chr(c)) + (rest + ";" if rest else "")
+    return _UNESCAPE_RE.sub(one, s)
+
+
+def _escaped_split(s: str) -> list[str]:
+    """A table row's cells: split at | unless escaped (markdown-it's escapedSplit)."""
+    out, cur, last, escaped = [], "", 0, False
+    for pos, c in enumerate(s):
+        if c == "|":
+            if not escaped:
+                out.append(cur + s[last:pos])
+                cur, last = "", pos + 1
+            else:
+                cur += s[last:pos - 1]
+                last = pos
+        escaped = c == "\\"
+    out.append(cur + s[last:])
+    if out and out[0] == "":
+        out.pop(0)
+    if out and out[-1] == "":
+        out.pop()
+    return out
+
+
+class _Blocks:
+    """markdown-it's block state (StateBlock): per line its start (bm), end (em), first non-space (ts), indent
+    in columns (sc) and tab offset (bs), as the containers met so far have shifted them."""
+
+    def __init__(self, src: str) -> None:
+        self.src = src
+        self.bm: list[int] = []
+        self.em: list[int] = []
+        self.ts: list[int] = []
+        self.sc: list[int] = []
+        self.bs: list[int] = []
+        start, n = 0, len(src)
+        while start < n:
+            end = src.find("\n", start)
+            end = n if end < 0 else end
+            pos, offset = start, 0
+            while pos < end and _space(src[pos]):
+                offset += 4 - offset % 4 if src[pos] == "\t" else 1
+                pos += 1
+            self.bm.append(start), self.em.append(end), self.ts.append(pos - start), self.sc.append(offset)
+            self.bs.append(0)
+            start = end + 1
+        self.bm.append(n), self.em.append(n), self.ts.append(0), self.sc.append(0), self.bs.append(0)
+        self.line_max = len(self.bm) - 1
+        self.line = 0
+        self.blk = 0  # blkIndent
+        self.list_indent = -1
+        self.parent = "root"
+        self.level = 0
+        self.code = [False] * self.line_max
+
+    def at(self, pos: int) -> str:
+        return self.src[pos:pos + 1]
+
+    def empty(self, line: int) -> bool:
+        return line < len(self.bm) and self.bm[line] + self.ts[line] >= self.em[line]
+
+    def skip_empty(self, line: int) -> int:
+        while line < self.line_max and self.bm[line] + self.ts[line] >= self.em[line]:
+            line += 1
+        return line
+
+    def skip_spaces(self, pos: int) -> int:
+        while pos < len(self.src) and _space(self.src[pos]):
+            pos += 1
+        return pos
+
+    def skip_chars(self, pos: int, c: str) -> int:
+        while pos < len(self.src) and self.src[pos] == c:
+            pos += 1
+        return pos
+
+    def text(self, line: int) -> str:
+        return self.src[self.bm[line] + self.ts[line]:self.em[line]]
+
+    def mark(self, start: int, end: int) -> None:
+        for i in range(start, min(end, self.line_max)):
+            self.code[i] = True
+
+    def interrupts(self, chain: tuple, line: int, end: int) -> bool:
+        return any(rule(self, line, end, True) for rule in chain)
+
+    def tokenize(self, start: int, end: int) -> None:
+        line = start
+        while line < end:
+            self.line = line = self.skip_empty(line)
+            if line >= end or self.sc[line] < self.blk:
+                break
+            if self.level >= 100:  # markdown-it's maxNesting
+                self.line = end
+                break
+            for rule in _RULES:
+                if rule(self, line, end, False):
+                    break
+            line = self.line
+            if line < end and self.empty(line):
+                line += 1
+                self.line = line
+
+
+def _table(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    if start + 2 > end:
+        return False
+    nxt = start + 1
+    if s.sc[nxt] < s.blk or s.sc[nxt] - s.blk >= 4:
+        return False
+    pos, mx = s.bm[nxt] + s.ts[nxt], s.em[nxt]
+    if pos >= mx:
+        return False
+    first = s.src[pos]
+    if first not in "|-:" or pos + 1 >= mx:
+        return False
+    second = s.src[pos + 1]
+    if (second not in "|-:" and not _space(second)) or (first == "-" and _space(second)):
+        return False
+    if any(c not in "|-:" and not _space(c) for c in s.src[pos + 2:mx]):
+        return False
+    cells = s.text(nxt).split("|")
+    aligns = 0
+    for i, cell in enumerate(cells):
+        t = _js_trim(cell)
+        if not t:
+            if i == 0 or i == len(cells) - 1:
+                continue
+            return False
+        if not _DELIMITER_CELL_RE.match(t):
+            return False
+        aligns += 1
+    head = _js_trim(s.text(start))
+    if "|" not in head or s.sc[start] - s.blk >= 4:
+        return False
+    columns = len(_escaped_split(head))
+    if columns == 0 or columns != aligns:
+        return False
+    if silent:
+        return True
+    old_parent, s.parent = s.parent, "table"
+    autocompleted = 0
+    nxt = start + 2
+    while nxt < end:
+        if s.sc[nxt] < s.blk or s.interrupts(_QUOTE_BREAKS, nxt, end):
+            break
+        row = _js_trim(s.text(nxt))
+        if not row or s.sc[nxt] - s.blk >= 4:
+            break
+        autocompleted += columns - len(_escaped_split(row))
+        if autocompleted > 65536:
+            break
+        nxt += 1
+    s.parent = old_parent
+    s.line = nxt
+    return True
+
+
+def _code(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    if s.sc[start] - s.blk < 4:
+        return False
+    nxt = last = start + 1
+    while nxt < end:
+        if s.empty(nxt):
+            nxt += 1
+        elif s.sc[nxt] - s.blk >= 4:
+            nxt += 1
+            last = nxt
+        else:
+            break
+    s.line = last
+    s.mark(start, last)
+    return True
+
+
+def _snippet(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    m = _SNIPPET_RE.match(s.text(start))
+    if not m:
+        return False
+    if not silent:
+        s.line = start + 1
+        if "{monaco-write}" not in (m.group(4) or ""):  # that one is an editor
+            s.mark(start, start + 1)
+    return True
+
+
+def _slot(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    if s.sc[start] - s.blk > 0 or not _SLOT_RE.match(s.text(start)):
+        return False
+    if not silent:
+        s.line = start + 1
+    return True
+
+
+def _fence(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos, mx = s.bm[start] + s.ts[start], s.em[start]
+    if s.sc[start] - s.blk >= 4 or pos + 3 > mx:
+        return False
+    marker = s.src[pos]
+    if marker not in "~`":
+        return False
+    mem, pos = pos, s.skip_chars(pos, marker)
+    size = pos - mem
+    if size < 3 or (marker == "`" and "`" in s.src[pos:mx]):
+        return False
+    if silent:
+        return True
+    nxt, closed = start, False
+    while True:
+        nxt += 1
+        if nxt >= end:
+            break
+        pos = mem = s.bm[nxt] + s.ts[nxt]
+        mx = s.em[nxt]
+        if pos < mx and s.sc[nxt] < s.blk:
+            break
+        if s.at(pos) != marker or s.sc[nxt] - s.blk >= 4:
+            continue
+        pos = s.skip_chars(pos, marker)
+        if pos - mem < size or s.skip_spaces(pos) < mx:
+            continue
+        closed = True
+        break
+    s.line = nxt + (1 if closed else 0)
+    s.mark(start, s.line)
+    return True
+
+
+def _blockquote(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos = s.bm[start] + s.ts[start]
+    if s.sc[start] - s.blk >= 4 or s.at(pos) != ">":
+        return False
+    if silent:
+        return True
+    old_line_max, old_parent, s.parent = s.line_max, s.parent, "blockquote"
+    saved: list[tuple[int, int, int, int]] = []  # (bm, bs, sc, ts) of the lines from `start` on
+    last_empty = False
+    nxt = start
+    while nxt < end:
+        outdented = s.sc[nxt] < s.blk
+        pos, mx = s.bm[nxt] + s.ts[nxt], s.em[nxt]
+        if pos >= mx:
+            break
+        if s.src[pos] == ">" and not outdented:
+            pos += 1
+            initial = s.sc[nxt] + 1
+            adjust = space_after = False
+            if s.at(pos) == " ":
+                pos, initial, space_after = pos + 1, initial + 1, True
+            elif s.at(pos) == "\t":
+                space_after = True
+                if (s.bs[nxt] + initial) % 4 == 3:
+                    pos, initial = pos + 1, initial + 1
+                else:
+                    adjust = True
+            offset = initial
+            saved.append((s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]))
+            s.bm[nxt] = pos
+            while pos < mx and _space(s.src[pos]):
+                offset += 4 - (offset + s.bs[nxt] + (1 if adjust else 0)) % 4 if s.src[pos] == "\t" else 1
+                pos += 1
+            last_empty = pos >= mx
+            s.bs[nxt] = s.sc[nxt] + 1 + (1 if space_after else 0)
+            s.sc[nxt] = offset - initial
+            s.ts[nxt] = pos - s.bm[nxt]
+            nxt += 1
+            continue
+        if last_empty:
+            break
+        if s.interrupts(_QUOTE_BREAKS, nxt, end):
+            s.line_max = nxt
+            if s.blk != 0:
+                saved.append((s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]))
+                s.sc[nxt] -= s.blk
+            break
+        saved.append((s.bm[nxt], s.bs[nxt], s.sc[nxt], s.ts[nxt]))
+        s.sc[nxt] = -1  # a lazy line: text going on with a paragraph
+        nxt += 1
+    old_indent, s.blk = s.blk, 0
+    s.level += 1
+    s.tokenize(start, nxt)
+    s.level -= 1
+    s.line_max, s.parent = old_line_max, old_parent
+    for i, (bm, bs, sc, ts) in enumerate(saved):
+        s.bm[start + i], s.bs[start + i], s.sc[start + i], s.ts[start + i] = bm, bs, sc, ts
+    s.blk = old_indent
+    return True
+
+
+def _math(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos, mx = s.bm[start] + s.ts[start], s.em[start]
+    if pos + 2 > mx or s.src[pos:pos + 2] != "$$":
+        return False
+    if silent:
+        return True
+    found = _js_trim(s.src[pos + 2:mx])[-2:] == "$$"
+    nxt = start
+    while not found:
+        nxt += 1
+        if nxt >= end:
+            break
+        pos, mx = s.bm[nxt] + s.ts[nxt], s.em[nxt]
+        if pos < mx and s.ts[nxt] < s.blk:
+            break
+        found = _js_trim(s.src[pos:mx])[-2:] == "$$"
+    s.line = nxt + 1  # sic: the line that ended the block goes with it
+    return True
+
+
+def _hr(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos, mx = s.bm[start] + s.ts[start], s.em[start]
+    marker = s.at(pos)
+    if s.sc[start] - s.blk >= 4 or marker not in ("*", "-", "_"):
+        return False
+    count = 1
+    for c in s.src[pos + 1:mx]:
+        if c != marker and not _space(c):
+            return False
+        count += c == marker
+    if count < 3:
+        return False
+    if not silent:
+        s.line = start + 1
+    return True
+
+
+def _bullet(s: _Blocks, line: int) -> int:
+    pos, mx = s.bm[line] + s.ts[line], s.em[line]
+    if s.at(pos) not in ("*", "-", "+") or (pos + 1 < mx and not _space(s.src[pos + 1])):
+        return -1
+    return pos + 1
+
+
+def _ordered(s: _Blocks, line: int) -> int:
+    start = pos = s.bm[line] + s.ts[line]
+    mx = s.em[line]
+    if pos + 1 >= mx or not "0" <= s.src[pos] <= "9":
+        return -1
+    pos += 1
+    while True:
+        if pos >= mx:
+            return -1
+        c = s.src[pos]
+        pos += 1
+        if "0" <= c <= "9":
+            if pos - start >= 10:
+                return -1
+            continue
+        if c in ").":
+            break
+        return -1
+    if pos < mx and not _space(s.src[pos]):
+        return -1
+    return pos
+
+
+def _list(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    nxt = start
+    if s.sc[nxt] - s.blk >= 4:
+        return False
+    if s.list_indent >= 0 and s.sc[nxt] - s.list_indent >= 4 and s.sc[nxt] < s.blk:
+        return False  # a list marker indented 4 columns past its list is text
+    interrupting = silent and s.parent == "paragraph" and s.sc[nxt] >= s.blk
+    after = _ordered(s, nxt)
+    if after >= 0:
+        ordered = True
+        if interrupting and int(s.src[s.bm[nxt] + s.ts[nxt]:after - 1]) != 1:
+            return False
+    else:
+        after = _bullet(s, nxt)
+        if after < 0:
+            return False
+        ordered = False
+    if interrupting and s.skip_spaces(after) >= s.em[nxt]:
+        return False
+    if silent:
+        return True
+    marker = s.src[after - 1]
+    old_parent, s.parent = s.parent, "list"
+    s.level += 1
+    while nxt < end:
+        pos, mx = after, s.em[nxt]
+        initial = offset = s.sc[nxt] + after - (s.bm[nxt] + s.ts[nxt])
+        while pos < mx and _space(s.src[pos]):
+            offset += 4 - (offset + s.bs[nxt]) % 4 if s.src[pos] == "\t" else 1
+            pos += 1
+        content = pos
+        gap = 1 if content >= mx else offset - initial
+        indent = initial + (1 if gap > 4 else gap)
+        old_ts, old_sc, old_list_indent = s.ts[nxt], s.sc[nxt], s.list_indent
+        s.list_indent, s.blk = s.blk, indent
+        s.ts[nxt], s.sc[nxt] = content - s.bm[nxt], offset
+        s.level += 1
+        if content >= mx and s.empty(nxt + 1):
+            s.line = min(s.line + 2, end)
+        else:
+            s.tokenize(nxt, end)
+        s.level -= 1
+        s.blk, s.list_indent = s.list_indent, old_list_indent
+        s.ts[nxt], s.sc[nxt] = old_ts, old_sc
+        nxt = s.line
+        if nxt >= end or s.sc[nxt] < s.blk or s.sc[nxt] - s.blk >= 4 or s.interrupts(_LIST_BREAKS, nxt, end):
+            break
+        after = _ordered(s, nxt) if ordered else _bullet(s, nxt)
+        if after < 0 or s.src[after - 1] != marker:
+            break
+    s.level -= 1
+    s.line, s.parent = nxt, old_parent
+    return True
+
+
+def _footnote(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    first, mx = s.bm[start] + s.ts[start], s.em[start]
+    if first + 4 > mx or s.src[first:first + 2] != "[^":
+        return False
+    pos = first + 2
+    while pos < mx and s.src[pos] != "]":
+        if s.src[pos] == " ":
+            return False
+        pos += 1
+    if pos == first + 2 or pos + 1 >= mx or s.src[pos + 1] != ":":
+        return False
+    if silent:
+        return True
+    pos += 2
+    old = (s.bm[start], s.ts[start], s.sc[start], s.parent)
+    after_colon = pos
+    initial = offset = s.sc[start] + pos - first
+    while pos < mx and _space(s.src[pos]):
+        offset += 4 - offset % 4 if s.src[pos] == "\t" else 1
+        pos += 1
+    s.ts[start], s.sc[start], s.bm[start] = pos - after_colon, offset - initial, after_colon
+    s.blk += 4
+    s.parent = "footnote"
+    if s.sc[start] < s.blk:
+        s.sc[start] += s.blk
+    s.level += 1
+    s.tokenize(start, end)
+    s.level -= 1
+    s.blk -= 4
+    s.bm[start], s.ts[start], s.sc[start], s.parent = old
+    return True
+
+
+def _link_destination(st: str, start: int, mx: int) -> tuple[int, str] | None:
+    pos = start
+    if st[pos:pos + 1] == "<":
+        pos += 1
+        while pos < mx:
+            c = st[pos]
+            if c in "\n<":
+                return None
+            if c == ">":
+                return pos + 1, _unescape(st[start + 1:pos])
+            pos += 2 if c == "\\" and pos + 1 < mx else 1
+        return None
+    level = 0
+    while pos < mx:
+        c = st[pos]
+        if c == " " or ord(c) < 0x20 or c == "\x7f":
+            break
+        if c == "\\" and pos + 1 < mx:
+            if st[pos + 1] == " ":
+                break
+            pos += 2
+            continue
+        if c == "(":
+            level += 1
+            if level > 32:
+                return None
+        if c == ")":
+            if level == 0:
+                break
+            level -= 1
+        pos += 1
+    if start == pos or level != 0:
+        return None
+    return pos, _unescape(st[start:pos])
+
+
+def _link_title(st: str, start: int, mx: int, prev: dict | None) -> dict:
+    """markdown-it's parseLinkTitle; ``text`` is kept raw (only whether it is empty matters here)."""
+    pos = start
+    res = {"ok": False, "more": False, "pos": 0, "text": "", "marker": ""}
+    if prev:
+        res["text"], res["marker"] = prev["text"], prev["marker"]
+    else:
+        if pos >= mx or st[pos] not in "\"'(":
+            return res
+        res["marker"] = ")" if st[pos] == "(" else st[pos]
+        start, pos = start + 1, pos + 1
+    while pos < mx:
+        c = st[pos]
+        if c == res["marker"]:
+            res.update(pos=pos + 1, ok=True, text=res["text"] + st[start:pos])
+            return res
+        if c == "(" and res["marker"] == ")":
+            return res
+        if c == "\\" and pos + 1 < mx:
+            pos += 1
+        pos += 1
+    res.update(more=True, text=res["text"] + st[start:pos])
+    return res
+
+
+def _reference(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos, mx = s.bm[start] + s.ts[start], s.em[start]
+    if s.sc[start] - s.blk >= 4 or s.at(pos) != "[":
+        return False
+    nxt = start + 1
+
+    def next_line(line: int) -> str | None:  # the next line, when the definition may go on there
+        if line >= s.line_max or s.empty(line):
+            return None
+        if not (s.sc[line] - s.blk > 3 or s.sc[line] < 0):
+            old, s.parent = s.parent, "reference"
+            stop = s.interrupts(_PARAGRAPH_BREAKS, line, s.line_max)
+            s.parent = old
+            if stop:
+                return None
+        return s.src[s.bm[line] + s.ts[line]:s.em[line] + 1]
+
+    st = s.src[pos:mx + 1]
+    mx = len(st)
+
+    def more() -> None:
+        nonlocal st, mx, nxt
+        tail = next_line(nxt)
+        if tail is not None:
+            st, nxt = st + tail, nxt + 1
+            mx = len(st)
+
+    label_end, pos = -1, 1
+    while pos < mx:
+        c = st[pos]
+        if c == "[":
+            return False
+        if c == "]":
+            label_end = pos
+            break
+        if c == "\n":
+            more()
+        elif c == "\\":
+            pos += 1
+            if pos < mx and st[pos] == "\n":
+                more()
+        pos += 1
+    if label_end < 0 or st[label_end + 1:label_end + 2] != ":":
+        return False
+    pos = label_end + 2
+    while pos < mx and (st[pos] == "\n" or _space(st[pos])):
+        if st[pos] == "\n":
+            more()
+        pos += 1
+    dest = _link_destination(st, pos, mx)
+    if dest is None:
+        return False
+    url = _js_trim(dest[1]).lower()
+    if _BAD_PROTO_RE.match(url) and not _GOOD_DATA_RE.match(url):
+        return False
+    pos = dest_end = dest[0]
+    dest_line = nxt
+    begin = pos
+    while pos < mx and (st[pos] == "\n" or _space(st[pos])):
+        if st[pos] == "\n":
+            more()
+        pos += 1
+    title = _link_title(st, pos, mx, None)
+    while title["more"]:
+        tail = next_line(nxt)
+        if tail is None:
+            break
+        st, pos, nxt = st + tail, mx, nxt + 1
+        mx = len(st)
+        title = _link_title(st, pos, mx, title)
+    if pos < mx and begin != pos and title["ok"]:
+        has_title, pos = bool(title["text"]), title["pos"]
+    else:
+        has_title, pos, nxt = False, dest_end, dest_line
+    while pos < mx and _space(st[pos]):
+        pos += 1
+    if pos < mx and st[pos] != "\n" and has_title:  # text after the title: the definition ends before it
+        pos, nxt = dest_end, dest_line
+        while pos < mx and _space(st[pos]):
+            pos += 1
+    if (pos < mx and st[pos] != "\n") or not _js_trim(st[1:label_end]):
+        return False
+    if not silent:
+        s.line = nxt
+    return True
+
+
+def _html(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos = s.bm[start] + s.ts[start]
+    if s.sc[start] - s.blk >= 4 or s.at(pos) != "<":
+        return False
+    text = s.text(start)
+    kind = next((i for i, h in enumerate(_HTML_BLOCKS) if h[0].match(text)), None)
+    if kind is None:
+        return False
+    _, close, interrupts = _HTML_BLOCKS[kind]
+    if silent:
+        return interrupts
+    nxt = start + 1
+    if kind == _COMPONENT and _ONE_LINE_TAG.match(text):
+        s.line = nxt
+        return True
+    if not (close and close.search(text)):
+        while nxt < end and s.sc[nxt] >= s.blk:
+            line = s.text(nxt)
+            if close.search(line) if close else not line:
+                nxt += 1 if line else 0
+                break
+            nxt += 1
+    s.line = nxt
+    return True
+
+
+def _heading(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    pos, mx = s.bm[start] + s.ts[start], s.em[start]
+    if s.sc[start] - s.blk >= 4 or s.at(pos) != "#" or pos >= mx:
+        return False
+    level = 1
+    pos += 1
+    while s.at(pos) == "#" and pos < mx and level <= 6:
+        level += 1
+        pos += 1
+    if level > 6 or (pos < mx and not _space(s.at(pos))):
+        return False
+    if not silent:
+        s.line = start + 1
+    return True
+
+
+def _setext(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    if s.sc[start] - s.blk >= 4:
+        return False
+    old_parent, s.parent = s.parent, "paragraph"
+    level = 0
+    nxt = start + 1
+    while nxt < end and not s.empty(nxt):
+        if s.sc[nxt] - s.blk <= 3:
+            if s.sc[nxt] >= s.blk:
+                pos, mx = s.bm[nxt] + s.ts[nxt], s.em[nxt]
+                if pos < mx and s.src[pos] in "-=":
+                    if s.skip_spaces(s.skip_chars(pos, s.src[pos])) >= mx:
+                        level = 1 if s.src[pos] == "=" else 2
+                        break
+            if s.sc[nxt] >= 0 and s.interrupts(_PARAGRAPH_BREAKS, nxt, end):
+                break
+        nxt += 1
+    s.parent = old_parent
+    if not level:
+        return False
+    s.line = nxt + 1
+    return True
+
+
+def _paragraph(s: _Blocks, start: int, end: int, silent: bool) -> bool:
+    old_parent, s.parent = s.parent, "paragraph"
+    nxt = start + 1
+    while nxt < end and not s.empty(nxt):
+        if s.sc[nxt] - s.blk <= 3 and s.sc[nxt] >= 0 and s.interrupts(_PARAGRAPH_BREAKS, nxt, end):
+            break
+        nxt += 1
+    s.line = nxt
+    s.parent = old_parent
+    return True
+
+
+# markdown-it's block rules in Slidev's order, and the rules that may end a paragraph (or a link reference
+# definition), a block quote's lazy text or a table, and a list
+_RULES = (_table, _code, _snippet, _slot, _fence, _blockquote, _math, _hr, _list, _footnote, _reference, _html,
+          _heading, _setext, _paragraph)
+_PARAGRAPH_BREAKS = (_table, _snippet, _slot, _fence, _blockquote, _math, _hr, _list, _footnote, _html, _heading)
+_QUOTE_BREAKS = (_snippet, _slot, _fence, _blockquote, _math, _hr, _list, _html, _heading)
+_LIST_BREAKS = (_snippet, _slot, _fence, _blockquote, _math, _hr)
 
 
 def code_lines(text: str) -> list[bool]:
-    """For each line of a slide's Markdown, whether it is part of a fenced code block (fences included).
-
-    CommonMark rules: a fence opens with at least three backticks or tildes indented at most 3 columns
-    inside its container (block quote, list item) and closes at a fence of the same character, at least
-    as long and with nothing after it, or when its container ends; it may interrupt a paragraph. A
-    ```` ``` ```` line indented 4 columns (indented code or paragraph text) or inside an HTML block is not a
-    fence. Tabs count to the next multiple of 4 columns.
-    """
-    lines = _NEWLINE_RE.split(text)
-    mask = [False] * len(lines)
-    # open containers: -1 a block quote, otherwise a list item: the columns of its content after its container's
-    stack: list[int] = []
-    leaf: Any = None  # None, "p" (paragraph), "c" (indented code), ("f", char, length), ("h", end)
-    empty_item = 0  # len(stack) after a list item whose first line is blank, on the next line
-    for n, raw in enumerate(lines):
-        line = raw.expandtabs(4)
-        pos = keep = 0  # keep: containers this line continues
-        fresh, empty_item = empty_item, 0
-        for col in stack:
-            if col < 0:
-                m = _QUOTE_RE.match(line, pos)
-                if not m:
-                    break
-                pos = m.end() + (line[m.end():m.end() + 1] == " ")
-            elif line[pos:].strip(" "):
-                if len(line) - pos - len(line[pos:].lstrip(" ")) < col:
-                    break
-                pos += col
-            keep += 1
-        if fresh and keep >= fresh and not line[pos:].strip(" "):
-            keep = fresh - 1  # a list item can begin with at most one blank line
-        if isinstance(leaf, tuple):
-            if keep == len(stack):
-                if leaf[0] == "f":
-                    mask[n] = True
-                    m = _FENCE_CLOSE_RE.match(line, pos)
-                    if m and m.group(1)[0] == leaf[1] and len(m.group(1)) >= leaf[2]:
-                        leaf = None
-                    continue
-                end = leaf[1]
-                if end is None and not line[pos:].strip(" "):
-                    leaf = None
-                elif end is not None and end.search(line, pos):
-                    leaf = None
-                continue
-            leaf = None  # its container ended, so did the fence or HTML block
-        while True:  # the blocks this line starts
-            rest = line[pos:]
-            body = rest.lstrip(" ")
-            ind = len(rest) - len(body)
-            inner = keep == len(stack)
-            if not body:
-                del stack[keep:]
-                leaf = None
-                break
-            if ind >= 4:
-                if leaf != "p" or (not inner and _lazy_line_ends(stack, keep, body)):
-                    del stack[keep:]
-                    leaf = "c"
-                break
-            m = _FENCE_OPEN_RE.match(body)
-            if m:
-                del stack[keep:]
-                leaf = ("f", m.group(0)[0], len(m.group(0)))
-                mask[n] = True
-                break
-            if body[0] == ">":
-                del stack[keep:]
-                stack.append(-1)
-                keep = len(stack)
-                pos += ind + 1 + (body[1:2] == " ")
-                leaf = None
-                continue
-            if (leaf == "p" and inner and _SETEXT_RE.match(body)) or _HR_RE.match(body):
-                del stack[keep:]
-                leaf = None
-                break
-            m = _LIST_RE.match(body)
-            after = body[m.end():] if m else ""
-            empty = not after.strip(" ")
-            if m and not (leaf == "p" and inner and (empty or (m.group(1) is not None and int(m.group(1)) != 1))):
-                del stack[keep:]
-                gap = len(after) - len(after.lstrip(" "))
-                stack.append(ind + m.end() + (1 if empty or gap > 4 else gap))
-                keep = len(stack)
-                leaf = None
-                if empty:
-                    empty_item = len(stack)
-                    break
-                pos += stack[-1]
-                continue
-            m = _FOOTNOTE_RE.match(body)  # ends a paragraph, but goes on with one in a quote the line left
-            if m and (leaf != "p" or inner or all(c >= 0 for c in stack[keep:])):
-                del stack[keep:]
-                stack.append(4)
-                keep = len(stack)
-                leaf = None
-                pos += ind + m.end()
-                pos = len(line) - len(line[pos:].lstrip(" "))
-                continue
-            if leaf != "p" and _REF_RE.match(body):
-                del stack[keep:]
-                leaf = None
-                break
-            html = _html_block(body)
-            if html and (html[2] or leaf != "p"):
-                del stack[keep:]
-                leaf = None if html[1] is not None and html[1].search(body) else ("h", html[1])
-                break
-            if _ATX_RE.match(body) or (ind == 0 and _SLOT_RE.match(body)):
-                del stack[keep:]
-                leaf = None
-                break
-            if leaf != "p":  # a new paragraph; otherwise it continues (lazily, when containers ended)
-                del stack[keep:]
-                leaf = "p"
-            break
-    return mask
+    """For each line of a slide's Markdown, whether Slidev shows it as code: a line of a fenced code block
+    (fences included), of an indented code block or a ``<<< file`` import, as markdown-exit set up as Slidev
+    sets it up parses the slide (see the comment above). ``` in an HTML block (``<div>``, a component tag such
+    as ``<v-click>`` up to the next blank line, …), a math block or a table is not a fence."""
+    src = _NEWLINE_RE.sub("\n", text).replace("\0", "\ufffd")
+    blocks = _Blocks(src)
+    if src:
+        blocks.tokenize(0, blocks.line_max)
+    return blocks.code + [False] * (src.count("\n") + 1 - blocks.line_max)
 
 
 def strip_code(text: str) -> str:
-    """``text`` with the lines of fenced code blocks emptied (:func:`code_lines`)."""
+    """``text`` with the lines Slidev shows as code emptied (:func:`code_lines`)."""
     return "\n".join("" if code else line for line, code in zip(_NEWLINE_RE.split(text), code_lines(text)))
 
 
@@ -724,7 +1322,7 @@ def component(tag: str) -> str:
 
 def citations(content: str) -> tuple[list[Citation], list[str]]:
     """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide (in any spelling Vue accepts, e.g.
-    ``<lean-badge>``) outside fenced code (:func:`code_lines`), in order, and problems found.
+    ``<lean-badge>``) outside code blocks (:func:`code_lines`), in order, and problems found.
     ``Citation.tag`` is the PascalCase name."""
     out: list[Citation] = []
     problems: list[str] = []
