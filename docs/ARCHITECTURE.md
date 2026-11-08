@@ -61,7 +61,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 | 种类 | 类名 | Lean 引用 | 编号 | 徽章 |
 | --- | --- | --- | --- | --- |
-| 形式结论 | `theorem` `lemma` `proposition` `corollary` | **必须**，且解析为 Lean `theorem` | 是 | `LEAN ✓`（绿）；所引 GID 不能全部经锁文件解析为 Lean `theorem` 时，构建显示红色 `UNVERIFIED`，页脚与账本不给链接（`./tbook check` 报错） |
+| 形式结论 | `theorem` `lemma` `proposition` `corollary` | **必须**，且解析为 Lean `theorem` | 是 | `LEAN ✓`（绿，链接到第一条声明）；所引 GID 不能全部经锁文件解析为 Lean `theorem` 时，构建显示红色 `UNVERIFIED`，各端徽章都不是链接，页脚与账本只链接锁文件解析了的声明（`./tbook check` 报错） |
 | 定义 | `definition` | 可选；给出则必须解析 | 是 | — |
 | 开放 | `conjecture` `problem` | **禁止** | 是 | `OPEN`（红） |
 | 非形式 | `example` `remark` | 可选；给出则必须解析 | 是 | — |
@@ -69,7 +69,8 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 | 媒体 | `viz` `film` `slides` | 可选 | 否 | — |
 
 - `#id`：形式结论、定义、开放条目必须有 id；id 以字母开头，可含字母、数字、`-`、`_`、`:`。
-- `title="…"`：可选，单行，可含行内数学；反斜杠与花括号原样保留（`title="$\mathbb{N}$ 上的 $\{-1,0,1\}$"`）。值内的双引号写 `\"`；`\\` 读作一个反斜杠，所以 TeX 的 `\\` 要写成 `\\\\`。标题中可以写 `[@id]`（见 §3.3）。
+- `title="…"`：可选，单行行内 Markdown，可含行内数学；属性值里反斜杠与花括号原样保留（`title="$\mathbb{N}$ 上的 $\{-1,0,1\}$"`）。值内的双引号写 `\"`；`\\` 读作一个反斜杠，所以 TeX 的 `\\` 要写成 `\\\\`。标题中可以写 `[@id]`（见 §3.3）。
+- 标题的统一读法（环境标题与 SUMMARY 中的章节标题）：`$…$` 内的 TeX 不变；`$…$` 与行内代码之外，反斜杠加 ASCII 标点是 Markdown 转义，所有输出都显示标点本身（`C\*-代数` → C*-代数，`\$5` → $5，不是公式）。纯文字场合（mdBook 页头、侧栏、`<title>`、站点）用 `mdscan.unescape_markdown()` 的结果；mdBook 页头由 `render.title_html()` 写出，字面的 `$`、`\`、反引号写成字符引用，所以页头里的公式与 Pandoc 看到的完全相同；重新写回 mdBook 的 SUMMARY 时每个 ASCII 标点都加反斜杠（`html._escape_title()`）；Pandoc、账本拿到的是原 Markdown（`model.title_markdown()`、`Chapter.title_md`）。
 - `lean="GID [GID …]"`：一条或多条，空格或逗号分隔。
 - 只有显示 `LEAN ✓` 的形式结论计入各输出中的“LEAN ✓ n”与定理数（账本、版权页、封面、站点）；显示 `UNVERIFIED` 的不计入。
 - 编号：同一顶层章节内，所有编号种类共用一个计数器：`定理2.1`、`定义2.2`（中文、日文不加空格；英文为 `Theorem 2.1`）……前言类（prefix）章节用 `0.n`，附录类（suffix）章节用 `A.n`、`B.n`。
@@ -82,8 +83,9 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 ### 3.3 引用与链接
 
 - `[@thm-deficit]` → `定理1.2`（链接到该环境；跨章节有效）。环境标题中的 `[@id]` 显示为被引条目的引用文字（如 `定理1.2`；HTML 中是纯文字，PDF/EPUB 中链接到该条目）；与正文一样，id 不存在时 `./tbook check` 报错。
-- `` [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued) `` → 指向所钉提交上 Lean 源文件（含行号）的永久链接。
-- 图片：`![说明](../assets/figure.svg)`。指向书目录内、语言目录外的文件会被复制进构建目录 `_book/`。引用式 `![说明][fig]` + `[fig]: ../assets/x.svg`、尖括号 `![说明](<../assets/有 空格.svg>)` 与百分号编码的路径同样处理（输出为百分号编码的 `_book/…`）。HTML 中，指向 `README.md` 章节的链接与指向其中条目的 `[@id]` 输出为 `index.html`（mdBook 把 README 发布为 index.html）。
+- `` [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued) `` → 指向所钉提交上 Lean 源文件（含行号）的永久链接。尖括号 `(<lean:GID>)` 与引用式（`[x][lt]` + `[lt]: lean:GID`）相同：`model` 收集每种写法的 GID（`mdscan.lean_link_gids()`），`check` 核对、`pin --refresh` 收录。锁文件不能解析时，行内链接只保留文字，引用式定义的地址写成 `#`（PDF/EPUB 显示为文字），从不输出 `lean:` 地址。
+- 图片：`![说明](../assets/figure.svg)`。指向书目录内、语言目录外的文件会被复制进构建目录 `_book/`。引用式 `![说明][fig]` + `[fig]: ../assets/x.svg`、尖括号 `![说明](<../assets/有 空格.svg>)` 与百分号编码的路径同样处理（输出为百分号编码的 `_book/…`）。引用式定义按 CommonMark 判定（`mdscan.REFDEF_RE`）：独占一行，地址后只能有可选标题；`[注]: 见 [图](x.svg)`、`[1]: Knuth, TAOCP.` 是段落（Pandoc 的 Markdown 允许多个词的地址，会把这样的行当作定义吞掉，所以 pandoc 目标转义行首的 `[`，各端都显示这一段）。HTML 中，指向 `README.md` 章节的链接与指向其中条目的 `[@id]` 输出为 `index.html`（mdBook 把 README 发布为 index.html）。
+- HTML 注释不出现在任何输出中：行内注释（同一行闭合）像行内代码一样跳过；以 `<!--` 开头且未在本行闭合的行开始注释块，到含 `-->` 的行为止（`mdscan.comment_end()`，与 Pandoc 暂存的掩码规则相同），按原样输出。注释中的链接、`[@id]`、`lean:` 链接与环境都不改写、不检查、不编号；注释块没有 `-->` 时报错。
 - 链接（非图片）到书内或语言目录内的文件（如 `../assets/data.csv`）：HTML 链接到构建目录中的副本；PDF/EPUB 改为指向网站上的同一副本（地址由 `site.book_url` 拼出），`base_url` 未知时只保留链接文字并警告。
 - 脚注标签与无显式 id 的标题按章节独立（与 HTML 每章一页一致）：PDF/EPUB 合并全书时，脚注标签变为 `[^<章节 id>--<标签>]`，标题得到全书唯一的 id（重名时为 `<章节 id>--<slug>`），`other.md#slug` 与 `#slug` 在所指章节内解析。
 
@@ -125,7 +127,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 ## 4. 校验（`./tbook check`）
 
 1. 配置：`site.toml`、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
-2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 闭合、无法解析的 div 开头行（报错）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录（警告）。
+2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 与 HTML 注释块闭合、无法解析的 div 开头行（报错）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录（警告）。
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
 5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
@@ -201,8 +203,8 @@ mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`
 | --- | --- |
 | `config` | `load_site()`、`load_book()`、`load_books()`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
 | `summary` | 解析 SUMMARY，章节编号前缀 |
-| `mdscan` | 代码块（含块引用与列表中的代码块；`fence_end` / `fenced_code_lines`）、fenced div、属性、行内代码、`[@id]`、`lean:` 链接 |
-| `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 把标题中的 `[@id]` 换成引用文字）；`Issue` |
+| `mdscan` | 代码块（含块引用与列表中的代码块；`fence_end` / `fenced_code_lines`）、HTML 注释（`comment_end`、行内注释）、fenced div、属性、行内代码、`[@id]`、链接与引用式定义（`LINK_RE`、`REFDEF_RE`）、`lean:` 链接（`lean_link_gids`）、标题的纯文字（`unescape_markdown`） |
+| `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 给出标题的纯文字，`title_markdown()` 保留 Markdown，二者都把 `[@id]` 换成引用文字）；`Issue` |
 | `lean` | 名称键解码、GID、冻结状态来源、`resolve()`、`Lock` 与永久链接 |
 | `render` | `RenderContext`、`env_view()`、`chapter_markdown()`（mdbook / pandoc 两种 target）；环境标题中的 `[@id]`（`env_title()`）；`rewrite_links()`（图片与文件链接，`check` 也用它找缺失文件）；Lean 声明未被锁文件解析时显示 `UNVERIFIED`、不给链接；`verified_envs()` 是所有 `LEAN ✓ n` 计数的唯一口径 |
 | `ledger` | 生成“形式化验证账本”章节 |
@@ -245,10 +247,13 @@ def generate(out_dir) -> Path
 
 ```
 :::::: {#thm-x .tr-env .theorem tr-kind="theorem" tr-status="lean" tr-label="定理" tr-number="1.2"
-        tr-ref="定理1.2" tr-title="…" tr-badge="LEAN ✓" tr-lean="GID …" tr-lean-name="Lean 名 …" tr-lean-url="URL …"}
+        tr-ref="定理1.2" tr-title="…" tr-badge="LEAN ✓" tr-badge-title="…" tr-badge-url="URL"
+        tr-lean="GID …" tr-lean-name="Lean 名 …" tr-lean-url="URL …"}
 内容
 ::::::
 ```
+
+`tr-badge-title` 是徽章的提示文字（与 mdBook 相同）；`tr-badge-url` 只在徽章是链接时出现（`LEAN ✓`，指向第一条声明）；锁文件不能确认的形式结论另带 `tr-unverified="1"`，其 `UNVERIFIED` 徽章在 EPUB 与 PDF（Typst `tr-env` 的 `badge-url: ""`）中都不是链接，`tr-lean-url` 仍给出锁文件解析了的声明的地址。
 
 `render.mdbook_env()` 输出的 HTML（样式在 `theme/mdbook/`）：
 

@@ -44,7 +44,7 @@ books/<slug>/
 [附录 A …](appendix-a.md)      ← 附录类（无编号；其中的定理编号为 A.n）
 ```
 
-书末的“形式化验证账本”由构建自动追加，不要写进 SUMMARY。
+书末的“形式化验证账本”由构建自动追加，不要写进 SUMMARY。章节标题按行内 Markdown 读，转义与数学的显示规则见 §2（`[C\*-代数](ch03.md)` 显示为 C*-代数）。
 
 ## 2. 环境
 
@@ -66,7 +66,8 @@ $$
 | `proof` | 证明思路（不编号） | 可选 |
 
 - 一个结论由多条 Lean 声明共同给出时：`lean="GID1 GID2"`。
-- `title` 可含行内数学：`title="$\beta$ 不保持加法"`。反斜杠与花括号原样保留；值里的双引号写 `\"`，`\\` 读作一个反斜杠（TeX 的 `\\` 要写成 `\\\\`）。
+- `title` 是一行行内 Markdown，可含行内数学：`title="$\beta$ 不保持加法"`。属性值里反斜杠与花括号原样保留；值里的双引号写 `\"`，`\\` 读作一个反斜杠（TeX 的 `\\` 要写成 `\\\\`）。
+- 标题的显示规则（环境标题与 SUMMARY 中的章节标题相同）：`$…$` 内是 TeX，原样保留；`$…$` 外，反斜杠加 ASCII 标点是 Markdown 转义，各端（HTML 页头、侧栏、页面 `<title>`、站点目录、PDF、EPUB、账本）都只显示标点本身：`C\*-代数` 显示为 C*-代数，`snake\_case` 显示为 snake_case，`\$5` 显示为 $5 且不会成为公式。除行内数学与 `[@id]` 外，不要在标题里用强调、行内代码等格式：HTML 页头、侧栏与站点把它们当作纯文字，PDF/EPUB 却会排版，两端不一致。
 - `title` 中可以引用别的条目：`title="[@thm-deficit-three-valued] 的推广"` 显示为“定理1.3 的推广”（PDF/EPUB 中带链接）。id 不存在时 `./tbook check` 报错。
 - 环境可以嵌套（例如 `remark` 里放 `example`），但不要把 `proof` 放进定理内部——写在定理之后。
 
@@ -92,6 +93,7 @@ $$
 | --- | --- |
 | `[@thm-deficit-three-valued]` | “定理1.3”，链接到该定理（跨章节可用） |
 | ``[`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`` | 指向所钉提交上 Lean 源文件对应行的永久链接 |
+| `[该定理][lt]` + `[lt]: lean:D5/…/Module.name` | 引用式写法，同上；尖括号 `(<lean:…>)` 也可以。各种写法的 GID 都由 `./tbook check` 核对、由 `./tbook pin --refresh` 收录 |
 | `[第二章](ch02-refutation-observation.md)` | 章节链接（HTML 为页面链接，PDF/EPUB 为内部跳转） |
 | `[观测能恢复什么](ch02-refutation-observation.md#观测能恢复什么)` | 章节内标题：片段按目标章节内的标题解析（与 HTML 相同），各章都有的同名标题（如“小结”）不会串章 |
 | `![图注](../assets/figure.svg)` | 图片；放在 `assets/` 的图各语言共享 |
@@ -100,6 +102,10 @@ $$
 | `[数据表](../assets/data.csv)` | 文件下载：HTML 指向复制进 `_book/` 的文件；PDF/EPUB 不能内嵌非图片文件，改为指向网站上的同一文件（需要 `site.toml` 的 `base_url` 或可推断的 repo，否则只保留文字并警告） |
 
 脚注 `[^1]` 在每章内独立（PDF/EPUB 合并全书时自动加章节前缀）；`@` 只在 `[@id]` 中表示引用，正文里的 `@name` 是普通文字。
+
+引用式链接定义（`[fig]: ../assets/x.svg "标题"`）必须独占一行，地址后只能跟可选的标题，与 CommonMark 相同；`[注]: 原图见 [fig](../assets/x.svg)`、`[1]: Knuth, TAOCP.` 这样后接正文的行是普通段落，各端都显示，其中的链接照常处理。
+
+HTML 注释 `<!-- … -->`（行内的，或以 `<!--` 开头、到含 `-->` 的行结束的注释块）不出现在任何输出中：其中的图片、链接、`[@id]`、`lean:` 链接与环境都不改写、不检查、不编号，适合放待补的图。注释块没有 `-->` 时 `./tbook check` 报错。
 
 ## 5. 媒体
 
@@ -127,7 +133,7 @@ $$
 ## 7. 诚实标注
 
 - 只有 `LEAN ✓` 的条目是已验证结论；正文中不要手写“已证明”“已验证”来修饰未引用 Lean 的命题。
-- 构建只在锁文件确认每条 GID 都是已冻结的 Lean 定理时显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`，不给 Lean 链接，也不计入“LEAN ✓ n”等统计（`./tbook check` 会报错，不能发布）。
+- 构建只在锁文件确认每条 GID 都是已冻结的 Lean 定理时显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`（徽章在各端都不是链接），也不计入“LEAN ✓ n”等统计（`./tbook check` 会报错，不能发布）。页脚与账本只给锁文件解析了的声明链接（例如误引的 Lean 定义，链接到它的源码），锁文件没有的 GID 显示为不带链接的文字。
 - 不把存在性写成可构造，不把一个反例写成最小反例，不把示意图的数值写成实验或模拟结果。
 - 引用文献中的结论而 trureturing 尚未形式化时，写成 `remark` 并注明“文献结果，未在本书形式化”，不要用 `theorem`。
 
@@ -143,6 +149,7 @@ $$
 | `item N differs between editions` | 对齐各语言版本的环境序列 |
 | `[@x] refers to no environment` | 检查 id 拼写；id 只在同一语言版本内解析（正文与环境标题中的 `[@x]` 都会检查） |
 | `cannot parse this fenced div opening line` | 检查 `::: {…}` 中的引号是否成对；值内的 `"` 写成 `\"` |
+| `HTML comment is never closed` | 给以 `<!--` 开头的注释补上 `-->`；否则其后的全部内容都算作注释 |
 | `pinned commit … is not on branch 'dev'` | 所钉提交未合入 `site.toml` 的 trureturing 分支（默认 `dev`）：改钉该分支上的提交（`./tbook pin`） |
 | `could not verify that pinned commit …` | 设置 `TRURETURING_DIR` 指向含该提交的 checkout（必要时先 `git fetch`），或联网让 GitHub API 回答（设置 `GITHUB_TOKEN` 可免匿名限额）；GitHub Actions 中这是错误 |
 | `not listed in SUMMARY.md` | 加入 SUMMARY 或删除文件 |

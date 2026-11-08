@@ -100,8 +100,9 @@ def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> 
 
     Runs the builds' own link rewriting (:func:`tbook.render.rewrite_links`), so it reads links and
     images the way the builds do: inline, ``<…>`` and percent-encoded destinations, reference
-    definitions, ``../assets/…``. Otherwise a missing file is reported only when an edition is
-    built. Warnings, like the build's: a broken link does not make a result unverified.
+    definitions, ``../assets/…``, and nothing in code or HTML comments (which no target shows).
+    Otherwise a missing file is reported only when an edition is built. Warnings, like the
+    build's: a broken link does not make a result unverified.
     """
     ed = model.edition
     for doc in model.chapters:

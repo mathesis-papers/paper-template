@@ -124,7 +124,9 @@
   if url != "" { link(url, b) } else { b }
 }
 
-#let tr-env(kind: "", status: "", label: "", number: "", ref: "", title: none, badge: "", lean: (), id: "", body) = {
+// badge-url: where the badge links ("" for none; tools/filters/tr-env.lua passes it, so an
+// UNVERIFIED badge never links even when the footer links a declaration the lock resolves).
+#let tr-env(kind: "", status: "", label: "", number: "", ref: "", title: none, badge: "", badge-url: "", lean: (), id: "", body) = {
   let c = status-colour(status)
   let light = status == "informal"
   let head = {
@@ -134,7 +136,7 @@
     }
   }
   let badge-box = if badge != "" {
-    tr-badge(badge, c, url: if lean.len() > 0 { lean.first().url } else { "" })
+    tr-badge(badge, c, url: badge-url)
   } else { none }
   let fill = if light { none } else { panel-fill }
   let edge = if light { none } else { 0.5pt + pal.panel-edge }

@@ -72,7 +72,7 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
             if not verified:
                 states = [f"**{_cell(unverified)}**"]
             item = f"[{env.ref_text(lang)}]({href(env)})" if env.id else env.ref_text(lang)
-            title = _cell(model.title_text(env, link))
+            title = _cell(model.title_markdown(env, link))
             out.append(f"| {item} | {title or '—'} | {' · '.join(decls)} | {' '.join(states) or '—'} |")
         out.append("")
     else:
@@ -81,7 +81,7 @@ def ledger_markdown(model: EditionModel, lock: lean.Lock | None,
     out += [f"## {s('ledger.open_title')} {{.unnumbered}}", "", s("ledger.open_intro"), ""]
     if open_items:
         for env in open_items:
-            title = f" — {model.title_text(env, link)}" if env.title else ""
+            title = f" — {model.title_markdown(env, link)}" if env.title else ""
             out.append(f"- [{env.ref_text(lang)}]({href(env)}){title}")
     else:
         out.append(s("ledger.none"))

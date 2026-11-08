@@ -645,8 +645,7 @@ class MdscanTests(unittest.TestCase):
         self.assertEqual([m.group("id") for m in mdscan.REF_RE.finditer("[@a](x) [@b]")], ["b"],
                          "[@a](…) is a link, not a reference")
         line = f"see [`deficit`](lean:{GID_3V}) and `[t](lean:{GID_INT})` and [plain](lean:{GID_DEF})"
-        links = [(m.group("text"), m.group("gid")) for m in mdscan.find_outside_code(mdscan.LEAN_LINK_RE, line)]
-        self.assertEqual(links, [("`deficit`", GID_3V), ("plain", GID_DEF)])
+        self.assertEqual(mdscan.lean_link_gids(line), [GID_3V, GID_DEF])
         out = mdscan.sub_outside_code(mdscan.REF_RE, lambda m: m.group("id").upper(), "[@a] `[@b]` [@c]")
         self.assertEqual(out, "A `[@b]` C")
 
@@ -996,7 +995,8 @@ class RenderTests(unittest.TestCase):
             url = f"https://github.com/{TRU}/blob/{COMMIT}/{MOD_3V}.lean#L12"
             self.assertEqual(attrs.kv, {
                 "tr-kind": "theorem", "tr-status": "lean", "tr-label": "Theorem", "tr-number": "1.1",
-                "tr-ref": "Theorem 1.1", "tr-title": "Three values", "tr-badge": "LEAN ✓", "tr-lean": GID_3V,
+                "tr-ref": "Theorem 1.1", "tr-title": "Three values", "tr-badge": "LEAN ✓",
+                "tr-badge-title": config.s("en", "badge.lean_title"), "tr-badge-url": url, "tr-lean": GID_3V,
                 "tr-lean-name": "D5.S1.Deficit.deficit_three_valued", "tr-lean-url": url})
             self.assertIn("See [Theorem 1.1](#thm-a)", out, "pandoc targets link by fragment")
             self.assertIn(":::::: {#conj-x .tr-env .conjecture tr-kind=\"conjecture\" tr-status=\"open\"", out)

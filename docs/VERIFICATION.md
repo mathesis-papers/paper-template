@@ -62,4 +62,4 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 ## 6. 读者如何自行核对
 
-每个定理框的 `LEAN ✓` 徽章与页脚链接指向所钉提交上的 Lean 源文件（含行号；行号按 `namespace`/`section` 解析出的完整名定位，无法唯一确定时不带行号，而不是猜一个）；书末“形式化验证账本”列出全部对应关系与状态片链接。构建只在锁文件把一条形式结论所引的每个 GID 都解析为 Lean `theorem` 时才显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`，页脚与账本不给链接，也不计入“LEAN ✓ n”等统计（这样的书通不过 `./tbook check`，不会发布）。读者可以克隆 trureturing，检出该提交，运行 `lake build` 并对声明执行 `#print axioms`。
+每个定理框的 `LEAN ✓` 徽章与页脚链接指向所钉提交上的 Lean 源文件（含行号；行号按 `namespace`/`section` 解析出的完整名定位，无法唯一确定时不带行号，而不是猜一个）；书末“形式化验证账本”列出全部对应关系与状态片链接。构建只在锁文件把一条形式结论所引的每个 GID 都解析为 Lean `theorem` 时才显示 `LEAN ✓`；否则显示红色 `UNVERIFIED`（徽章在各端都不是链接），也不计入“LEAN ✓ n”等统计（这样的书通不过 `./tbook check`，不会发布）；页脚与账本只给锁文件解析了的声明链接，锁文件没有的 GID 显示为不带链接的文字。读者可以克隆 trureturing，检出该提交，运行 `lake build` 并对声明执行 `#print axioms`。
