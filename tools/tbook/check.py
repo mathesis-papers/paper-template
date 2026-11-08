@@ -15,7 +15,7 @@ import importlib
 import subprocess
 from pathlib import Path
 
-from . import config, lean, mdscan, paths
+from . import config, lean, mdscan, paths, render
 from .model import (DEFINITION, FORMAL, MEDIA, NUMBERED, OPEN, PROOF, EditionModel, Issue, load_book_models,
                     media_cited_gids)
 from .summary import Chapter, Summary, chapter_prefix
@@ -27,6 +27,16 @@ def _err(issues: list[Issue], path: Path | None, line: int, msg: str) -> None:
 
 def _warn(issues: list[Issue], path: Path | None, line: int, msg: str) -> None:
     issues.append(Issue("warning", path, line, msg))
+
+
+def _check_ref(model: EditionModel, issues: list[Issue], path: Path, line: int, ref: str, where: str = "") -> None:
+    """A ``[@ref]`` in prose or (``where``) in an environment title must name a numbered environment."""
+    if ref not in model.envs:
+        _err(issues, path, line, f"[@{ref}]{where} refers to no environment in this edition")
+    elif model.envs[ref].kind in MEDIA:
+        _err(issues, path, line,
+             f"[@{ref}]{where} points at a {model.envs[ref].kind} embed; references can only target "
+             "numbered environments (theorem, definition, example …)")
 
 
 def check_env_policy(model: EditionModel, issues: list[Issue]) -> None:
@@ -62,13 +72,11 @@ def check_env_policy(model: EditionModel, issues: list[Issue]) -> None:
                     _err(issues, *where, problem)
             if env.title and "\n" in env.title:
                 _err(issues, *where, "title must be one line")
+            for m in mdscan.find_outside_code(mdscan.REF_RE, env.title or ""):
+                _check_ref(model, issues, ch.path, env.line, m.group("id"),
+                           f" in the title of {env.kind} #{env.id}" if env.id else f" in the title of a {env.kind}")
         for line, ref in ch.refs:
-            if ref not in model.envs:
-                _err(issues, ch.path, line, f"[@{ref}] refers to no environment in this edition")
-            elif model.envs[ref].kind in MEDIA:
-                _err(issues, ch.path, line,
-                     f"[@{ref}] points at a {model.envs[ref].kind} embed; references can only target "
-                     "numbered environments (theorem, definition, example …)")
+            _check_ref(model, issues, ch.path, line, ref)
         for line, gid in ch.lean_links:
             try:
                 lean.parse_gid(gid)
@@ -85,6 +93,33 @@ def check_orphans(model: EditionModel, issues: list[Issue]) -> None:
         if md.name == "SUMMARY.md" or md.resolve() in listed:
             continue
         _warn(issues, md, 0, "not listed in SUMMARY.md (it will not be published)")
+
+
+def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> None:
+    """Local files that chapters link to or embed must exist, and links must stay in the book directory.
+
+    Runs the builds' own link rewriting (:func:`tbook.render.rewrite_links`), so it reads links and
+    images the way the builds do: inline, ``<…>`` and percent-encoded destinations, reference
+    definitions, ``../assets/…``. Otherwise a missing file is reported only when an edition is
+    built. Warnings, like the build's: a broken link does not make a result unverified.
+    """
+    ed = model.edition
+    for doc in model.chapters:
+        ctx = render.RenderContext(site, ed.book, ed, model, None, target="pandoc")
+        prefix = f"{doc.path}: "
+        for lineno, line in mdscan.iter_text_lines(doc.blocks):
+            ctx.book_files.clear()
+            ctx.edition_files.clear()
+            ctx.issues.clear()
+            render.rewrite_links(line, doc, ctx)
+            # files outside the edition are copied into the build one by one, so they must be files
+            missing = sorted(p for p in ctx.book_files if not p.is_file())
+            missing += sorted(p for p in ctx.edition_files if not p.exists())
+            for p in missing:
+                what = "is not a file" if p.exists() else "does not exist"
+                _warn(issues, doc.path, lineno, f"links to {paths.rel(p)}, which {what}")
+            for msg in ctx.issues:  # "link leaves the book directory: …"
+                _warn(issues, doc.path, lineno, msg[len(prefix):] if msg.startswith(prefix) else msg)
 
 
 def _env_signature(model: EditionModel) -> list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]]:
@@ -176,7 +211,10 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
     the pinned commit against the site.toml branch.
 
     ``extra_cited`` holds citations outside the chapters (visualizations, films, slides); they are
-    verified the same way but do not impose the theorem-kind rule (their modules check that).
+    verified the same way but do not impose the theorem-kind rule here: tbook.viz, tbook.film and
+    tbook.slides each require kind ``theorem`` wherever they show a green LEAN ✓ chip (the viz
+    registry's ``lean``, a page's ``data-lean-gid``, film.json's ``lean``, ``<LeanBadge>`` /
+    ``<TheoremCard>`` without ``kind="definition"``).
     ``cited_elsewhere`` holds GIDs cited by books outside ``models_by_book`` (``check --book``), so
     their lock entries do not count as unused; ``None`` (unknown) skips the unused-entry warning.
     """
@@ -287,6 +325,9 @@ def run(books: list[config.Book], *, offline: bool = False) -> list[Issue]:
     for lang in site.languages:
         if not config.has_i18n(lang):
             _err(issues, paths.SITE_TOML, 0, f"no i18n table for {lang!r}: add i18n/{lang}.toml (copy theme/i18n/en.toml)")
+    i18n_langs = list(dict.fromkeys([*site.languages, *(lang for book in books for lang in book.languages)]))
+    for path, msg in config.i18n_problems(i18n_langs):
+        _err(issues, path, 0, msg)
     try:
         lock = lean.Lock.load()
     except (lean.LeanError, ValueError, KeyError) as exc:
@@ -306,6 +347,7 @@ def run(books: list[config.Book], *, offline: bool = False) -> list[Issue]:
             issues.extend(model.issues)
             check_env_policy(model, issues)
             check_orphans(model, issues)
+            check_links(model, site, issues)
             if model.summary is not None and not model.chapters:
                 _warn(issues, model.edition.summary, 0, "edition has no chapters yet")
         check_parity(book, models, issues)

@@ -31,6 +31,20 @@ from tbook import config, doctor, lean, leanverify, paths, serve, site
 GID_3V = "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"
 GID_INT = "D5/S1/Deficit/DeficitInteger.deficit_integer"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32  # enough for a file that exists; never decoded
+SITE_COMMIT = "c0ffee" + "0" * 34
+
+
+def site_lock(*drop: str) -> lean.Lock:
+    """The lock the site tests build with (not the repository's: the LEAN ✓ counts follow the lock,
+    so a re-pinned downstream lock must not change them); ``drop`` leaves GIDs out."""
+    decls = {
+        GID_3V: {"module": "D5/S1/Deficit/DeficitThreeValued", "name": "D5.S1.Deficit.deficit_three_valued",
+                 "kind": "theorem", "statement_id": "sha256:3v", "line": 12},
+        GID_INT: {"module": "D5/S1/Deficit/DeficitInteger", "name": "D5.S1.Deficit.deficit_integer",
+                  "kind": "theorem", "statement_id": "sha256:int", "line": 5},
+    }
+    return lean.Lock(repo="the-omega-institute/trureturing", branch="dev", commit=SITE_COMMIT,
+                     pinned_at="2026-01-01T00:00:00Z", declarations={g: d for g, d in decls.items() if g not in drop})
 
 
 # --------------------------------------------------------------------------- fixtures
@@ -157,7 +171,7 @@ class SiteCase(unittest.TestCase):
         self.build_root = self.tmp / "build"
         self.out = self.tmp / "out"
 
-    def run_build(self, books, *, media=None, cover_ok=True, only=None):
+    def run_build(self, books, *, media=None, cover_ok=True, only=None, lock=None):
         def render_cover(site_, book, edition, out_path, *, fmt="png", **kw):
             if not cover_ok:
                 raise RuntimeError("no typst here")
@@ -169,6 +183,7 @@ class SiteCase(unittest.TestCase):
         with mock.patch.object(site, "_media_module", media or fake_media()), \
              mock.patch.dict("sys.modules", {"tbook.cover": cover_mod}), \
              mock.patch.object(tbook, "cover", cover_mod, create=True), \
+             mock.patch.object(site, "_load_lock", return_value=lock or site_lock()), \
              mock.patch("tbook.site._warn"):
             return site.build(self.site, books, self.out, only=only, build_root=self.build_root)
 
@@ -262,9 +277,7 @@ class SiteBuildTest(SiteCase):
         self.assertIn('href="slides/overview/test-book-overview-zh.pdf"', landing)
         self.assertNotIn("test-book-overview-en.pdf", landing)  # PDF missing → no link
         self.assertIn("《测试之书》封面", landing)
-        lock = lean.Lock.load()
-        if lock:
-            self.assertIn(lock.commit[:12], landing)
+        self.assertIn(SITE_COMMIT[:12], landing)
 
         manifest = json.loads((out / "manifest.json").read_text())
         self.assertEqual(manifest["schema"], "trureturing-books.site.v1")

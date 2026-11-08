@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from . import config, lean, mdscan
 from .summary import Chapter, Summary, SummaryError, chapter_prefix, parse_summary
@@ -105,11 +106,13 @@ class Env:
         sep = "" if lang.startswith(("zh", "ja")) else " "
         return f"{self.label(lang)}{sep}{self.number}" if self.number else self.label(lang)
 
-    def heading(self, lang: str) -> str:
-        """``定理2.1（亏量三值）`` / ``Theorem 2.1 (Deficit is three-valued)``."""
+    def heading(self, lang: str, title: str | None = None) -> str:
+        """``定理2.1（亏量三值）`` / ``Theorem 2.1 (Deficit is three-valued)``; ``title`` replaces the
+        title as written (e.g. with its references resolved, :meth:`EditionModel.title_text`)."""
         head = self.ref_text(lang)
-        if self.title:
-            head += config.s(lang, "punct.title_open") + self.title + config.s(lang, "punct.title_close")
+        title = self.title if title is None else title
+        if title:
+            head += config.s(lang, "punct.title_open") + title + config.s(lang, "punct.title_close")
         return head
 
 
@@ -158,6 +161,26 @@ class EditionModel:
             if any(e.id == env_id for e in ch.envs):
                 return ch
         return None
+
+    def title_text(self, env: Env, ref: Callable[[Env, str], str] | None = None) -> str:
+        """``env.title`` with each ``[@id]`` outside code spans replaced by the referenced environment's
+        reference text (``定理2.1``), formatted by ``ref(target, text)`` (default: the text itself).
+
+        The default result is plain text, safe wherever a title goes: escaped into HTML, parsed as
+        Markdown by tools/filters/tr-env.lua, or put in a table cell. An unknown id stays as written
+        (``./tbook check`` reports it).
+        """
+        if not env.title or "[@" not in env.title:
+            return env.title
+
+        def repl(m) -> str:
+            target = self.envs.get(m.group("id"))
+            if target is None:
+                return m.group(0)
+            text = target.ref_text(self.lang)
+            return ref(target, text) if ref else text
+
+        return mdscan.sub_outside_code(mdscan.REF_RE, repl, env.title)
 
 
 def load_edition(edition: config.Edition) -> EditionModel:

@@ -3,7 +3,8 @@
 Given an :class:`~tbook.model.EditionModel`, :func:`chapter_markdown` rewrites a
 chapter's Markdown for one target:
 
-* ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`);
+* ``[@id]`` → ``[定理2.1](href)`` (``href`` from :attr:`RenderContext.env_href`); in an
+  environment title → ``定理2.1`` (a ``[定理2.1](#id)`` link for Pandoc, :func:`env_title`);
 * ``[text](lean:GID)`` → a permalink to the declaration's Lean source at the pinned commit
   (just the text when the lock does not resolve the GID);
 * links/images (inline, ``<…>`` destinations, reference definitions) that point into the
@@ -62,6 +63,8 @@ class RenderContext:
     # where the staged edition puts files from the book directory (relative to the edition root)
     book_prefix: str = "_book"
     book_files: set[Path] = field(default_factory=set)
+    # files inside the edition directory that links point at (staged with the edition; ``check`` reads it)
+    edition_files: set[Path] = field(default_factory=set)
     issues: list[str] = field(default_factory=list)
 
     @property
@@ -127,6 +130,16 @@ def lean_verified(views: list[dict]) -> bool:
     return bool(views) and all(v["resolved"] and v["kind"] in lean.FORMAL_KINDS for v in views)
 
 
+def env_verified(env: Env, lock: lean.Lock | None) -> bool:
+    """A formal environment the build shows as LEAN ✓: its citations pass :func:`lean_verified`."""
+    return env.kind in FORMAL and lean_verified([lean_view(g, lock) for g in env.lean])
+
+
+def verified_envs(envs: list[Env], lock: lean.Lock | None) -> list[Env]:
+    """The formal environments of ``envs`` that every count of "LEAN ✓" may include."""
+    return [e for e in envs if env_verified(e, lock)]
+
+
 def _s(lang: str, key: str, fallback: str, default: str = "") -> str:
     return config.s(lang, key) or config.s(lang, fallback) or default
 
@@ -137,8 +150,34 @@ def unverified_badge(lang: str) -> tuple[str, str]:
             _s(lang, "badge.unverified_title", "slides.badge_unverified_title"))
 
 
+def _env_doc_path(env: Env, ctx: RenderContext) -> Path | str:
+    doc = next((d for d in ctx.model.chapters if d.chapter is env.chapter), None)
+    return doc.path if doc else (env.chapter.path or "?")
+
+
+def env_title(env: Env, ctx: RenderContext) -> tuple[str, str]:
+    """The title of ``env`` as (plain text, target text), with each ``[@id]`` resolved.
+
+    Plain text replaces a reference by its reference text (``定理2.1``): mdBook HTML-escapes
+    titles, and every other consumer (headings, the site) shows them as text. For Pandoc the
+    target text links it (``[定理2.1](#id)``); tools/filters/tr-env.lua parses the title as
+    Markdown, so the link works in PDF and EPUB like a reference in prose. Unknown ids stay as
+    written and are reported in ``ctx.issues`` (``./tbook check`` rejects them).
+    """
+    if not env.title or "[@" not in env.title:
+        return env.title, env.title
+    for m in mdscan.find_outside_code(mdscan.REF_RE, env.title):
+        if m.group("id") not in ctx.model.envs:
+            ctx.issues.append(f"{_env_doc_path(env, ctx)}: unknown reference [@{m.group('id')}] in a title")
+    plain = ctx.model.title_text(env)
+    if ctx.target != "pandoc":
+        return plain, plain
+    return plain, ctx.model.title_text(env, ref=lambda target, text: f"[{text}](#{target.id})")
+
+
 def env_view(env: Env, ctx: RenderContext) -> dict:
     lang = ctx.lang
+    title, target_title = env_title(env, ctx)
     badge = ""
     badge_title = ""
     status = env.status
@@ -160,8 +199,9 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
         "number": env.number,
         "label": env.label(lang),
         "ref_text": env.ref_text(lang),
-        "heading": env.heading(lang),
-        "title": env.title,
+        "heading": env.heading(lang, title),
+        "title": target_title,  # what the target renders: plain text, or Markdown links for Pandoc
+        "title_text": title,  # plain text
         "status": status,
         "unverified": unverified,
         "badge": badge,
@@ -174,7 +214,10 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
 # --------------------------------------------------------------------------- inline
 
 
-def _rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
+def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
+    """Rewrite the local links and images of ``line`` (see the module docstring); records the files
+    they point at in ``ctx.book_files`` / ``ctx.edition_files`` and links that leave the book in
+    ``ctx.issues``."""
     book_dir = ctx.book.dir.resolve()
     edition_dir = ctx.edition.dir.resolve()
     chapter_dir = doc.path.parent.resolve()
@@ -197,6 +240,7 @@ def _rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
         except ValueError:
             inside = None
         if inside is not None:  # inside the edition: staged as is
+            ctx.edition_files.add(target)
             if (ctx.target == "mdbook" and is_readme(inside)
                     and any(posixpath.normpath(d.chapter.path) == inside for d in ctx.model.chapters)):
                 return _quote(_PATH_UNSAFE_RE, mdbook_chapter_path(path)) + frag
@@ -238,7 +282,7 @@ def _rewrite_refs(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
 
 
 def transform_line(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
-    return _rewrite_refs(_rewrite_links(line, doc, ctx), doc, ctx)
+    return _rewrite_refs(rewrite_links(line, doc, ctx), doc, ctx)
 
 
 # --------------------------------------------------------------------------- environments

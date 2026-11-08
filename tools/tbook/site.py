@@ -48,9 +48,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import config, lean, paths
+from . import config, lean, paths, render
 from .ledger import LEDGER_FILE
-from .model import FORMAL, OPEN, EditionModel, Env, load_book_models
+from .model import OPEN, EditionModel, Env, load_book_models
 
 SCHEMA = "trureturing-books.site.v1"
 SITE_THEME = paths.THEME / "site"
@@ -349,14 +349,15 @@ class BookView:
     def primary(self) -> EditionModel | None:
         return self.models.get(self.book.primary.lang)
 
-    def formal(self) -> list[Env]:
-        return self.primary.formal_envs() if self.primary else []
+    def verified(self) -> list[Env]:
+        """Formal results of the primary edition the book shows as LEAN ✓ (every count of LEAN ✓)."""
+        return render.verified_envs(self.primary.formal_envs(), self.lock) if self.primary else []
 
     def open_items(self) -> list[Env]:
         return [e for e in self.primary.all_envs() if e.kind in OPEN] if self.primary else []
 
     def declarations(self) -> list[str]:
-        return sorted({g for e in self.formal() for g in e.lean})
+        return sorted({g for e in self.verified() for g in e.lean})
 
     def chapters(self) -> int:
         model = self.primary
@@ -664,7 +665,7 @@ def stats_html(bi: Bi, view: BookView, *, extended: bool = False) -> str:
     def chip(cls: str, key: str) -> str:
         return bi.span(lambda lang: esc(config.s(lang, key)), cls=f"k {cls}")
 
-    items = [("ok", chip("ok", "badge.lean") + bi.t("stat_theorems"), len(view.formal()))]
+    items = [("ok", chip("ok", "badge.lean") + bi.t("stat_theorems"), len(view.verified()))]
     if extended:
         items.append(("", bi.t("stat_decls"), len(view.declarations())))
     items.append(("warn", chip("warn", "badge.open") + bi.t("stat_open"), len(view.open_items())))
@@ -723,7 +724,7 @@ def cover_html(bi: Bi, view: BookView, prefix: str, *, alt: bool, eager: bool = 
         return (f'<span class="cover-css"{attrs}{label}>'
                 f'<span class="c-code">{logo_html(book.code)}</span>'
                 f'<span class="c-title" lang="{esc(config.bcp47(view.edition_for(lang)))}">{esc(title(lang))}</span>'
-                f'<span class="c-stamp">{esc(config.s(lang, "badge.lean"))} {len(view.formal())}</span></span>')
+                f'<span class="c-stamp">{esc(config.s(lang, "badge.lean"))} {len(view.verified())}</span></span>')
     return bi.each(card)
 
 
@@ -764,7 +765,7 @@ def book_card(frame: Frame, view: BookView) -> str:
 def index_html(frame: Frame, views: list[BookView]) -> str:
     site, bi, lock = frame.site, frame.bi, frame.lock
     logo = logo_text(site)
-    total = sum(len(v.formal()) for v in views)
+    total = sum(len(v.verified()) for v in views)
     pills = [f'<span class="pill">{bi.s("ui.books")} <strong>{len(views)}</strong></span>',
              f'<span class="pill ok">LEAN ✓ <strong>{total}</strong></span>']
     if lock:
@@ -819,11 +820,12 @@ def index_html(frame: Frame, views: list[BookView]) -> str:
 # --------------------------------------------------------------------------- book landing page
 
 
-def _chapter_counts(model: EditionModel) -> tuple[Counter, Counter]:
+def _chapter_counts(model: EditionModel, lock: lean.Lock | None) -> tuple[Counter, Counter]:
+    """Per chapter: formal results shown as LEAN ✓, and open items."""
     formal, opened = Counter(), Counter()
     for doc in model.chapters:
         for env in doc.envs:
-            if env.kind in FORMAL:
+            if render.env_verified(env, lock):
                 formal[doc.chapter.path] += 1
             elif env.kind in OPEN:
                 opened[doc.chapter.path] += 1
@@ -836,7 +838,7 @@ def toc_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
         return f'<p class="note">{esc(t(ui_lang, "toc_missing"))}</p>'
     built = view.built.get(ed_lang, False)
     root = view.bdir / ed_lang
-    formal, opened = _chapter_counts(model)
+    formal, opened = _chapter_counts(model, view.lock)
 
     def item(ch) -> str:
         title = f'<span class="t-title">{esc(ch.title)}</span>'
@@ -866,7 +868,7 @@ def toc_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
     if built and (root / ledger_page).is_file():
         out.append(f'<li class="ledger"><a href="{esc(ed_lang + "/" + ledger_page)}">'
                    f'<span class="t-title">{esc(config.s(ed_lang, "ledger.title"))}</span>'
-                   f'<span class="t-tags"><span class="k ok">LEAN ✓ {len(model.formal_envs())}</span></span></a></li>')
+                   f'<span class="t-tags"><span class="k ok">LEAN ✓ {sum(formal.values())}</span></span></a></li>')
     note = ""
     if ed_lang != ui_lang:
         note = f'<p class="note missing">{esc(t(ui_lang, "edition_missing", name=config.s(ed_lang, "meta.name")))}</p>'
@@ -893,18 +895,20 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
         text = esc(env.ref_text(ed_lang))
         return f'<a class="ref" href="{esc(href)}">{text}</a>' if href else f'<span class="ref">{text}</span>'
 
-    def row(env: Env) -> str:
+    def title(env: Env, chip: str = "") -> str:
+        text = esc(model.title_text(env))  # [@id] in a title shows its reference text
+        return f'<span class="ttl">{chip}{" " if chip and text else ""}{text}</span>'
+
+    def row(env: Env, chip: str = "") -> str:
         decls = []
         for gid in env.lean:
-            res = lock.get(gid) if lock else None
-            name = res.name if res else gid
-            url = lock.source_url(gid) if lock else ""
-            code = f"<code>{wbr(name)}</code>"
-            decls.append(f'<a href="{esc(url)}" rel="noopener" title="{esc(gid)}">{code}</a>' if url else code)
-        title = f'<span class="ttl">{esc(env.title)}</span>' if env.title else '<span class="ttl"></span>'
-        return f"<li>{ref(env)}{title}" + (f'<span class="decls">{"".join(decls)}</span>' if decls else "") + "</li>"
+            lv = render.lean_view(gid, lock)  # a link only where the lock resolves the declaration
+            code = f"<code>{wbr(lv['name'] or gid)}</code>"
+            decls.append(f'<a href="{esc(lv["url"])}" rel="noopener" title="{esc(gid)}">{code}</a>'
+                         if lv["url"] else code)
+        return f"<li>{ref(env)}{title(env, chip)}" + (f'<span class="decls">{"".join(decls)}</span>' if decls else "") + "</li>"
 
-    formal = model.formal_envs()
+    formal = render.verified_envs(model.formal_envs(), lock)
     out = [f'<p class="note">{esc(t(ui_lang, "verification_intro"))}</p>']
     if formal:
         head, rest = formal[:FORMAL_PREVIEW], formal[FORMAL_PREVIEW:]
@@ -916,11 +920,16 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
                        f'<ul class="vlist lean">{"".join(row(e) for e in rest)}</ul></details>')
     else:
         out.append(f'<p class="note">{esc(t(ui_lang, "theorems_none"))}</p>')
+    # Formal results the lock does not back (./tbook check rejects them): red, never in the green list.
+    unverified = [e for e in model.formal_envs() if not any(e is v for v in formal)]
+    if unverified:
+        text, tip = render.unverified_badge(ui_lang)
+        chip = f'<span class="k warn" title="{esc(tip)}">{esc(text)}</span>'
+        out.append(f'<ul class="vlist open">{"".join(row(e, chip) for e in unverified)}</ul>')
     out.append(f'<h3>{esc(config.s(ui_lang, "ledger.open_title"))}</h3>')
     opened = [e for e in model.all_envs() if e.kind in OPEN]
     if opened:
-        out.append('<ul class="vlist open">' + "".join(
-            f"<li>{ref(e)}<span class=\"ttl\">{esc(e.title)}</span></li>" for e in opened) + "</ul>")
+        out.append('<ul class="vlist open">' + "".join(f"<li>{ref(e)}{title(e)}</li>" for e in opened) + "</ul>")
     else:
         out.append(f'<p class="note">{esc(t(ui_lang, "open_none"))}</p>')
     ledger_page = chapter_html(LEDGER_FILE)
@@ -1077,7 +1086,7 @@ def landing_html(frame: Frame, view: BookView) -> str:
         return lambda lang: config.pick(value, view.edition_for(lang), langs)
 
     pills = [f'<span class="pill">v<strong>{esc(book.version)}</strong></span>',
-             f'<span class="pill ok">LEAN ✓ <strong>{len(view.formal())}</strong></span>']
+             f'<span class="pill ok">LEAN ✓ <strong>{len(view.verified())}</strong></span>']
     if view.open_items():
         pills.append(f'<span class="pill warn">OPEN <strong>{len(view.open_items())}</strong></span>')
     header = (
@@ -1142,7 +1151,7 @@ def landing_html(frame: Frame, view: BookView) -> str:
     verification = (
         '<section id="verification" class="sec panel" aria-labelledby="verification-title">'
         f'<div class="sec-head"><h2 id="verification-title">{bi.t("verification")}</h2>'
-        f'<span class="aside">LEAN ✓ {len(view.formal())} · OPEN {len(view.open_items())}</span></div>'
+        f'<span class="aside">LEAN ✓ {len(view.verified())} · OPEN {len(view.open_items())}</span></div>'
         + pin
         + bi.block(lambda lang: (verification_html(view, view.edition_for(lang), lang), view.edition_for(lang)))
         + "</section>"
@@ -1260,7 +1269,7 @@ def manifest(site: config.Site, views: list[BookView], lock: lean.Lock | None) -
                           "html": f"{book.slug}/{ed.lang}/" if v.built.get(ed.lang) else None}
                          for ed in book.editions],
             "landing": f"{book.slug}/",
-            "verified": len(v.formal()),
+            "verified": len(v.verified()),
             "open": len(v.open_items()),
             "declarations": v.declarations(),
             "media": {part: [str(i.get("id", "")) for i in v.media.get(part, [])] for part in MEDIA_PARTS},

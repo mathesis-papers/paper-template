@@ -25,7 +25,9 @@
 
 3. **Build**: ``mdbook build -d <out_dir>`` with the mdBook binary from ``$MDBOOK`` or
    ``PATH`` (0.5.x). mdBook writes "Suggest an edit" links as ``…/<edition dir>/src/<chapter>.md``;
-   :func:`fix_edit_links` drops the staged ``src/`` (and the link of the generated ledger).
+   :func:`fix_edit_links` drops the staged ``src/`` (and the link of the generated ledger), and
+   :func:`tbook.site.fix_print_media` points the iframes and video posters of ``print.html`` at
+   their targets (mdBook rewrites only links and images there for nested chapters).
 
 4. **Search**: mdBook's index splits words on whitespace only, so Chinese text is one
    unsearchable "word" per sentence; :func:`augment_search_index` adds CJK character
@@ -362,7 +364,8 @@ def editions_data(site: config.Site, book: config.Book, edition: config.Edition,
                   model: EditionModel, lock) -> dict:
     lang = edition.lang
     keys = list(LOCAL_I18N["en"])
-    formal = model.formal_envs()
+    # "n verified" in the menu counts only what the pages badge LEAN ✓ (render.env_verified)
+    verified = render.verified_envs(model.formal_envs(), lock)
     return {
         "slug": book.slug,
         "code": book.code,
@@ -374,7 +377,7 @@ def editions_data(site: config.Site, book: config.Book, edition: config.Edition,
                   for ed in book.editions],
         "landing": "../",
         "ledger": posixpath.splitext(ledger.LEDGER_FILE)[0] + ".html",
-        "verified": len(formal),
+        "verified": len(verified),
         "commit": lock.commit[:12] if lock else "",
         "strings": {
             **{k: ui(lang, k) for k in keys},
@@ -417,10 +420,10 @@ def stage_edition(site: config.Site, book: config.Book, edition: config.Edition,
         staged.add(path)
         stage.chapters.append(path)
 
-    # The verification ledger, linking each item to its chapter.
+    # The verification ledger, linking each item to its chapter (a README.md chapter is index.md).
     def ledger_href(env) -> str:
         doc = model.chapter_of(env.id)
-        return f"{doc.chapter.path}#{env.id}" if doc else f"#{env.id}"
+        return f"{render.mdbook_chapter_path(doc.chapter.path)}#{env.id}" if doc else f"#{env.id}"
 
     (src / ledger.LEDGER_FILE).write_text(ledger.ledger_markdown(model, lock, href=ledger_href), encoding="utf-8")
     stage.chapters.append(ledger.LEDGER_FILE)
@@ -662,5 +665,12 @@ def build_edition(site, book, edition, model, lock, out_dir: Path) -> Path:
     generated = {ledger.LEDGER_FILE} | ({"404.md"} if "404.md" not in stage.chapters else set())
     fix_edit_links(out_dir, edit_url_prefix(site, edition), generated)
     augment_search(out_dir)
+    # mdBook's print.html does not rewrite iframe src / video poster of nested chapters; the same
+    # (idempotent) repair site.publish_html applies, so build/html is right on its own too.
+    from . import site as site_mod
+
+    printed = out_dir / "print.html"
+    if printed.is_file():
+        printed.write_text(site_mod.fix_print_media(printed.read_text(encoding="utf-8")), encoding="utf-8")
     return out_dir
 
