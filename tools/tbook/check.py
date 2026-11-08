@@ -72,6 +72,9 @@ def check_env_policy(model: EditionModel, issues: list[Issue]) -> None:
                     _err(issues, *where, problem)
             if env.title and "\n" in env.title:
                 _err(issues, *where, "title must be one line")
+            if env.title and mdscan.strip_lean_links(env.title) != env.title:
+                _err(issues, *where, "a title cannot link to Lean (every target shows only the link text): cite the "
+                                     "declaration with lean=\"…\" or link to it in the text")
             for m in mdscan.find_outside_code(mdscan.REF_RE, env.title or ""):
                 _check_ref(model, issues, ch.path, env.line, m.group("id"),
                            f" in the title of {env.kind} #{env.id}" if env.id else f" in the title of a {env.kind}")

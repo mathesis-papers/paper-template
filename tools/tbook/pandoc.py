@@ -756,13 +756,15 @@ class _Linker:
     def rewrite_line(self, line: str, chapter_path: str) -> str:
         def link(m: re.Match) -> str:
             image = bool(m.group("bang"))
+            text = mdscan.sub_outside_code(render.LINK_RE, link, m.group("text"))  # an image inside a link
             new = self.target(m.group("url"), chapter_path, image=image)
             if new is None:
-                return m.group("text")
-            return f"{m.group('bang')}[{m.group('text')}]({new}{m.group('title') or ''})"
+                return text
+            title = mdscan.quoted_title(m.group("title")) if m.group("title") else ""
+            return f"{m.group('bang')}[{text}]({new}{title})"
 
-        rd = REFDEF_RE.match(line)
-        if rd and not line.lstrip().startswith("[^"):
+        rd = REFDEF_RE.match(line)  # also in a block quote or list item; never a footnote
+        if rd:
             raw = rd.group("url")
             new = self.target(raw, chapter_path, image=None)  # keep reference definitions as links
             return f"{rd.group('lead')}{new or raw}{rd.group('rest')}"
