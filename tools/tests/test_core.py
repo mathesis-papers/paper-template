@@ -287,7 +287,9 @@ class CoreRepo:
                                 I18N_THEME=REAL_I18N, TOKENS=REAL_TOKENS, GENERATED=REAL_GENERATED).items():
             self.stack.enter_context(mock.patch.object(paths, name, value))
         self.stack.enter_context(mock.patch.dict(os.environ))
-        for key in ("TBOOK_REPO", "TBOOK_BASE_URL", "GITHUB_REPOSITORY", "TRURETURING_DIR", "TBOOK_ROOT"):
+        # GITHUB_EVENT_NAME: in a pull request's CI run, tbook would not read the test's .cache (lean.cache_trusted)
+        for key in ("TBOOK_REPO", "TBOOK_BASE_URL", "GITHUB_REPOSITORY", "TRURETURING_DIR", "TBOOK_ROOT",
+                    "GITHUB_EVENT_NAME"):
             os.environ.pop(key, None)
         config.load_site.cache_clear()
         config.i18n.cache_clear()

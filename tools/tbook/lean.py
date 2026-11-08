@@ -16,11 +16,14 @@ LeanReferenceResolver).
 
 State files are read from, in order: a local trureturing checkout (``$TRURETURING_DIR``
 or ``../trureturing``) via ``git show <commit>:<path>``; the cache under
-``.cache/trureturing/<commit>/``; ``raw.githubusercontent.com`` at the commit.
+``.cache/trureturing/<commit>/``; ``raw.githubusercontent.com`` at the commit. A pull
+request's GitHub Actions run never reads the cache (``cache_trusted``): the cache it
+restores may have been saved by an earlier run of the same pull request, i.e. by its code.
 
 The freeze rule is enforced by trureturing's CI on its integration branch (``dev``), so a
 pinned commit must be reachable from that branch (``Ledger.branch_contains``): raw URLs
-also serve commits that were never merged (pull-request heads, other branches).
+also serve commits that were never merged (pull-request heads, other branches). The
+branch must be a branch name, not a commit SHA (``branch_problem``).
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from . import paths
 GID_RE = re.compile(r"^(?P<module>D[0-9]+/S[0-9]+/(?:[A-Za-z_][A-Za-z0-9_]*/)*[A-Za-z_][A-Za-z0-9_]*)\.(?P<name>.+)$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ABBREV_SHA_RE = re.compile(r"^[0-9a-f]{4,39}$")
+HEXISH_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")  # a name that git and GitHub can also read as a commit SHA
 STATE_DIR = "Golden/Frozen/state"
 LOCK_SCHEMA = "trureturing-books.lock.v1"
 FORMAL_KINDS = {"theorem"}
@@ -246,14 +250,17 @@ class GitSource(Source):
 
 
 class CacheSource(Source):
-    def __init__(self, cache_dir: Path):
+    def __init__(self, cache_dir: Path, *, readable: bool = True):
         self.dir = cache_dir
-        self.label = f"cache {cache_dir}"
+        self.readable = readable  # False in a pull request's GitHub Actions run (cache_trusted): written, not read
+        self.label = f"cache {cache_dir}" + ("" if readable else " (not read in a pull-request run)")
 
     def _file(self, commit: str, path: str) -> Path:
         return self.dir / commit / path
 
     def read(self, commit: str, path: str) -> bytes | None:
+        if not self.readable:
+            return None
         f = self._file(commit, path)
         if f.exists():
             return f.read_bytes()
@@ -299,7 +306,7 @@ class Ledger:
     def __init__(self, repo: str, *, offline: bool = False, checkout: Path | None = None):
         self.repo = repo
         self.offline = offline
-        self.cache = CacheSource(paths.CACHE / "trureturing")
+        self.cache = CacheSource(paths.CACHE / "trureturing", readable=cache_trusted())
         self.sources: list[Source] = []
         self.checkout: Path | None = None
         for cand in [checkout, os.environ.get("TRURETURING_DIR"), paths.ROOT.parent / "trureturing"]:
@@ -329,9 +336,10 @@ class Ledger:
         if key not in self._json:
             data = self.read(commit, f"{STATE_DIR}/{module}.lean.json")
             if data is None:
+                cache = "no cache entry" if self.cache.readable else "the cache is not read in a pull-request run"
                 raise LeanError(
                     f"cannot read {STATE_DIR}/{module}.lean.json at {commit[:12]}: no trureturing checkout, "
-                    "no cache entry and network disabled"
+                    f"{cache} and network disabled"
                 )
             self._json[key] = json.loads(data) if data else None
         return self._json[key]
@@ -340,13 +348,17 @@ class Ledger:
     def branch_contains(self, commit: str, branch: str) -> "Ancestry":
         """Whether ``commit`` is reachable from ``branch`` of the repository.
 
-        Asked, in order: a positive answer cached under ``.cache/trureturing/<commit>/``; the local
-        checkout (``git merge-base --is-ancestor`` against the branch's remote-tracking ref, else the
-        local branch); GitHub's compare API unless offline. The last definite answer wins, so GitHub
-        overrides a stale checkout, and a checkout's "no" stands when GitHub cannot answer. Positive
-        answers are cached; ``None`` means nobody could tell.
+        Asked, in order: a positive answer cached under ``.cache/trureturing/<commit>/`` (not in a
+        pull request's run, see ``cache_trusted``); the local checkout (``git merge-base --is-ancestor``
+        against the branch's remote-tracking ref, else the local branch); GitHub's compare API unless
+        offline. The last definite answer wins, so GitHub overrides a stale checkout, and a checkout's
+        "no" stands when GitHub cannot answer. Positive answers are cached; ``None`` means nobody could
+        tell, or that ``branch`` is not a branch name (``branch_problem``).
         """
-        known = self._ancestry_cache(commit).get(f"{self.repo}@{branch}")
+        problem = branch_problem(branch, commit)
+        if problem:
+            return Ancestry(None, f"branch {branch!r} {problem}")
+        known = self._ancestry_cache(commit).get(f"{self.repo}@{branch}") if self.cache.readable else None
         if isinstance(known, str):
             return Ancestry(True, f"{known} (cached)")
         found: list[Ancestry] = []
@@ -361,6 +373,8 @@ class Ledger:
                 reasons.insert(0, "no local trureturing checkout ($TRURETURING_DIR or ../trureturing)")
             if self.offline:
                 reasons.append("network disabled")
+            if not self.cache.readable:
+                reasons.append("the cache is not read in a pull-request run")
             result = Ancestry(None, "; ".join(reasons))
         if result.on_branch:
             self.record_on_branch(commit, branch, result.detail)
@@ -419,6 +433,40 @@ class Ancestry:
 def ancestry_required(offline: bool) -> bool:
     """Whether an undetermined ancestry is an error: in GitHub Actions unless offline; a warning elsewhere."""
     return not offline and os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+# GitHub Actions events whose runs execute a pull request's code in the pull request's cache scope.
+PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment")
+
+
+def cache_trusted() -> bool:
+    """Whether ``.cache/trureturing`` may be read (it is written either way).
+
+    Not in a pull request's GitHub Actions run (``$GITHUB_EVENT_NAME``): the cache such a run restores
+    can have been saved by an earlier run of the same pull request, which ran the pull request's own
+    code, so frozen state and ancestry come from a checkout or from GitHub instead. The workflows
+    restore the cache only on the default branch and on tags; on a developer's machine it is their own.
+    """
+    return os.environ.get("GITHUB_EVENT_NAME", "") not in PULL_REQUEST_EVENTS
+
+
+def branch_problem(branch: str, commit: str = "") -> str:
+    """Why ``branch`` (site.toml ``[trureturing].branch``) cannot stand for trureturing's integration
+    branch, as a phrase that follows the name ('' if it can).
+
+    Ancestry is asked as ``compare/<branch>...<commit>``, where GitHub also reads commit SHAs: with the
+    pinned commit (or an abbreviation of it) in place of the branch, the answer is ``identical``. Refused
+    here: a full ref (``refs/…``), a full SHA, and a hex name that abbreviates ``commit``. Other hex names
+    are caught when GitHub's answer shows that it read them as a commit (``github_branch_contains``).
+    """
+    name = branch.strip()
+    if not name:
+        return "is empty"
+    if name.startswith("refs/"):
+        return "is a full ref; write the branch name alone (e.g. dev), without refs/heads/"
+    if HEXISH_RE.match(name) and (len(name) == 40 or commit.lower().startswith(name.lower())):
+        return "is a commit SHA, not a branch"
+    return ""
 
 
 def _git(repo_dir: Path, *args: str) -> subprocess.CompletedProcess:
@@ -505,11 +553,20 @@ def github_branch_contains(repo: str, branch: str, commit: str) -> Ancestry:
 
     ``compare/<branch>...<commit>`` describes the commit relative to the branch: ``behind`` or
     ``identical`` means the branch contains it (and the answer is small: no commits, no files);
-    ``ahead`` or ``diverged`` means the commit has history the branch does not.
+    ``ahead`` or ``diverged`` means the commit has history the branch does not. GitHub also reads a
+    commit SHA in place of the branch: a hex "branch" that the answer's ``base_commit`` begins with was
+    read that way, and proves nothing.
     """
     what = f"GitHub compare {branch}...{commit[:12]}"
+    problem = branch_problem(branch, commit)
+    if problem:
+        return Ancestry(None, f"{what}: branch {branch!r} {problem}")
     code, data, err = github_api(f"repos/{repo}/compare/{urllib.parse.quote(branch, safe='/')}...{commit}")
     if code == 200 and isinstance(data, dict):
+        base = data.get("base_commit")
+        base_sha = base.get("sha") if isinstance(base, dict) else None
+        if HEXISH_RE.match(branch) and isinstance(base_sha, str) and base_sha.lower().startswith(branch.lower()):
+            return Ancestry(None, f"{what}: GitHub read {branch!r} as a commit, not a branch")
         status = data.get("status")
         if status in ("behind", "identical"):
             return Ancestry(True, f"{what}: {status}")

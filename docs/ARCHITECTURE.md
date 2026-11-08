@@ -129,14 +129,16 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
 5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
-6. Lean：每个被引用的 GID 都在锁文件中；形式结论引用的必须是 `theorem`；在锁定提交上重新读取冻结状态片，名称、种类、模块、`statement_id` 与锁文件一致（防止锁文件过期或被手改）；所钉提交可从 `site.toml` 的 trureturing 分支到达（本地 checkout 用 `git merge-base --is-ancestor`，否则用 GitHub compare API；无法判定时 GitHub Actions 中为错误，本地或 `--offline` 下为警告）；未被引用的锁条目（警告；`--book` 时也计入其他书的引用）。
+6. Lean：每个被引用的 GID 都在锁文件中；形式结论引用的必须是 `theorem`；在锁定提交上重新读取冻结状态片，名称、种类、模块、`statement_id` 与锁文件一致（防止锁文件过期或被手改）；所钉提交可从 `site.toml` 的 trureturing 分支到达（本地 checkout 用 `git merge-base --is-ancestor`，否则用 GitHub compare API；无法判定时 GitHub Actions 中为错误，本地或 `--offline` 下为警告）；锁文件的 `branch` 与该分支相同，且该分支是分支名而不是 SHA 或 `refs/…`（错误）；未被引用的锁条目（警告；`--book` 时也计入其他书的引用）。
 7. 媒体：`tbook.viz/film/slides.check(book)` 与 `check_ref(book, src)`。
 8. 主题：`theme/generated/*` 与 `tokens.json` 同步。
-9. 缓存：`.cache/` 下的文件不得提交入库（错误；缓存只在本地可信）。
+9. 缓存：`.cache/` 下的文件不得提交入库，`.cache` 本身（例如符号链接）也不得提交（错误；缓存只在本地可信；`git ls-files` 查询字面路径 `.cache`，不解析符号链接）。
 
 冻结状态片的读取顺序：`$TRURETURING_DIR` 或 `../trureturing` 的 git checkout（`git show <commit>:<path>`）→ `.cache/trureturing/<commit>/` → `https://raw.githubusercontent.com/<repo>/<commit>/<path>`。
 
-分支可达性依次查 `.cache/trureturing/<commit>/.tbook-on-branch.json`（只存肯定结果）→ 本地 checkout → `api.github.com/repos/<repo>/compare/<branch>...<commit>`（`behind` 或 `identical` 才算在分支上；令牌依次取 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`）。CI 中没有 trureturing checkout，各工作流的检查步骤把 `github.token` 作为 `GITHUB_TOKEN` 传入。
+分支可达性依次查 `.cache/trureturing/<commit>/.tbook-on-branch.json`（只存肯定结果）→ 本地 checkout → `api.github.com/repos/<repo>/compare/<branch>...<commit>`（`behind` 或 `identical` 才算在分支上；回答的 `base_commit` 以十六进制“分支名”开头时作废；令牌依次取 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`）。CI 中没有 trureturing checkout，各工作流的检查步骤把 `github.token` 作为 `GITHUB_TOKEN` 传入。
+
+PR 的运行不读缓存（`lean.cache_trusted()`）：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，上面两个顺序都跳过 `.cache/trureturing`（下载的内容仍写入），因为同一 PR 先前的运行执行的是 PR 自己的代码，可能写入伪造的缓存。工作流也只在可信的 ref（默认分支、tag）上用 `actions/cache` 恢复和保存 `.cache/trureturing`（`docs/VERIFICATION.md` §2）。
 
 **深度验证**（`./tbook lean-project` + `.github/workflows/lean-verify.yml`）：生成一个依赖所钉 trureturing 的 Lake 工程，导入被引用的模块，逐条检查声明存在、位于预期模块、种类正确，且公理闭包只含 `propext`、`Classical.choice`、`Quot.sound`（无 `sorryAx`）。需要完整 Lean 构建，耗时长，故定期与发版前运行，而不是每个 PR。
 

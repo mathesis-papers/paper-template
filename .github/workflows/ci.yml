@@ -47,6 +47,15 @@ jobs:
           mdbook: 'true'
 
       - name: Cache trureturing frozen state
+        # Only on trusted refs: pushes to the default branch and tags (also when a tag's workflow calls this
+        # one). A pull request's runs restore the caches its earlier runs saved, and those ran the pull
+        # request's own code, so a cache there could feed check fabricated frozen state. Pull-request runs
+        # read state from raw.githubusercontent.com and ask the compare API; tbook ignores .cache/trureturing
+        # in them anyway (docs/VERIFICATION.md §2).
+        if: >-
+          github.event_name != 'pull_request' && github.event_name != 'pull_request_target' &&
+          (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          startsWith(github.ref, 'refs/tags/'))
         uses: actions/cache@v5
         with:
           path: .cache/trureturing
@@ -56,8 +65,8 @@ jobs:
       - name: Books, bilingual parity and Lean citations
         env:
           # Without a trureturing checkout, check asks GitHub's compare API whether the pinned commit is on
-          # the site.toml branch; in GitHub Actions an unanswered question is an error, and anonymous calls
-          # are limited to 60 per hour per runner address.
+          # the site.toml branch (in pull requests always: no cache is read there); in GitHub Actions an
+          # unanswered question is an error, and anonymous calls are limited to 60 per hour per runner address.
           GITHUB_TOKEN: ${{ github.token }}
           # Optional repository secret for a private trureturing (raw files and the compare API).
           TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
