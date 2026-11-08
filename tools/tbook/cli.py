@@ -40,8 +40,16 @@ def cmd_check(args) -> int:
 
 
 def cmd_pin(args) -> int:
+    from pathlib import Path
+
     from . import lean, pin
 
+    if args.report:  # before pinning: the lock must not be rewritten when the report cannot be
+        try:
+            Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"pin: cannot write --report {args.report}: {exc}", file=sys.stderr)
+            return 1
     try:
         report = pin.pin(args.ref, refresh=args.refresh, offline=args.offline, dry_run=args.dry_run)
     except lean.LeanError as exc:
@@ -53,9 +61,12 @@ def cmd_pin(args) -> int:
     text = report.markdown()
     print(text)
     if args.report:
-        with open(args.report, "w", encoding="utf-8") as fh:
-            fh.write(text + "\n")
-    if report.errors:
+        try:
+            Path(args.report).write_text(text + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"pin: cannot write --report {args.report}: {exc}", file=sys.stderr)
+            return 1
+    if report.errors or report.refused:
         return 1
     if report.written:
         print(f"wrote {paths.rel(paths.LOCK_FILE)} at {report.commit}")
@@ -149,7 +160,8 @@ def parser() -> argparse.ArgumentParser:
     c.set_defaults(fn=cmd_check)
 
     c = sub.add_parser("pin", help="pin a trureturing commit and resolve cited declarations")
-    c.add_argument("ref", nargs="?", help="commit SHA, branch or tag (default: site.toml branch head)")
+    c.add_argument("ref", nargs="?", help="commit SHA (full or abbreviated), branch or tag; it must be on the "
+                                          "site.toml branch (default: that branch's head)")
     c.add_argument("--refresh", action="store_true", help="keep the pinned commit; re-resolve cited GIDs")
     c.add_argument("--offline", action="store_true")
     c.add_argument("--dry-run", action="store_true", help="report changes without writing the lock")

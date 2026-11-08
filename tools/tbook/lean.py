@@ -9,12 +9,18 @@ where a name key encodes a Lean ``Name`` with length-prefixed components::
 
 Books cite declarations by GID, the same address trureturing's Blueprint uses:
 ``<module path>.<name>``, e.g. ``D5/S1/Deficit/DeficitThreeValued.deficit_three_valued``.
-The name part is matched against the module's frozen declarations exactly or as a
-dotted suffix; exactly one match is required (as in trureturing's LeanReferenceResolver).
+The name part is a Lean name (identifier components such as ``of_ρ_eq_self`` or ``mk₂?``,
+or ``«…»``-escaped ones); its components are matched against the module's frozen
+declarations exactly or as a suffix; exactly one match is required (as in trureturing's
+LeanReferenceResolver).
 
 State files are read from, in order: a local trureturing checkout (``$TRURETURING_DIR``
 or ``../trureturing``) via ``git show <commit>:<path>``; the cache under
 ``.cache/trureturing/<commit>/``; ``raw.githubusercontent.com`` at the commit.
+
+The freeze rule is enforced by trureturing's CI on its integration branch (``dev``), so a
+pinned commit must be reachable from that branch (``Ledger.branch_contains``): raw URLs
+also serve commits that were never merged (pull-request heads, other branches).
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ import os
 import re
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -31,11 +38,11 @@ from pathlib import Path
 
 from . import paths
 
-GID_RE = re.compile(
-    r"^(?P<module>D[0-9]+/S[0-9]+/(?:[A-Za-z_][A-Za-z0-9_]*/)*[A-Za-z_][A-Za-z0-9_]*)"
-    r"\.(?P<name>[A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)$"
-)
+# The name part is validated component by component (``name_components``): Lean identifiers
+# allow Greek and letter-like symbols, subscripts, ``'``, ``!`` and ``?``, and ``«…»`` escapes.
+GID_RE = re.compile(r"^(?P<module>D[0-9]+/S[0-9]+/(?:[A-Za-z_][A-Za-z0-9_]*/)*[A-Za-z_][A-Za-z0-9_]*)\.(?P<name>.+)$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+ABBREV_SHA_RE = re.compile(r"^[0-9a-f]{4,39}$")
 STATE_DIR = "Golden/Frozen/state"
 LOCK_SCHEMA = "trureturing-books.lock.v1"
 FORMAL_KINDS = {"theorem"}
@@ -87,16 +94,69 @@ def parse_name_key(key: str) -> list[str | int]:
     return comps
 
 
+def _letter_like(o: int) -> bool:
+    """Lean 4 ``isLetterLike``: Greek (but λ, Π, Σ), Coptic, letter-like symbols, math alphanumerics."""
+    return ((0x3B1 <= o <= 0x3C9 and o != 0x3BB) or (0x391 <= o <= 0x3A9 and o not in (0x3A0, 0x3A3))
+            or 0x3CA <= o <= 0x3FB or 0x1F00 <= o <= 0x1FFE or 0x2100 <= o <= 0x214F or 0x1D49C <= o <= 0x1D59F)
+
+
+def _subscript(o: int) -> bool:
+    """Lean 4 ``isSubScriptAlnum``: ₀–₉, ₐ–ₜ, ᵢ–ᵪ."""
+    return 0x2080 <= o <= 0x2089 or 0x2090 <= o <= 0x209C or 0x1D62 <= o <= 0x1D6A
+
+
+def _id_first(ch: str) -> bool:
+    return (ch.isascii() and (ch.isalpha() or ch == "_")) or _letter_like(ord(ch))
+
+
+def _id_rest(ch: str) -> bool:
+    return _id_first(ch) or (ch.isascii() and ch.isdigit()) or ch in "'!?" or _subscript(ord(ch))
+
+
+def is_identifier(comp: str) -> bool:
+    """Whether ``comp`` is a Lean 4 identifier component that needs no ``«…»`` escape."""
+    return bool(comp) and _id_first(comp[0]) and all(_id_rest(ch) for ch in comp[1:])
+
+
 def name_to_str(comps: list[str | int]) -> str:
     out = []
     for c in comps:
         if isinstance(c, int):
             out.append(str(c))
-        elif re.match(r"^[A-Za-z_][A-Za-z0-9_'!?]*$", c):
+        elif is_identifier(c):
             out.append(c)
         else:
             out.append("«" + c + "»")
     return ".".join(out)
+
+
+def name_components(text: str) -> list[str]:
+    """Components of a written Lean name: ``Foo.«a.b».of_ρ_eq_self`` → ``["Foo", "a.b", "of_ρ_eq_self"]``.
+
+    Plain components must be Lean identifiers; ``«…»`` encloses any other component.
+    """
+    comps: list[str] = []
+    i, n = 0, len(text)
+    while True:
+        if text.startswith("«", i):
+            j = text.find("»", i + 1)
+            comp = text[i + 1:j] if j > 0 else ""
+            if not comp or "«" in comp:
+                raise LeanError(f"bad «…» component in Lean name {text!r}")
+            i = j + 1
+        else:
+            j = text.find(".", i)
+            j = n if j < 0 else j
+            comp = text[i:j]
+            if not is_identifier(comp):
+                raise LeanError(f"{comp!r} is not a Lean identifier (in {text!r}); escape it as «…»")
+            i = j
+        comps.append(comp)
+        if i == n:
+            return comps
+        if text[i] != "." or i + 1 == n:
+            raise LeanError(f"malformed Lean name {text!r}")
+        i += 1
 
 
 def is_private(comps: list[str | int]) -> bool:
@@ -128,9 +188,21 @@ class Gid:
     def blueprint_path(self) -> str:
         return f"Blueprint/{self.module}.md"
 
+    @property
+    def parts(self) -> list[str]:
+        """Components of the name part (``«…»`` escapes removed)."""
+        return name_components(self.name)
+
 
 def parse_gid(text: str) -> Gid:
     m = GID_RE.match(text.strip())
+    if m:
+        try:  # no whitespace or commas even inside «…»: they separate the GIDs of lean="…"
+            if re.search(r"[\s,]", m.group("name")):
+                raise LeanError("separator in name")
+            name_components(m.group("name"))
+        except LeanError:
+            m = None
     if not m:
         raise LeanError(
             f"not a declaration GID: {text!r} (expected <module path>.<name>, "
@@ -226,11 +298,14 @@ class Ledger:
 
     def __init__(self, repo: str, *, offline: bool = False, checkout: Path | None = None):
         self.repo = repo
+        self.offline = offline
         self.cache = CacheSource(paths.CACHE / "trureturing")
         self.sources: list[Source] = []
+        self.checkout: Path | None = None
         for cand in [checkout, os.environ.get("TRURETURING_DIR"), paths.ROOT.parent / "trureturing"]:
             if cand and (Path(cand) / ".git").exists():
-                self.sources.append(GitSource(Path(cand)))
+                self.checkout = Path(cand)
+                self.sources.append(GitSource(self.checkout))
                 break
         self.sources.append(self.cache)
         if not offline:
@@ -261,6 +336,190 @@ class Ledger:
             self._json[key] = json.loads(data) if data else None
         return self._json[key]
 
+    # Branch ancestry ---------------------------------------------------------
+    def branch_contains(self, commit: str, branch: str) -> "Ancestry":
+        """Whether ``commit`` is reachable from ``branch`` of the repository.
+
+        Asked, in order: a positive answer cached under ``.cache/trureturing/<commit>/``; the local
+        checkout (``git merge-base --is-ancestor`` against the branch's remote-tracking ref, else the
+        local branch); GitHub's compare API unless offline. The last definite answer wins, so GitHub
+        overrides a stale checkout, and a checkout's "no" stands when GitHub cannot answer. Positive
+        answers are cached; ``None`` means nobody could tell.
+        """
+        known = self._ancestry_cache(commit).get(f"{self.repo}@{branch}")
+        if isinstance(known, str):
+            return Ancestry(True, f"{known} (cached)")
+        found: list[Ancestry] = []
+        if self.checkout:
+            found.append(git_branch_contains(self.checkout, self.repo, branch, commit))
+        if not any(a.on_branch for a in found) and not self.offline:
+            found.append(github_branch_contains(self.repo, branch, commit))
+        result = next((a for a in reversed(found) if a.on_branch is not None), None)
+        if result is None:
+            reasons = [a.detail for a in found]
+            if not self.checkout:
+                reasons.insert(0, "no local trureturing checkout ($TRURETURING_DIR or ../trureturing)")
+            if self.offline:
+                reasons.append("network disabled")
+            result = Ancestry(None, "; ".join(reasons))
+        if result.on_branch:
+            self.record_on_branch(commit, branch, result.detail)
+        return result
+
+    def record_on_branch(self, commit: str, branch: str, detail: str) -> None:
+        """Cache a positive ancestry answer (best effort)."""
+        data = self._ancestry_cache(commit)
+        data[f"{self.repo}@{branch}"] = detail
+        f = self.cache.dir / commit / ANCESTRY_FILE
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    def _ancestry_cache(self, commit: str) -> dict:
+        try:
+            data = json.loads((self.cache.dir / commit / ANCESTRY_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def expand_sha(self, prefix: str) -> str | None:
+        """The full SHA of the commit abbreviated as ``prefix``: local checkout, then GitHub; None if unknown
+        or ambiguous."""
+        prefix = prefix.lower()
+        if not ABBREV_SHA_RE.match(prefix):
+            return None
+        if self.checkout:
+            r = _git(self.checkout, "rev-parse", "--verify", "-q", f"{prefix}^{{commit}}")
+            sha = r.stdout.strip()
+            if r.returncode == 0 and SHA_RE.match(sha) and sha.startswith(prefix):
+                return sha
+        if not self.offline:
+            code, data, _ = github_api(f"repos/{self.repo}/commits/{prefix}")
+            sha = data.get("sha", "") if code == 200 and isinstance(data, dict) else ""
+            if isinstance(sha, str) and SHA_RE.match(sha) and sha.startswith(prefix):
+                return sha
+        return None
+
+
+# --------------------------------------------------------------------------- branch ancestry
+
+ANCESTRY_FILE = ".tbook-on-branch.json"  # positive answers, in .cache/trureturing/<commit>/
+
+
+@dataclass(frozen=True)
+class Ancestry:
+    """Is a commit reachable from a branch? ``on_branch`` is True, False, or None (cannot tell)."""
+
+    on_branch: bool | None
+    detail: str
+
+
+def ancestry_required(offline: bool) -> bool:
+    """Whether an undetermined ancestry is an error: in GitHub Actions unless offline; a warning elsewhere."""
+    return not offline and os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def _git(repo_dir: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True, text=True)
+
+
+def _same_repo(url: str, repo: str) -> bool:
+    u = url.strip().lower().rstrip("/")
+    u = u[:-4] if u.endswith(".git") else u
+    return re.search(r"github\.com[:/]" + re.escape(repo.lower()) + "$", u) is not None
+
+
+def _branch_ref(repo_dir: Path, repo: str, branch: str) -> str | None:
+    """The ref of ``branch`` in a checkout: the remote-tracking ref of a remote that points at ``repo``,
+    else ``origin/<branch>``, else the local branch."""
+    remotes = []
+    for line in _git(repo_dir, "config", "--get-regexp", r"^remote\..*\.url$").stdout.splitlines():
+        key, _, url = line.partition(" ")
+        if _same_repo(url, repo):
+            remotes.append(key[len("remote."):-len(".url")])
+    candidates = [f"refs/remotes/{r}/{branch}" for r in remotes]
+    candidates += [f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"]
+    for ref in dict.fromkeys(candidates):
+        if _git(repo_dir, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0:
+            return ref
+    return None
+
+
+def git_branch_contains(repo_dir: Path, repo: str, branch: str, commit: str) -> Ancestry:
+    """Ancestry from a local checkout (None when it lacks the commit or the branch)."""
+    if _git(repo_dir, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+        return Ancestry(None, f"the checkout {repo_dir} does not have {commit[:12]}")
+    ref = _branch_ref(repo_dir, repo, branch)
+    if ref is None:
+        return Ancestry(None, f"the checkout {repo_dir} has no branch {branch!r}")
+    short = ref.removeprefix("refs/remotes/").removeprefix("refs/heads/")
+    r = _git(repo_dir, "merge-base", "--is-ancestor", commit, ref)
+    if r.returncode == 0:
+        return Ancestry(True, f"ancestor of {short} in {repo_dir}")
+    if r.returncode == 1:
+        return Ancestry(False, f"not an ancestor of {short} in {repo_dir} (if {branch} has moved: "
+                               f"git -C {repo_dir} fetch)")
+    return Ancestry(None, f"git merge-base failed in {repo_dir}: {r.stderr.strip()[:200]}")
+
+
+def _api_token() -> str:
+    for key in ("TRURETURING_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
+        if os.environ.get(key):
+            return os.environ[key]
+    return ""
+
+
+def github_api(path: str, timeout: float = 30.0) -> tuple[int, object, str]:
+    """GET ``https://api.github.com/<path>``: (HTTP status, or 0 if unreachable; JSON or None; error text).
+
+    Authenticates with ``$TRURETURING_TOKEN``, ``$GITHUB_TOKEN`` or ``$GH_TOKEN`` when set."""
+    url = f"https://api.github.com/{path}"
+    req = urllib.request.Request(url, headers={"User-Agent": "tbook", "Accept": "application/vnd.github+json",
+                                               "X-GitHub-Api-Version": "2022-11-28"})
+    token = _api_token()
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    code, err = 0, "no answer"
+    for _ in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read() or b"null"), ""
+        except urllib.error.HTTPError as exc:
+            code = exc.code
+            try:
+                message = json.loads(exc.read() or b"{}").get("message", "")
+            except (ValueError, AttributeError, OSError):
+                message = ""
+            err = f"HTTP {exc.code}" + (f" {message}" if message else "")
+            if exc.code < 500:
+                break
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            code, err = 0, str(exc)
+    return code, None, err
+
+
+def github_branch_contains(repo: str, branch: str, commit: str) -> Ancestry:
+    """Ancestry from GitHub's compare API.
+
+    ``compare/<branch>...<commit>`` describes the commit relative to the branch: ``behind`` or
+    ``identical`` means the branch contains it (and the answer is small: no commits, no files);
+    ``ahead`` or ``diverged`` means the commit has history the branch does not.
+    """
+    what = f"GitHub compare {branch}...{commit[:12]}"
+    code, data, err = github_api(f"repos/{repo}/compare/{urllib.parse.quote(branch, safe='/')}...{commit}")
+    if code == 200 and isinstance(data, dict):
+        status = data.get("status")
+        if status in ("behind", "identical"):
+            return Ancestry(True, f"{what}: {status}")
+        if status in ("ahead", "diverged"):
+            return Ancestry(False, f"{what}: {status}, {data.get('ahead_by', '?')} commit(s) not on {branch}")
+        return Ancestry(None, f"{what}: unexpected status {status!r}")
+    if code == 404:
+        err += " (unknown commit or branch, or a private repository without $TRURETURING_TOKEN)"
+    return Ancestry(None, f"{what}: {err}")
+
 
 # --------------------------------------------------------------------------- resolution
 
@@ -289,14 +548,14 @@ def resolve(ledger: Ledger, commit: str, gid_text: str) -> Resolution:
             f"{gid.text}: module {gid.module} is not frozen at {commit[:12]} "
             f"(no {gid.state_path}); only kernel-verified, frozen declarations may be cited"
         )
+    want = gid.parts
     matches: list[tuple[str, str]] = []
     for decl in state.get("declarations", []):
         comps = parse_name_key(decl["declaration_name_key"])
         if is_private(comps):
             continue
-        full = name_to_str(comps)
-        if full == gid.name or full.endswith("." + gid.name):
-            matches.append((full, decl.get("kind", "")))
+        if len(comps) >= len(want) and [str(c) for c in comps[-len(want):]] == want:
+            matches.append((name_to_str(comps), decl.get("kind", "")))
     if not matches:
         raise LeanError(f"{gid.text}: no frozen declaration named {gid.name!r} in {gid.state_path} at {commit[:12]}")
     if len(matches) > 1:
@@ -308,10 +567,127 @@ def resolve(ledger: Ledger, commit: str, gid_text: str) -> Resolution:
 
 
 DECL_KEYWORDS = r"(?:theorem|lemma|def|abbrev|instance|structure|inductive|class|opaque|axiom)"
+_MODIFIERS = r"(?:(?:private|protected|public|noncomputable|nonrec|partial|unsafe|meta)\s+)*"
+_DECL_RE = re.compile(r"^\s*(?P<head>(?:@\[[^\]]*\]\s*)*(?P<mods>" + _MODIFIERS + r")" + DECL_KEYWORDS
+                      + r"\s+(?P<name>(?:«[^»]*»|[^\s(){}\[\]⦃⦄:«])+))")
+_NAMESPACE_RE = re.compile(r"^\s*namespace\s+(?P<name>\S+)")
+_SECTION_RE = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:public|private|noncomputable|meta)\s+)*section\b"
+                         r"(?:[ \t]+(?P<name>\S+))?")
+_MUTUAL_RE = re.compile(r"^\s*mutual\b")
+_END_RE = re.compile(r"^\s*end\b(?:[ \t]+(?P<name>\S+))?")
+_ATTR_LINE_RE = re.compile(r"^\s*@\[[^\]]*\]\s*$")
+
+
+def _blank_comments(text: str) -> str:
+    """``text`` with Lean comments and string literals replaced by spaces (newlines and offsets kept)."""
+    out = list(text)
+    n = len(text)
+    i = 0
+    while i < n:
+        if text.startswith("--", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+        elif text.startswith("/-", i):  # block and doc comments nest
+            depth, j = 0, i
+            while j < n:
+                if text.startswith("/-", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("-/", j):
+                    depth, j = depth - 1, j + 2
+                    if depth == 0:
+                        break
+                else:
+                    j += 1
+        elif text[i] == '"' and not (text[i - 1:i] == "'" and text[i + 1:i + 2] == "'"):
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            j = min(n, j + 1)
+        else:
+            i += 1
+            continue
+        for k in range(i, j):
+            if out[k] != "\n":
+                out[k] = " "
+        i = j
+    return "".join(out)
+
+
+def _declarations(text: str) -> tuple[list[tuple[int, int, list[str], list[str]]], bool]:
+    """Non-private declaration headers of a Lean source as (offset, line, full name, written name), and
+    whether its ``namespace`` / ``section`` / ``mutual`` / ``end`` scopes could not be followed."""
+    scopes: list[tuple[str, str | None]] = []  # ("ns", component) | ("section", name) | ("mutual", None)
+    decls: list[tuple[int, int, list[str], list[str]]] = []
+    confused = False
+    offset = 0
+    attr: tuple[int, int] | None = None  # an attribute alone on the line(s) before a declaration
+    for lineno, line in enumerate(_blank_comments(text).split("\n"), 1):
+        start, offset = offset, offset + len(line) + 1
+        if not line.strip():
+            continue
+        if _ATTR_LINE_RE.match(line):
+            attr = (start + len(line) - len(line.lstrip()), lineno)
+            continue
+        pending, attr = attr, None
+        m = _NAMESPACE_RE.match(line)
+        if m:
+            try:
+                scopes += [("ns", c) for c in name_components(m.group("name"))]
+            except LeanError:
+                confused = True
+            continue
+        m = _SECTION_RE.match(line)
+        if m:
+            scopes.append(("section", m.group("name")))
+            continue
+        if _MUTUAL_RE.match(line):
+            scopes.append(("mutual", None))
+            continue
+        m = _END_RE.match(line)
+        if m:
+            name = m.group("name")
+            if not scopes:
+                confused = True
+            elif scopes[-1][0] != "ns":  # a section (closed by `end` or `end <its name>`) or a mutual block
+                if name and scopes[-1][1] != name:
+                    confused = True
+                scopes.pop()
+            else:
+                try:
+                    names = name_components(name) if name else []
+                except LeanError:
+                    names = []
+                k = max(len(names), 1)
+                if not names or scopes[-k:] != [("ns", c) for c in names]:
+                    confused = True
+                del scopes[-k:]
+            continue
+        m = _DECL_RE.match(line)
+        if not m or "private" in m.group("mods").split():
+            continue
+        try:
+            written = name_components(m.group("name").rstrip("."))
+        except LeanError:
+            continue
+        if written[0] == "_root_":
+            written = full = written[1:]
+        else:
+            full = [c for kind, c in scopes if kind == "ns"] + written
+        if written:
+            at = pending if pending and not m.group("head").startswith("@") else (start + m.start("head"), lineno)
+            decls.append((at[0], at[1], full, written))
+    return decls, confused
 
 
 def locate(ledger: Ledger, commit: str, res: Resolution) -> None:
-    """Fill ``line`` and ``signature`` from the Lean source (best effort)."""
+    """Fill ``line`` and ``signature`` from the Lean source (best effort).
+
+    The source's ``namespace`` / ``section`` / ``end`` scopes are followed so that a declaration is
+    found by its full name: in ``namespace Lambda``, ``theorem LMonoTys.foo`` is ``Lambda.LMonoTys.foo``
+    and ``theorem LMonoTy.foo`` is not. Only when the scopes cannot be followed does the longest written
+    name that is a suffix of the full name count. Several candidates, or none, leave ``line`` at 0:
+    a wrong line is worse than none (badges and ledger links point at it).
+    """
     try:
         data = ledger.read(commit, f"{res.module}.lean")
     except LeanError:
@@ -319,17 +695,23 @@ def locate(ledger: Ledger, commit: str, res: Resolution) -> None:
     if not data:
         return
     text = data.decode("utf-8", "replace")
-    short = res.name.rsplit(".", 1)[-1]
-    pat = re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable|nonrec|partial|unsafe)\s+)*"
-                     + DECL_KEYWORDS + r"\s+(?:[\w.']*\.)?" + re.escape(short) + r"(?![\w'])", re.M)
-    m = pat.search(text)
-    if not m:
+    try:
+        target = name_components(res.name)
+    except LeanError:
         return
-    res.line = text.count("\n", 0, m.start()) + 1
-    end = text.find(":=", m.start())
-    if end < 0 or end - m.start() > 2000:
-        end = min(len(text), m.start() + 400)
-    sig = re.sub(r"\s+", " ", text[m.start():end]).strip()
+    decls, confused = _declarations(text)
+    picks = [d for d in decls if d[2] == target]
+    if not picks and confused:
+        fits = [d for d in decls if len(d[3]) <= len(target) and target[-len(d[3]):] == d[3]]
+        longest = max((len(d[3]) for d in fits), default=0)
+        picks = [d for d in fits if len(d[3]) == longest]
+    if len(picks) != 1:
+        return
+    start, res.line = picks[0][0], picks[0][1]
+    end = text.find(":=", start)
+    if end < 0 or end - start > 2000:
+        end = min(len(text), start + 400)
+    sig = re.sub(r"\s+", " ", text[start:end]).strip()
     res.signature = sig[:600]
 
 
@@ -400,15 +782,35 @@ class Lock:
 
 
 def ls_remote(repo: str, ref: str) -> str:
-    """Resolve a branch/tag name of the trureturing repository to a commit SHA."""
+    """Resolve a branch or tag of the trureturing repository to a commit SHA.
+
+    Only ``refs/heads/*`` and ``refs/tags/*`` count, matched by exact name: ``git ls-remote`` alone
+    matches patterns by suffix, so ``head`` would find a pull-request head ``refs/pull/N/head``.
+    Annotated tags are peeled to their commit. A full 40-hex SHA is returned unchanged.
+    """
     if SHA_RE.match(ref):
         return ref
     url = f"https://github.com/{repo}.git"
-    for candidate in (f"refs/heads/{ref}", f"refs/tags/{ref}", ref):
-        r = subprocess.run(["git", "ls-remote", "--exit-code", url, candidate], capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.split()[0]
-    raise LeanError(f"cannot resolve {ref!r} in {url}")
+    if ref.startswith("refs/"):
+        if not ref.startswith(("refs/heads/", "refs/tags/")):
+            raise LeanError(f"cannot pin {ref!r}: only branches (refs/heads/…) and tags (refs/tags/…) of {repo}")
+        candidates = [ref]
+    else:
+        candidates = [f"refs/heads/{ref}", f"refs/tags/{ref}"]
+    patterns = candidates + [c + "^{}" for c in candidates if c.startswith("refs/tags/")]
+    r = subprocess.run(["git", "ls-remote", url, *patterns], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise LeanError(f"git ls-remote {url} failed: {r.stderr.strip()[:300]}")
+    found: dict[str, str] = {}
+    for line in r.stdout.splitlines():
+        sha, _, name = line.partition("\t")
+        found[name.strip()] = sha.strip()
+    for c in candidates:
+        sha = found.get(c + "^{}") or found.get(c, "")
+        if SHA_RE.match(sha):
+            return sha
+    hint = "; to pin a commit, pass its full 40-character SHA" if ABBREV_SHA_RE.match(ref) else ""
+    raise LeanError(f"cannot resolve {ref!r}: no branch or tag of that name in {url}{hint}")
 
 
 def now_utc() -> str:

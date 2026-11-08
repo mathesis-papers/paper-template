@@ -35,7 +35,7 @@ description: 书里要写一条 trureturing 中尚未冻结的定理时使用：
 
 ### 2. 回到书仓库
 
-1. `./tbook pin` —— 跟随 `site.toml` 中的分支（默认 `dev`）移到含新冻结状态片的提交；或 `./tbook pin <sha>` 钉到确切提交。
+1. `./tbook pin` —— 跟随 `site.toml` 中的分支（默认 `dev`）移到含新冻结状态片的提交；或 `./tbook pin <sha>` 钉到确切提交（完整或缩写 SHA）。该提交必须已在 `dev` 上：PR 尚未合入时，其 head 提交会被拒绝（trureturing 只在 `dev` 上执行冻结律）。
 2. 阅读 pin 报告：除了新增的 GID，若有“module statement digest changed”，按 `skills/trureturing-pin` 复核受影响的定理文字。
 3. 在章节中写 `::: {.theorem #thm-… lean="<GID>"}`，所有语言版本同步。
 4. `./tbook check` 0 错误；提交时把 trureturing 的 PR 链接写进提交说明。
