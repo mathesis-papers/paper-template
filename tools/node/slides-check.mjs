@@ -50,7 +50,17 @@ const ABS_LINK = [
 const backdrop = backdropState();
 if (!backdrop.fresh) fail(backdrop.message);
 
-const books = booksWithDecks(bookSlugs);
+// An unknown or hidden (site.toml [books].hide) --book is a usage error.
+function selectBooks() {
+  try {
+    return booksWithDecks(bookSlugs);
+  } catch (e) {
+    console.error(`slides-check: ${e.message}`);
+    return process.exit(2);
+  }
+}
+
+const books = selectBooks();
 const lock = loadLock();
 if (!lock && books.length) fail('trureturing.lock.json not found: run ./tbook pin');
 const decls = lock?.declarations ?? {};

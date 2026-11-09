@@ -916,8 +916,21 @@ def cli_env(root: Path, **extra: str) -> dict[str, str]:
     return env
 
 
+def example_shown() -> bool:
+    """books/example-monograph is in this repository and its site.toml does not hide it ([books].hide): the
+    scratch copy keeps that site.toml, and the commands there must see the example book."""
+    if not (REAL_ROOT / "books" / "example-monograph").is_dir():
+        return False
+    try:
+        return not config.load_site().hidden_by("example-monograph")
+    except config.ConfigError:
+        return False
+    finally:
+        config.load_site.cache_clear()  # read while the module is imported: cache nothing for the tests
+
+
 @unittest.skipUnless(REAL_ROOT.joinpath(".git").exists() and shutil.which("git"), "needs this repository's git")
-@unittest.skipUnless((REAL_ROOT / "books" / "example-monograph").is_dir(), "books/example-monograph is absent")
+@unittest.skipUnless(example_shown(), "books/example-monograph is absent or hidden by site.toml [books].hide")
 class CliTests(unittest.TestCase):
     """./tbook cache status|key|prune|export on the example book, with stand-in outputs (the commands
     without any book: test_template's test_ci_and_pages_commands)."""
@@ -1013,7 +1026,7 @@ def _toolchain_missing() -> str:
     return ""
 
 
-@unittest.skipUnless((REAL_ROOT / "books" / "example-monograph").is_dir(), "books/example-monograph is absent")
+@unittest.skipUnless(example_shown(), "books/example-monograph is absent or hidden by site.toml [books].hide")
 @unittest.skipIf(_toolchain_missing(), _toolchain_missing())
 class BuildIntegrationTests(unittest.TestCase):
     """./tbook build html pdf epub twice on a scratch copy of the example book: the second run restores

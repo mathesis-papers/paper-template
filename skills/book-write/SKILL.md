@@ -18,7 +18,7 @@ description: 撰写或修改 books/<slug>/<lang>/ 下的章节时使用：定理
 - `docs/ARCHITECTURE.md` §3（写作语法）、§4（校验）
 - `docs/AUTHORING.md`（完整写作手册与示例）
 - 本书 `book.toml`（语言版本、第一个为权威版本）与 `<lang>/SUMMARY.md`
-- `books/example-monograph/`（每种写法都有示例；本书库删掉了示例书时，看模板仓库中的同一目录）
+- `books/example-monograph/`（每种写法都有示例；本书库用 `site.toml` 的 `[books] hide` 隐藏了示例书时，它仍在原处；删掉了时，看模板仓库中的同一目录）
 
 ## 硬规则
 

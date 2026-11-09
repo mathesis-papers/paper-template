@@ -1536,7 +1536,7 @@ def cli(args) -> int:
             return 2
         slug, film_id, title_zh, title_en = rest
         try:
-            book = config.load_book(slug)
+            book = config.named_book(slug)
             created = scaffold(book, film_id, title_zh, title_en)
         except (FilmError, config.ConfigError) as exc:
             print(f"film new: {exc}", file=sys.stderr)

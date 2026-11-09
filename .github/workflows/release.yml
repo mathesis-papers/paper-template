@@ -7,6 +7,9 @@
 #                                                                     releases: see template-release.yml),
 #                                                                     e.g. v2026.11.08, v2026-11-08 or v3.0.0
 #
+# Books that site.toml [books].hide hides are never released: a v* tag leaves them out, and a <slug>-v* tag
+# that names one fails.
+#
 # A release is marked as a GitHub pre-release only when its version is a semantic-version pre-release:
 # the book.toml version of a one-book tag (1.0.0-rc.1), or the part after "v" of an all-books tag
 # (v3.0.0-rc.1). Any other form makes an ordinary release, and so does every version that starts with a
@@ -107,8 +110,12 @@ jobs:
               """Only a semantic-version pre-release (1.0.0-rc.1); a date (2026.11.08-2) is an ordinary release."""
               return DATE.match(version) is None and SEMVER_PRERELEASE.fullmatch(version) is not None
 
-          # <slug>-v<version>: the longest known slug wins (slugs may themselves contain "-v").
-          slug = max((s for s in by_slug if tag.startswith(s + "-v")), key=len, default=None)
+          # <slug>-v<version>: the longest known slug wins (slugs may themselves contain "-v"). Books that
+          # site.toml [books].hide hides do not exist for releases either.
+          hidden = config.hidden_books()
+          slug = max((s for s in [*by_slug, *hidden] if tag.startswith(s + "-v")), key=len, default=None)
+          if slug in hidden:
+              fail(f"tag {tag} names books/{slug}, but {config.hidden_error([slug])}; or delete the tag")
           if slug:
               book = by_slug[slug]
               version = tag[len(slug) + 2:]

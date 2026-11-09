@@ -482,6 +482,18 @@ def _colour(enabled: bool):
     return paint
 
 
+def books_line() -> str:
+    """The books the commands work on and, when site.toml [books].hide hides some, those (informational)."""
+    from . import config
+
+    try:
+        shown, hidden = config.book_slugs(), config.hidden_books()
+    except Exception as exc:  # noqa: BLE001 - doctor reports, it never crashes
+        return f"books: cannot list them ({exc})"
+    line = f"books: {', '.join(shown) or 'none'}"
+    return line + (f"; hidden by site.toml [books].hide: {', '.join(hidden)}" if hidden else "")
+
+
 def run() -> int:
     """Print the report; return 1 when a required check fails."""
     tty = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
@@ -506,6 +518,7 @@ def run() -> int:
             blocking = [c.label for c in report.blocking() if t in c.targets or (t == "site" and set(c.targets) & {"html", "pdf", "epub"})]
             mark = "✗" if blocking else "!"
             print(f"  {paint(mark, mark)} {t}{kind}: {', '.join(missing)}")
+    print(books_line())
     blocking = report.blocking()
     optional = [c for c in report.checks if not c.ok and not c.is_required]
     print(f"result: {len(blocking)} required item(s) missing, {len(optional)} optional")

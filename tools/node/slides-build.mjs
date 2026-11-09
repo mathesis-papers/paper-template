@@ -49,8 +49,18 @@ if (cli.rest().length) {
   process.exit(2);
 }
 
+// An unknown or hidden (site.toml [books].hide) --book is a usage error.
+function selectBooks() {
+  try {
+    return booksWithDecks(bookSlugs);
+  } catch (e) {
+    console.error(`slides-build: ${e.message}`);
+    return process.exit(2);
+  }
+}
+
 const failures = [];
-const books = booksWithDecks(bookSlugs);
+const books = selectBooks();
 if (outArg && books.length > 1) {
   console.error('slides-build: --out names one book\'s output directory; pass a single --book with it');
   process.exit(2);
