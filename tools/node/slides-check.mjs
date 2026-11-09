@@ -13,7 +13,8 @@
 //   - every language page for page: same slide count, and on each slide the same layout, bare, chapter,
 //     hide/disabled flags, presence of a section, and the same sequence of cited Lean GIDs;
 //   - every <LeanBadge gid> / <TheoremCard gid> (in any spelling Vue resolves, e.g. <lean-badge>) outside
-//     code blocks (stripCode in slides-lib.mjs: Slidev's own Markdown block rules) is a GID
+//     code blocks (citations and stripCode in slides-lib.mjs: complete tags as Slidev's Markdown reads them,
+//     Slidev's own Markdown block rules; a component tag that is not complete is reported) is a GID
 //     present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems get the
 //     green LEAN ✓); status="open" cites no GID;
 //   - no root-relative or file: links outside code blocks (the site is served under /<repo>/), no
@@ -26,7 +27,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DECK_RE, GID_RE, PRIMARY_FILE, ROOT, argParser, bcp47, booksWithDecks, deckLangs, deckNames, editionFile,
+  DECK_RE, GID_RE, PRIMARY_FILE, ROOT, argParser, bcp47, booksWithDecks, citations, deckLangs, deckNames, editionFile,
   loadLock, primaryLang, readEdition, stripCode, themeRef, toPosix,
 } from './slides-lib.mjs';
 
@@ -35,37 +36,6 @@ const bookSlugs = cli.all('--book');
 const deckFilter = cli.all('--deck');
 const errors = [];
 const fail = (msg) => errors.push(msg);
-
-// Component tags whose `gid` the check verifies. TAG_RE finds every start tag; `component` resolves its
-// name as Vue does (capitalize(camelize(tag))), so <lean-badge> and <leanBadge> are LeanBadge too.
-const TAG_RE = /<([A-Za-z][\w-]*)(?=[\s/>])((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
-const COMPONENTS = new Set(['LeanBadge', 'TheoremCard']);
-const component = (tag) => { const n = tag.replace(/-(\w)/g, (_, c) => c.toUpperCase()); return n[0].toUpperCase() + n.slice(1); };
-const ATTR_RE = /([:@]?[\w.-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'))?/g;
-
-function attrsOf(text) {
-  const out = {};
-  for (const m of text.matchAll(ATTR_RE)) out[m[1]] = m[2] ?? m[3] ?? true;
-  return out;
-}
-
-// Cited GIDs of one slide (outside code blocks: stripCode), in order: [{ tag, gid, attrs }]; problems go to `bad`.
-function citations(content, bad) {
-  const out = [];
-  for (const m of stripCode(content).matchAll(TAG_RE)) {
-    const tag = component(m[1]);
-    if (!COMPONENTS.has(tag)) continue;
-    const attrs = attrsOf(m[2]);
-    let gid = attrs.gid;
-    if (attrs[':gid'] !== undefined) {
-      const lit = /^\s*(['"`])(.*)\1\s*$/.exec(String(attrs[':gid']));
-      if (lit) gid = lit[2];
-      else bad(`<${m[1]} :gid="${attrs[':gid']}">: write gid as a literal string so it can be checked`);
-    }
-    out.push({ tag, gid: typeof gid === 'string' ? gid.trim() : '', attrs });
-  }
-  return out;
-}
 
 const ABS_LINK = [
   /\b(?:href|src|poster|data)\s*=\s*["'](\/(?!\/)[^"']*|file:[^"']*)["']/gi,
@@ -140,7 +110,11 @@ for (const book of books) {
       ed.all.forEach((s, i) => {
         if (s.frontmatter && 'src' in s.frontmatter) fail(`${where} slide ${i + 1}: src: imports slides from another file, which the checks (Lean citations, page-for-page parity) do not read; write the slides in this file`);
       });
-      ed.cites = ed.slides.map((s, i) => citations(s.content ?? '', (msg) => fail(`${where} slide ${i + 1}: ${msg}`)));
+      ed.cites = ed.slides.map((s, i) => {
+        const [found, problems] = citations(s.content ?? '');
+        for (const msg of problems) fail(`${where} slide ${i + 1}: ${msg}`);
+        return found;
+      });
       ed.slides.forEach((s, i) => {
         const here = `${where} slide ${i + 1}`;
         for (const c of ed.cites[i]) {

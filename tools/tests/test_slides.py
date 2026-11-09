@@ -780,6 +780,66 @@ class CitationSpellingTest(ScratchDeckCase):
         self.assertTrue(all("src: imports slides from another file" in m for m in msgs), msgs)
 
 
+# Tags as Slidev reads them: its Markdown hands a tag to Vue only where a complete open tag starts at the '<'. A '<'
+# that starts none ($a <b + 1$, a <b in prose) is text, and so is a '<' in a code span or after a backslash, even
+# where a complete tag starts: the tag after it is rendered (all checked against the components Vue compiles from
+# Slidev's Markdown in NodeTagScanTest). Findings: the scan ran from such a '<' to the next '>', past the tag.
+LONE_LT = {
+    "a < in inline math (finding)": 'For all $a <b + 1$ the claim holds <LeanBadge gid="x" />',
+    "two in inline math, a TheoremCard on later lines (finding)":
+        'If $0 <x <1$ then\n\n<TheoremCard label="T" gid="x">\nbody\n</TheoremCard>',
+    "a < in prose, the tag on the next line": 'a <b and\n<lean-badge gid="x"/> c',
+    "a quoted value from one code span to the next": "`<b x='` <LeanBadge gid=\"x\" /> `'>`",
+    "a quoted value after an escaped <": "\\<b x='y <LeanBadge gid=\"x\" /> '>",
+}
+# A component tag that is not complete: text in a paragraph, rendered by Vue in an HTML block (#slot is no attribute
+# name to Slidev's Markdown), unchecked either way, so reported.
+INCOMPLETE_TAG = '<LeanBadge gid="x" #foo />'
+LONE_LT_GIDS = [f"D5/S9/Lt/Case.c{i}" for i in range(len(LONE_LT) + 1)]
+LONE_LT_DECK = "".join("\n---\n\n" + text.replace('gid="x"', f'gid="{gid}"')
+                       for gid, text in zip(LONE_LT_GIDS, [*LONE_LT.values(), INCOMPLETE_TAG]))
+
+
+class TagScanTest(unittest.TestCase):
+    """Finding: a '<' that starts no complete tag hid the next LeanBadge / TheoremCard from the checks. citations()
+    tries a complete tag (as Slidev's Markdown reads one) at every '<' and reports a component tag that is not
+    complete."""
+
+    def test_a_lone_lt_hides_no_tag(self):
+        for name, text in LONE_LT.items():
+            found, problems = slides.citations(text)
+            self.assertEqual([c.gid for c in found], ["x"], name)
+            self.assertEqual(problems, [], name)
+
+    def test_attributes_as_html_writes_them(self):
+        # unquoted values, spaces around =, attributes on several lines, Vue's own; the tag in the span's quoted value
+        # is checked as well: where Slidev's Markdown reads the span's '<' as text, the quotes are no attribute value
+        found, problems = slides.citations(
+            "<LeanBadge gid=D5/S1/A.b /> <lean-badge kind = definition\tgid='D5/S1/A.c'/>\n"
+            '<TheoremCard\n  label="a > b"\n  gid="D5/S1/A.d"\n  v-click\n  :class="{ x: y }"\n>\n\ns\n\n</TheoremCard>\n'
+            '<LeanBadge status=open gid="" /> <LeanBadge :gid="\'D5/S1/A.e\'" /> <span title="<LeanBadge gid=\'in\'/>">')
+        self.assertEqual(problems, [])
+        self.assertEqual([(c.tag, c.gid) for c in found],
+                         [("LeanBadge", "D5/S1/A.b"), ("LeanBadge", "D5/S1/A.c"), ("TheoremCard", "D5/S1/A.d"),
+                          ("LeanBadge", ""), ("LeanBadge", "D5/S1/A.e"), ("LeanBadge", "in")])
+        self.assertEqual(found[1].attrs, {"kind": "definition", "gid": "D5/S1/A.c"})
+        self.assertEqual(found[2].attrs, {"label": "a > b", "gid": "D5/S1/A.d", "v-click": True, ":class": "{ x: y }"})
+        self.assertEqual(found[3].attrs, {"status": "open", "gid": ""})
+
+    def test_incomplete_component_tags_are_reported(self):
+        for text in (INCOMPLETE_TAG, '<div>\n<lean-badge gid="x" v-bind:[k]="v"/>\n</div>',
+                     '<TheoremCard gid="a"b="c">\n\ns\n\n</TheoremCard>', 'text <leanBadge gid="x"', "<LeanBadge",
+                     '<LeanBadge gid="x"/ >'):
+            found, problems = slides.citations(text)
+            self.assertEqual(found, [], text)
+            self.assertEqual(len(problems), 1, (text, problems))
+            self.assertIn("is not a complete tag", problems[0])
+        # other names, or a name that Vue reads on past the component's: no component tag
+        for text in ("a <b + 1", '<LeanBadgeX gid="x"', '<lean-badge_x gid="x"', '<LeanBadge.x gid="x"',
+                     '<TheoremCard\u3000gid="x"', "<LeanBadge\u0085"):
+            self.assertEqual(slides.citations(text), ([], []), text)
+
+
 # Code as Slidev's Markdown (markdown-exit set up as Slidev sets it up) reads it: (name, Markdown, indices of the
 # lines shown as code).
 FENCE_CASES = [
@@ -931,9 +991,12 @@ class FenceScanTest(unittest.TestCase):
 
 # Slides as Slidev renders them: @slidev/parser splits the deck, and the markdown-exit instance Slidev builds for
 # a deck of the theme (captured through the markdownSetup hook, footnote_tail off so that every footnote's
-# blocks stay in place) parses each slide.
+# blocks stay in place) parses each slide. With `render`, the slide is also rendered and Vue compiles the HTML (the
+# template of the slide's component): `rendered` lists the LeanBadge / TheoremCard components in it with their
+# static gid ('' without one), null when Vue cannot compile it (Slidev's build fails).
 SLIDEV_MARKDOWN = """
 import { readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const [root, dir] = process.argv.slice(1);
@@ -941,7 +1004,8 @@ const items = JSON.parse(readFileSync(0, 'utf8')); // before Slidev loads: it le
 const url = (p) => pathToFileURL(join(root, p)).href;
 const { resolveOptions, ViteSlidevPlugin } = await import(url('node_modules/@slidev/cli/dist/index.mjs'));
 const { parseSync } = await import(url('node_modules/@slidev/parser/dist/index.mjs'));
-const { codeLines } = await import(url('tools/node/slides-lib.mjs'));
+const { COMPONENTS, citations, codeLines, component } = await import(url('tools/node/slides-lib.mjs'));
+const { compileTemplate, parse: parseSfc } = createRequire(join(root, 'package.json'))('@vue/compiler-sfc');
 writeFileSync(join(dir, 'slides.md'), `---\\ntheme: ${join(root, 'theme', 'slides')}\\n---\\n\\n$$\\nx\\n$$\\n`);
 // every file a <<< line of the corpus imports (a missing one fails Slidev's build)
 for (const name of ['snippet.ts', 'x', '\\u0085', 'snippet.ts\\u0085', 'snippet.ts\\ufeff'])
@@ -949,16 +1013,52 @@ for (const name of ['snippet.ts', 'x', '\\u0085', 'snippet.ts\\u0085', 'snippet.
 const options = await resolveOptions({ entry: join(dir, 'slides.md') }, 'build');
 const md = await new Promise((resolve) => { ViteSlidevPlugin(options, { markdown: { markdownSetup: resolve } }); });
 md.core.ruler.disable('footnote_tail');
-const one = (content) => {
-  const code = new Set();
-  for (const t of md.parse(content, { id: '/@slidev/slides/__slidev_1.md' }))
-    if ((t.type === 'fence' || t.type === 'code_block') && t.map) for (let i = t.map[0]; i < t.map[1]; i++) code.add(i);
-  return { content, js: codeLines(content), md: [...code].sort((a, b) => a - b) };
+const env = () => ({ id: '/@slidev/slides/__slidev_1.md' });
+const rendered = async (content) => {
+  let html;
+  try { html = await md.renderAsync(content, env()); } catch { return null; } // e.g. a fence in an unknown language
+  const { descriptor, errors } = parseSfc(`<template>${html}</template>`);
+  if (errors.length || compileTemplate({ source: descriptor.template.content, filename: 'x.vue', id: 'x' }).errors.length)
+    return null;
+  const out = [];
+  const walk = (node) => {
+    if (node.type === 1 && node.tagType === 1 && COMPONENTS.has(component(node.tag)))
+      out.push([component(node.tag), node.props.find((p) => p.type === 6 && p.name === 'gid')?.value?.content ?? '']);
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(descriptor.template.ast);
+  return out;
 };
-const out = items.map(([text, deck]) => (deck ? parseSync(text, 'x.md').slides.map((s) => one(s.content))
-  : [one(text)]));
+const one = async (content, render) => {
+  const code = new Set();
+  for (const t of md.parse(content, env()))
+    if ((t.type === 'fence' || t.type === 'code_block') && t.map) for (let i = t.map[0]; i < t.map[1]; i++) code.add(i);
+  const out = { content, js: codeLines(content), md: [...code].sort((a, b) => a - b), cites: citations(content) };
+  if (render) out.rendered = await rendered(content);
+  return out;
+};
+const out = [];
+for (const [text, deck, render] of items)
+  out.push(await Promise.all(deck ? parseSync(text, 'x.md').slides.map((s) => one(s.content, render)) : [one(text, render)]));
 process.stdout.write(JSON.stringify(out), () => process.exit(0));
 """
+
+
+def slidev_markdown(test: unittest.TestCase, items: list) -> list:
+    """SLIDEV_MARKDOWN's slides of each item ([text, whether it is a deck, render]), one list per item."""
+    with tempfile.TemporaryDirectory(prefix="tbook-slides-md-") as tmp:
+        r = subprocess.run([NODE, "--input-type=module", "-e", SLIDEV_MARKDOWN, str(ROOT), tmp],
+                           input=json.dumps(items), capture_output=True, text=True, cwd=ROOT)
+    test.assertEqual(r.returncode, 0, r.stderr)
+    out = json.loads(r.stdout)
+    test.assertEqual(len(out), len(items))
+    return out
+
+
+def py_citations(content: str) -> list:
+    """citations() in the form slides-lib.mjs citations() returns (as JSON)."""
+    found, problems = slides.citations(content)
+    return [[{"tag": c.tag, "gid": c.gid, "attrs": c.attrs} for c in found], problems]
 
 
 @unittest.skipUnless(HAVE_NODE and (ROOT / "node_modules" / "@slidev" / "cli").is_dir(),
@@ -966,26 +1066,85 @@ process.stdout.write(JSON.stringify(out), () => process.exit(0));
 class NodeFenceScanTest(unittest.TestCase):
     """code_lines() and slides-lib.mjs codeLines() agree with each other and with the parser Slidev builds
     (fence and code_block tokens) on the cases and on seeded random decks, split into slides as Slidev and
-    split_slides() split them."""
+    split_slides() split them; citations() and slides-lib.mjs citations() agree on them too."""
 
     def test_python_node_and_slidev_agree(self):
-        items = [[text, False] for _, text, _ in FENCE_CASES] + [[deck, True] for deck in deck_corpus()]
-        with tempfile.TemporaryDirectory(prefix="tbook-slides-md-") as tmp:
-            r = subprocess.run([NODE, "--input-type=module", "-e", SLIDEV_MARKDOWN, str(ROOT), tmp],
-                               input=json.dumps(items), capture_output=True, text=True, cwd=ROOT)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        self.assertEqual(len(out), len(items))
+        items = [[text, False, False] for _, text, _ in FENCE_CASES] + [[deck, True, False] for deck in deck_corpus()]
+        out = slidev_markdown(self, items)
         compared = 0
-        for (text, deck), got in zip(items, out):
+        for (text, deck, _), got in zip(items, out):
             contents = [s.content for s in slides.split_slides(text)] if deck else [text]
             self.assertEqual([g["content"] for g in got], contents, repr(text))
             for g in got:
                 mask = slides.code_lines(g["content"])
                 self.assertEqual(g["js"], mask, repr(g["content"]))
                 self.assertEqual([i for i, code in enumerate(mask) if code], g["md"], repr(g["content"]))
+                self.assertEqual(g["cites"], py_citations(g["content"]), repr(g["content"]))
                 compared += 1
         self.assertGreater(compared, 1000)
+
+
+# Pieces of random slides for the comparison with the components Vue compiles: text with a lone '<', math, code spans,
+# escapes, quotes that open in them and close later, comments, links, HTML and component tags, complete or not (@
+# becomes a GID of its own). Most elements close in the piece that opens them: Vue compiles no slide that leaves an
+# element open.
+TAG_PIECES = [
+    "text", "a", "x > y", "<", ">", "a <b", "<x <1", "$a <b + 1$", "$0 <x <1$", "$x$", "$", "'", '"', "`", "\\",
+    "\\<", "&lt;", "**", "[a](<b c>)", "<http://x.y>", "[^1]", "<!-- c -->", "<!--", "-->", "<br>", "<b>x</b>",
+    "<span title='a > b'>x</span>", "`<i x='`", "`'/>`", "<i x='", "'/>", '<i x="', '"/>', "$<i x='$", "\\<i x='",
+    "``<i x='``", '<LeanBadge gid="@" />', "<LeanBadge gid='@'/>", "<lean-badge gid=@ />", '<leanBadge\ngid="@"/>',
+    '<TheoremCard label="a > b" gid="@">s</TheoremCard>', '<theorem-card gid="@">\n\ns\n\n</theorem-card>',
+    '<LeanBadge gid="@" #d />', '<LeanBadge gid="@"/ >', '<LeanBadge gid="@"', "<LeanBadge", 'gid="@" />',
+    '<LeanBadge\u3000gid="@"/>', '<LeanBadge v-click gid="@" />', '<lean-badge kind=definition gid="@"/>',
+    '<LeanBadge gid="@" v-bind:[k]="v" />',
+]
+TAG_LINES = [("", "")] * 6 + [("> ", ""), ("- ", ""), ("1. ", ""), ("  ", ""), ("    ", ""), ("```\n", "\n```"),
+                              ("<div>", "</div>"), ("<div>\n", "\n</div>"), ("<v-click>\n", "\n</v-click>"),
+                              ("| a |\n|---|\n| ", " |")]
+
+
+def tag_corpus(n: int = 1500, seed: int = 5) -> list[str]:
+    """Random slides: lines of random pieces (some in a container, an HTML block, a table or code), some blank."""
+    rng = random.Random(seed)
+    out = []
+    for _ in range(n):
+        lines = []
+        for _ in range(rng.randint(1, 6)):
+            start, end = rng.choice(TAG_LINES)
+            lines.append("" if rng.random() < 0.2 else start + rng.choice(["", " "]).join(
+                rng.choice(TAG_PIECES) for _ in range(rng.randint(1, 5))) + end)
+        parts = "\n".join(lines).split("@")
+        out.append("".join(p + (f"D5/S9/G/M.g{i}" if i < len(parts) - 1 else "") for i, p in enumerate(parts)))
+    return out
+
+
+@unittest.skipUnless(HAVE_NODE and (ROOT / "node_modules" / "@slidev" / "cli").is_dir()
+                     and (ROOT / "node_modules" / "@vue" / "compiler-sfc").is_dir(),
+                     "node and node_modules (@slidev/cli, @slidev/parser, @vue/compiler-sfc) needed")
+class NodeTagScanTest(unittest.TestCase):
+    """Finding: a '<' that starts no complete tag hid the next tag from the checks. On the cases and on seeded random
+    slides, citations() and slides-lib.mjs citations() agree, and every LeanBadge / TheoremCard that Vue compiles from
+    a slide as Slidev renders it is a tag they check, or the slide reports a component tag that is not complete."""
+
+    def test_every_rendered_tag_is_checked(self):
+        cases = [*LONE_LT.values(), INCOMPLETE_TAG, '<div>\n<lean-badge gid="x" v-bind:[k]="v"/>\n</div>']
+        items = [[text.replace('gid="x"', f'gid="D5/S9/G/Case.c{i}"'), False, True] for i, text in enumerate(cases)]
+        items += [[text, False, True] for text in tag_corpus()]
+        out = slidev_markdown(self, items)
+        rendered = reported = 0
+        for (text, _, _), [got] in zip(items, out):
+            self.assertEqual(got["cites"], py_citations(text), repr(text))
+            if got["rendered"] is None:  # Slidev's build fails
+                continue
+            found, problems = slides.citations(text)
+            unchecked = [r for r in got["rendered"] if (r[0], r[1]) not in {(c.tag, c.gid) for c in found}]
+            self.assertTrue(not unchecked or problems, (text, unchecked))
+            rendered += len(got["rendered"])
+            reported += bool(unchecked)
+        # each case renders its tag; the last two only as unchecked tags the slide reports
+        self.assertEqual([len(got["rendered"]) for [got] in out[:len(cases)]], [1] * len(cases))
+        self.assertGreater(rendered, 300)
+        self.assertGreater(reported, 5)
 
 
 class CodeBlockCitationTest(ScratchDeckCase):
@@ -1014,6 +1173,18 @@ class CodeBlockCitationTest(ScratchDeckCase):
         for gid in HIDDEN_GIDS:
             self.assertEqual(sum(f"{gid} is not in trureturing.lock.json" in m for m in msgs), 2, (gid, msgs))
         self.assertEqual(len(msgs), 2 * len(HIDDEN_GIDS), msgs)
+
+    def test_tags_after_a_lone_lt_are_checked(self):
+        """Finding: a tag Slidev renders after a '<' that starts no complete tag ($a <b + 1$, $0 <x <1$) is checked,
+        and a component tag that is not complete is reported."""
+        self.write("zh", self.head("zh") + LONE_LT_DECK)
+        self.write("en", self.head("en") + LONE_LT_DECK)
+        msgs = self.issues()
+        for gid in LONE_LT_GIDS[:-1]:
+            self.assertEqual(sum(f"{gid} is not in trureturing.lock.json" in m for m in msgs), 2, (gid, msgs))
+        self.assertEqual(sum("<LeanBadge …> is not a complete tag" in m for m in msgs), 2, msgs)
+        self.assertEqual(len(msgs), 2 * len(LONE_LT_GIDS), msgs)
+        self.assertEqual({g for _, _, g in slides.cited_gids(self.book)}, set(LONE_LT_GIDS[:-1]))
 
 
 # A slide with tags between two code blocks (and inside them, which is not checked).
@@ -1120,6 +1291,25 @@ class NodeScriptsTest(unittest.TestCase):
                 mock.patch.object(slides, "theme_ref", lambda deck_dir: theme):
             py = [i.message for i in slides.check(config.load_book(self.tmp / "books" / "bk"))]
         self.assertEqual(len(py), 2 * len(HIDDEN_GIDS), py)
+
+    def test_check_tags_after_a_lone_lt(self):
+        """Finding: slides-check.mjs, like check(), checks a tag Slidev renders after a '<' that starts no complete
+        tag ($a <b + 1$, $0 <x <1$) and reports a component tag that is not complete."""
+        deck = self.book(["zh", "en"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        theme = "../../../../theme/slides"
+        (deck / "slides.md").write_text(deck_head(theme, "zh") + LONE_LT_DECK, encoding="utf-8")
+        (deck / "slides.en.md").write_text(deck_head(theme, "en") + LONE_LT_DECK, encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for gid in LONE_LT_GIDS[:-1]:
+            self.assertEqual(r.stderr.count(f"{gid} is not in trureturing.lock.json"), 2, (gid, r.stderr))
+        self.assertEqual(r.stderr.count("<LeanBadge …> is not a complete tag"), 2, r.stderr)
+        self.assertIn(f"slides-check failed ({2 * len(LONE_LT_GIDS)})", r.stderr)
+        with mock.patch.object(lean.Lock, "load", return_value=fake_lock()), \
+                mock.patch.object(slides, "theme_ref", lambda deck_dir: theme):
+            py = [i.message for i in slides.check(config.load_book(self.tmp / "books" / "bk"))]
+        self.assertEqual(len(py), 2 * len(LONE_LT_GIDS), py)
 
     def test_new_deck_in_an_english_first_book(self):
         self.book(["en", "zh"])
