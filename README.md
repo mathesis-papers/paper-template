@@ -71,7 +71,7 @@
    ./tbook build all && ./tbook serve
    ```
 
-6. 在 GitHub：Settings → Pages → Source 选 **GitHub Actions**。推送到 `main` 即部署；打 tag `<slug>-v<version>` 即发布 Release。
+6. 在 GitHub：Settings → Pages → Source 选 **GitHub Actions**。推送到 `main` 即构建（含视频）并部署；打 tag `<slug>-v<version>` 即发布 Release（PDF、EPUB、幻灯片 PDF 与构建缓存）。输入未变的产物不再重建：CI 从缓存或最近的 Release 恢复（[docs/PUBLISHING.md](docs/PUBLISHING.md) §5）。
 
 ## 目录
 
@@ -91,7 +91,8 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 | `./tbook check` | 结构、多语言对齐、Lean 引用 |
 | `./tbook pin [<sha>\|<branch>\|<tag>\|--refresh]` | 钉 trureturing 提交（须在 `site.toml` 的分支上），解析引用 |
 | `./tbook new-book` / `new-chapter` | 新书、新章节 |
-| `./tbook build [html\|pdf\|epub\|slides\|viz\|films\|site\|all]` | 构建 |
+| `./tbook build [html\|pdf\|epub\|slides\|viz\|films\|site\|all]` | 构建（输入未变的单元从缓存恢复） |
+| `./tbook cache status\|key\|prune\|export` | 构建缓存：列出单元、Actions 缓存键、清理旧条目、导出给 Release |
 | `./tbook serve` | 本地预览站点 |
 | `./tbook viz\|slides\|film new …` | 新建可视化、演示文稿、视频 |
 | `./tbook lean-project` | 生成深度验证 Lake 工程 |

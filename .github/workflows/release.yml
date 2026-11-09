@@ -15,7 +15,17 @@
 #
 # The release carries, per book, the PDFs (screen + print), the EPUB of every edition and the slide PDFs
 # (<slug>-<deck>-<lang>.pdf); its notes list each book's version, editions, theorem count and the pinned
-# trureturing commit. Film tags (film-*) are handled by film.yml.
+# trureturing commit.
+#
+# Every release is also a restore point of the build cache (docs/PUBLISHING.md §5): whatever the tag, the
+# build job builds the whole site (./tbook build all, films included), restoring unchanged units from the
+# Actions cache of the default branch or from earlier releases, and ./tbook cache export writes one tar per
+# unit and build-cache.json, which are attached beside the downloads. A build that has no cache
+# (TBOOK_CACHE_REMOTE=1) restores from the newest published releases instead of building again.
+#
+# The release is created as a draft, every file is uploaded, and only then is it published, so a published
+# release is complete; repositories with immutable releases require this (a published release takes no new
+# files). A release that is already published is left as it is: tag a new version.
 #
 # Optional: set the repository variable REQUIRE_LEAN_VERIFY=true to run the Lean deep verification
 # (lean-verify.yml: axiom closure of every cited declaration) before anything is published.
@@ -26,11 +36,12 @@ on:
     tags:
       - '*-v*'
       - 'v*'
-      - '!film-*'
 
 permissions:
   contents: read
 
+# One run per tag, not one group for all tags: a group keeps a single pending run and cancels the one
+# waiting before it, so tags pushed together would lose a release. Neither run saves the Actions cache.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -136,13 +147,18 @@ jobs:
     uses: ./.github/workflows/lean-verify.yml
 
   build:
-    name: Build PDF, EPUB and slides
+    name: Build the site and export the build cache
     needs: [plan, lean-verify]
     if: >-
       !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true' &&
       (needs.lean-verify.result == 'success' || needs.lean-verify.result == 'skipped')
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # Rendering a film that no cache holds takes long (frames, narration, encoding).
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      # actions/configure-pages reads the Pages configuration (private repositories refuse it without this).
+      pages: read
     steps:
       - name: Check out
         uses: actions/checkout@v5
@@ -152,7 +168,8 @@ jobs:
         with:
           browsers: 'true'
           fonts: 'true'
-          mdbook: 'false'
+          mdbook: 'true'
+          films: 'true'
 
       - name: Cache trureturing frozen state
         # Only on tags (trusted refs; docs/VERIFICATION.md §2), should this workflow ever gain other triggers.
@@ -163,6 +180,19 @@ jobs:
           key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
           restore-keys: trureturing-state-
 
+      - name: Configure Pages
+        # Build for the Pages URL, as pages.yml does, so that the exported entries carry the site's keys.
+        # Without Pages this step fails, and this build and pages.yml both use site.toml's address.
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
       - name: Check
         env:
           # check asks GitHub's compare API whether the pinned trureturing commit is on the site.toml branch
@@ -172,13 +202,19 @@ jobs:
           TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
         run: ./tbook check
 
-      - name: Build
+      - name: Build everything
         env:
-          BOOKS: ${{ needs.plan.outputs.books }}
-        run: |
-          args=()
-          for slug in $BOOKS; do args+=(--book "$slug"); done
-          ./tbook build pdf epub slides "${args[@]}"
+          # Units missing from the Actions cache are looked up in the newest published releases.
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          # A release never goes out without a film: one that cannot be rendered fails the build.
+          TBOOK_FILMS: require
+        run: ./tbook build all
+
+      - name: Export the build cache
+        # Every unit of the site, not only the released books', so that this release alone restores a build.
+        # Fails when a unit is missing from the store.
+        run: ./tbook cache export release/cache
 
       - name: Collect assets and write the release notes
         env:
@@ -198,9 +234,11 @@ jobs:
           # Release-note strings not in theme/i18n (zh / en).
           LOCAL = {
               "zh": {"editions": "语言版本", "theorems": "经 Lean 内核验证的定理",
-                     "deep": "Lean 深度验证（公理闭包）已通过", "assets": "附件"},
+                     "deep": "Lean 深度验证（公理闭包）已通过", "assets": "附件",
+                     "cache": "构建缓存（供没有缓存的构建恢复，阅读不需要）"},
               "en": {"editions": "Editions", "theorems": "Lean-verified theorems",
-                     "deep": "Lean deep verification (axiom closure) passed", "assets": "Assets"},
+                     "deep": "Lean deep verification (axiom closure) passed", "assets": "Assets",
+                     "cache": "build cache (restored by builds that have none; not needed for reading)"},
           }
 
           site = config.load_site()
@@ -218,7 +256,7 @@ jobs:
           def loc(lang, key):
               return LOCAL.get(lang, LOCAL["en"])[key]
 
-          out = Path("release")
+          out = Path("release")  # release/cache: written by ./tbook cache export
           assets = out / "assets"
           assets.mkdir(parents=True)
           lock = lean.Lock.load()
@@ -268,6 +306,7 @@ jobs:
                         f"· `{lock.repo}` · {lock.branch} · {lock.pinned_at}"]
           if os.environ.get("LEAN_VERIFY") == "success":
               notes += ["", f"✓ {both(lambda l: loc(l, 'deep'))}"]
+          notes += ["", f"`build-cache.json`, `cache-*.tar`: {both(lambda l: loc(l, 'cache'))}"]
           (out / "notes.md").write_text("\n".join(notes).rstrip() + "\n", encoding="utf-8")
           print((out / "notes.md").read_text(encoding="utf-8"))
           if missing:
@@ -302,7 +341,7 @@ jobs:
           name: release
           path: release
 
-      - name: Create or update the release
+      - name: Create the release as a draft, upload every file, publish it
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -311,15 +350,28 @@ jobs:
           PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         run: |
           set -euo pipefail
-          mapfile -t files < <(find release/assets -maxdepth 1 -type f | sort)
-          printf 'asset: %s\n' "${files[@]}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${files[@]}" --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes-file release/notes.md
-          else
-            flags=()
-            if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-            gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file release/notes.md \
-              "${flags[@]}" "${files[@]}"
+          if [ ! -f release/cache/build-cache.json ]; then
+            echo "::error title=Release::release/cache/build-cache.json is missing (./tbook cache export)"
+            exit 1
           fi
+          # Reader downloads and the build cache (one tar per unit, build-cache.json).
+          mapfile -t files < <(find release/assets release/cache -maxdepth 1 -type f | sort)
+          printf 'asset: %s\n' "${files[@]}"
+          if draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file release/notes.md
+            if [ "$draft" != "true" ]; then
+              # A published release is final (immutable where the repository enables it): tag a new version.
+              echo "::warning title=Release::release $TAG is already published; its files are left as they are"
+              echo "Release (already published): https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # The draft of an earlier attempt: replace its files.
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$TITLE" --notes-file release/notes.md "${files[@]}"
+          fi
+          # Published only now, with every file in place.
+          flags=(--draft=false)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release edit "$TAG" "${flags[@]}"
           echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
