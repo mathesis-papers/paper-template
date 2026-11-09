@@ -3,57 +3,75 @@
 A *unit* is what one build step produces: an edition's HTML, one PDF variant or the EPUB of an
 edition, a book's slides, a film's videos. Its *key* is the SHA-256 of everything its outputs depend
 on (:class:`Inputs`: the source files, theme and tool code, the lock file, site settings, the versions
-of the tools that run). :func:`run` looks the key up before building:
+of the tools that run), its target and its name. :func:`run` looks the key up before building:
 
 1. the local store ``.cache/artifacts/<target>/<unit>/<key>/``. On GitHub Actions the store itself is
-   saved and restored with the Actions cache (``.github/actions/build-cache``), from pushes to the
-   default branch only;
+   saved and restored with the Actions cache, from pushes to the default branch only;
 2. with ``TBOOK_CACHE_REMOTE=1``, the newest published releases of the repository: ``./tbook cache
-   export`` writes one tar per unit and ``build-cache.json`` (unit, key, asset name, SHA-256), which
-   release.yml attaches to the release of the whole site;
+   export`` writes one tar per unit and ``build-cache.json`` (unit, key, asset name, SHA-256, size),
+   which the release of the whole site attaches;
 3. on a miss it builds the unit and stores its outputs under the key.
 
-A hit copies the stored outputs to where the build writes them, so the rest of the build cannot tell
-the difference. Every stored file's SHA-256 is recorded in ``entry.json`` and checked when it is
-restored; a release asset is checked against ``build-cache.json`` and the digest GitHub reports.
-Keys are input-addressed: two builds from the same inputs share a key even when their bytes differ
-(video encoders, PDF exporters), and a changed input always gives a new key. Each unit keeps its
+A hit copies the stored outputs to where the build writes them (same paths, same file or directory
+shape), so the rest of the build cannot tell the difference. Every stored file's SHA-256 is recorded in
+``entry.json`` and checked whenever the entry is restored; a release asset is checked against
+``build-cache.json`` and the digest GitHub reports, and only regular files and directories are unpacked
+from it. Keys are input-addressed: two builds from the same inputs share a key even when their bytes
+differ (video encoders, PDF exporters), and a changed input always gives a new key. Each unit keeps its
 newest :data:`KEEP` entries; ``./tbook cache prune`` keeps only those of the current inputs.
 
-``TBOOK_CACHE=0`` turns the cache off (every unit is built, nothing is stored).
+Nothing here fails a build that would succeed without the cache: an unreadable release, a damaged
+entry or a full disk is reported in one line and the unit is built (or not stored).
+
+``TBOOK_CACHE=0`` turns the cache off (every unit is built, nothing is stored or restored).
 """
 
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 from . import config, paths
 
 SCHEMA = "trureturing-books.build-cache.v1"
 MANIFEST = "build-cache.json"  # the release asset that lists the release's cache entries
 ENTRY = "entry.json"
-VERSION = "1"  # part of every key: bump it to rebuild everything once
+VERSION = "2"  # part of every key: bump it to rebuild everything once
 KEEP = 2  # entries kept per unit in the local store
 REMOTE_RELEASES = 5  # newest published releases searched for an entry
 TARGETS = ("html", "pdf", "epub", "slides", "films")
-# Directories never part of a unit's inputs (when git cannot list the files).
-SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".slidev", ".vite", "out", ".cache", "build", "_site"})
+TIMEOUT = 300  # seconds per HTTP request
+MAX_JSON = 32 << 20  # bytes: a release list or build-cache.json larger than this is refused
+MAX_ASSET = 8 << 30  # bytes: upper bound for an asset whose size is not declared
+STALE_TMP = 3600  # seconds: prune removes temporary directories of interrupted runs older than this
+OUTSIDE = "<outside>"  # label prefix of input files outside the repository root
+# Directories never part of a unit's inputs when git cannot list the files (no work tree, or a directory
+# git ignores as a whole, such as .cache/fonts).
+SKIP_DIRS = frozenset({".git", "__pycache__", "node_modules", ".slidev", ".vite", "out", "frames", "tts", ".cache",
+                       "build", "_site"})
+_KEY_RE = re.compile(r"[0-9a-f]{64}")
+_REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+
+class MissingOutput(FileNotFoundError):
+    """A build step finished without writing one of its unit's outputs."""
 
 
 def store_root() -> Path:
@@ -72,65 +90,125 @@ def _say(msg: str) -> None:
     print(f"  {msg}", flush=True)
 
 
+def _clear_memos() -> None:
+    """Forget what this process memoized (git listings, digests, tool versions, release indexes)."""
+    _DIGESTS.clear()
+    _git_files.cache_clear()
+    _git_ignored.cache_clear()
+    tool_version.cache_clear()
+    _remote_index.cache_clear()
+
+
 # --------------------------------------------------------------------------- inputs and keys
 
-_DIGESTS: dict[tuple[str, int, int], str] = {}
+_DIGESTS: dict[tuple[str, int, int, int, int], str] = {}
 
 
-def file_digest(path: Path) -> str:
-    """SHA-256 of a file's content (memoized by path, size and mtime within a process)."""
-    st = path.stat()
-    memo = (str(path), st.st_size, st.st_mtime_ns)
-    if memo not in _DIGESTS:
-        h = hashlib.sha256()
-        with path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-        _DIGESTS[memo] = h.hexdigest()
-    return _DIGESTS[memo]
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def file_digest(path: Path, *, memo: bool = True) -> str:
+    """SHA-256 of a file's content. With ``memo``, remembered within the process by path, size, inode,
+    mtime and ctime; verification of stored entries reads the bytes every time (``memo=False``)."""
+    if not memo:
+        return _sha256_file(path)
+    st = Path(path).stat()
+    key = (str(path), st.st_size, st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
+    if key not in _DIGESTS:
+        _DIGESTS[key] = _sha256_file(path)
+    return _DIGESTS[key]
 
 
 @lru_cache(maxsize=None)
 def _git_files(root: str) -> frozenset[str] | None:
-    """Files git would commit under ``root`` (tracked, or untracked and not ignored), repository-relative;
-    None when ``root`` is not in a git work tree."""
+    """Files git would commit under ``root`` (tracked, or untracked and not ignored), relative to ``root``
+    (git prints them so, also when ``root`` is a subdirectory of the work tree); None when ``root`` is not
+    in a git work tree or git cannot run."""
     try:
         r = subprocess.run(["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-                           capture_output=True, timeout=60)
+                           capture_output=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0:
         return None
-    top = subprocess.run(["git", "-C", root, "rev-parse", "--show-prefix"], capture_output=True, text=True)
-    prefix = top.stdout.strip() if top.returncode == 0 else ""
-    out = set()
-    for name in r.stdout.decode("utf-8", "surrogateescape").split("\0"):
-        if name and name.startswith(prefix):
-            out.add(name[len(prefix):])
-    return frozenset(out)
+    return frozenset(n for n in r.stdout.decode("utf-8", "surrogateescape").split("\0") if n)
 
 
-def _files_under(path: Path) -> list[Path]:
-    """The source files under ``path`` (a file or directory): what git would commit when ROOT is a git work
-    tree (so build outputs and ignored files never count), otherwise every file outside :data:`SKIP_DIRS`."""
-    if path.is_file():
-        return [path]
-    if not path.is_dir():
-        return []
-    listed = _git_files(str(paths.ROOT))
+@lru_cache(maxsize=None)
+def _git_ignored(root: str, rel: str) -> bool:
+    """Whether git ignores ``rel`` (relative to ``root``), itself or through a parent directory."""
     try:
-        rel = path.resolve().relative_to(paths.ROOT.resolve()).as_posix()
+        r = subprocess.run(["git", "-C", root, "check-ignore", "-q", "--", rel], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def _root_rel(path: Path) -> str | None:
+    """``path`` relative to the repository root, as a POSIX path ('.' for the root itself): lexically
+    first (a symbolic link keeps its own name), then with links resolved; None when it is outside."""
+    try:
+        rel = Path(os.path.abspath(path)).relative_to(os.path.abspath(paths.ROOT))
     except ValueError:
-        listed = None
-        rel = ""
-    if listed is not None:
-        head = "" if rel in ("", ".") else rel + "/"
-        return [paths.ROOT / name for name in sorted(listed) if name.startswith(head) and (paths.ROOT / name).is_file()]
-    found = []
-    for dirpath, dirnames, filenames in os.walk(path):
+        try:
+            rel = Path(path).resolve().relative_to(paths.ROOT.resolve())
+        except (ValueError, OSError):
+            return None
+    return rel.as_posix()
+
+
+def _item_label(item: Path) -> str:
+    rel = _root_rel(item)
+    return rel if rel is not None else f"{OUTSIDE}/{Path(item).name}"
+
+
+def _walk(item: Path, label: str) -> list[tuple[Path, str]]:
+    """Every file under the directory ``item`` outside :data:`SKIP_DIRS`, labelled ``label/<relative path>``."""
+    out = []
+    for dirpath, dirnames, filenames in os.walk(item):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        found += [Path(dirpath) / f for f in sorted(filenames) if not f.endswith(".pyc") and f != ".DS_Store"]
-    return found
+        for name in sorted(filenames):
+            f = Path(dirpath) / name
+            if name.endswith(".pyc") or name == ".DS_Store" or not f.is_file():
+                continue
+            sub = f.relative_to(item).as_posix()
+            out.append((f, sub if label == "." else f"{label}/{sub}"))
+    return out
+
+
+def _files_under(item: Path) -> list[tuple[Path, str]]:
+    """The input files of ``item`` (a file or a directory) with their labels, sorted.
+
+    A file counts as itself. In a directory of the repository's git work tree, the files git would commit
+    (so build outputs and ignored files never count); a directory git ignores as a whole (``.cache/fonts``)
+    or one outside the repository counts with every file in it. Labels are repository-relative paths; a
+    file outside the repository is labelled ``<outside>/<item name>/<path in item>``, so the key does not
+    depend on where that directory lives."""
+    item = Path(item)
+    rel = _root_rel(item)
+    label = rel if rel is not None else f"{OUTSIDE}/{item.name}"
+    if item.is_file():
+        return [(item, label)]
+    if not item.is_dir():
+        return []
+    if rel is not None:
+        root = str(paths.ROOT)
+        listed = _git_files(root)
+        try:
+            real = item.resolve().relative_to(paths.ROOT.resolve()).as_posix()
+        except (ValueError, OSError):
+            real = None  # a link out of the work tree: walk it
+        if listed is not None and real is not None:
+            head = "" if real == "." else real + "/"
+            names = sorted(n for n in listed if n.startswith(head))
+            if names or not _git_ignored(root, real):
+                return [(paths.ROOT / n, n) for n in names if (paths.ROOT / n).is_file()]
+    return sorted(_walk(item, label), key=lambda fl: fl[1])
 
 
 @dataclass
@@ -140,32 +218,33 @@ class Inputs:
     parts: list[tuple[str, str]] = field(default_factory=list)
 
     def files(self, *items: Path, exclude: Iterable[str] = ()) -> "Inputs":
-        """Every file under each of ``items`` (files or directories), by repository-relative path and
-        content; a missing item counts as missing. ``exclude``: path fragments (``/out/``) to leave out."""
+        """Every file of each of ``items`` (files or directories; see :func:`_files_under`), by label and
+        content; an item without files counts as missing. ``exclude``: label fragments (``/out/``) to
+        leave out, matched against ``/`` + the label."""
         skip = tuple(exclude)
         for item in items:
-            item = Path(item)
-            label = paths.rel(item)
-            found = _files_under(item)
+            found = [(f, label) for f, label in _files_under(Path(item))
+                     if not any(s in "/" + label for s in skip)]
             if not found:
-                self.parts.append((label, "missing"))
-                continue
-            for f in found:
-                name = paths.rel(f)
-                if any(s in "/" + name for s in skip):
-                    continue
-                self.parts.append((name, file_digest(f)))
+                self.parts.append((_item_label(Path(item)), "missing"))
+            for f, label in found:
+                self.parts.append((label, file_digest(f)))
         return self
 
     def text(self, label: str, value: Any) -> "Inputs":
-        data = value if isinstance(value, str) else json.dumps(value, sort_keys=True, ensure_ascii=False)
-        self.parts.append((f"<{label}>", hashlib.sha256(data.encode("utf-8")).hexdigest()))
+        data = json.dumps(value, sort_keys=True, ensure_ascii=False)  # typed: 1 and "1" differ
+        self.parts.append((f"<{label}>", hashlib.sha256(data.encode("utf-8", "surrogateescape")).hexdigest()))
+        return self
+
+    def add(self, other: "Inputs") -> "Inputs":
+        """Append ``other``'s parts."""
+        self.parts += other.parts
         return self
 
     def key(self) -> str:
         h = hashlib.sha256(f"{SCHEMA}\n{VERSION}\n".encode())
         for label, digest in self.parts:
-            h.update(f"{label}\t{digest}\n".encode("utf-8", "surrogateescape"))
+            h.update(json.dumps([label, digest]).encode() + b"\n")  # unambiguous for any file name
         return h.hexdigest()
 
 
@@ -184,6 +263,16 @@ def tool_version(*cmd: str) -> str:
     return text.splitlines()[0] if text else f"exit {r.returncode}"
 
 
+def package_version(name: str) -> str:
+    """Installed version of the Python package ``name``; 'missing' when it is not installed."""
+    from importlib import metadata
+
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return "missing"
+
+
 def node_version() -> str:
     return tool_version(os.environ.get("NODE") or shutil.which("node") or "")
 
@@ -200,12 +289,13 @@ def _python() -> str:
 
 
 def site_inputs(site: config.Site) -> Inputs:
-    """What every HTML, PDF, EPUB and slides unit depends on: the tool and theme code, site settings,
-    the lock file, the pinned packages, the site's address (links and paths are built from it)."""
+    """What every HTML, PDF and EPUB unit depends on: the tool and theme code (not the film pipeline in
+    theme/film/, which only films use), site settings, the lock file, the pinned packages, the site's
+    address (links and paths are built from it)."""
     return (Inputs()
             .files(paths.TOOLS / "tbook", paths.TOOLS / "filters", paths.TOOLS / "node", paths.THEME,
                    paths.I18N_LOCAL, paths.SITE_TOML, paths.LOCK_FILE, paths.ROOT / "requirements.txt",
-                   paths.ROOT / "package-lock.json")
+                   paths.ROOT / "package-lock.json", exclude=("/theme/film/",))
             .text("base_url", site.base_url or "")
             .text("repo", site.repo or "")
             .text("python", _python()))
@@ -231,7 +321,10 @@ class Unit:
         return f"{self.target} {self.name}"
 
     def entry_dir(self, key: str | None = None) -> Path:
-        return store_root() / self.target / self.name / (key or self.key)
+        parts = [self.target, *self.name.split("/")]
+        if any(p in ("", ".", "..") or "\\" in p for p in parts):
+            raise ValueError(f"build cache: unsafe unit name {self.label!r}")
+        return store_root().joinpath(*parts, key or self.key)
 
 
 def html_unit(site: config.Site, book: config.Book, lang: str, out_dir: Path) -> Unit:
@@ -242,7 +335,17 @@ def html_unit(site: config.Site, book: config.Book, lang: str, out_dir: Path) ->
 
 
 def _fonts() -> Inputs:
-    return Inputs().files(paths.CACHE / "fonts", paths.CACHE / "fonts-fontsource")
+    """The fonts Typst (PDF, covers) and the EPUB use: .cache/fonts (tools/fetch-fonts.sh) and the families
+    Typst finds there, in theme/typst/fonts and on the system. .cache/fonts-fontsource is not an input: the
+    build derives it from node_modules/@fontsource (package-lock.json) when a family is missing."""
+    from . import pandoc
+
+    dirs = [d for d in (pandoc.FONT_CACHE, pandoc.THEME_FONTS) if d.is_dir()]
+    try:
+        families = sorted(pandoc._families(dirs))
+    except Exception:  # noqa: BLE001 - no typst: the build fails on its own
+        families = []
+    return Inputs().files(pandoc.FONT_CACHE).text("font families", families)
 
 
 def _pandoc_version() -> str:
@@ -254,21 +357,36 @@ def _pandoc_version() -> str:
         return "missing"
 
 
+def _dated(inputs: Inputs) -> Inputs:
+    """PDF and EPUB metadata dates come from $SOURCE_DATE_EPOCH when it is set."""
+    return inputs.text("SOURCE_DATE_EPOCH", os.environ.get("SOURCE_DATE_EPOCH", ""))
+
+
 def pdf_unit(site: config.Site, book: config.Book, lang: str, variant: str, out_file: Path) -> Unit:
-    inputs = site_inputs(site).files(book.dir)
-    inputs.parts += _fonts().parts
-    inputs.text("pandoc", _pandoc_version()).text("node", node_version())
-    return Unit("pdf", f"{book.slug}/{lang}/{variant}", inputs, [Path(out_file)])
+    inputs = site_inputs(site).files(book.dir).add(_fonts())
+    inputs.text("pandoc", _pandoc_version()).text("typst", package_version("typst")).text("node", node_version())
+    return Unit("pdf", f"{book.slug}/{lang}/{variant}", _dated(inputs), [Path(out_file)])
+
+
+def _epubcheck_mode() -> str:
+    """$TBOOK_EPUBCHECK as the build reads it: an EPUB stored without the check is not restored into a
+    build that checks."""
+    mode = os.environ.get("TBOOK_EPUBCHECK", "1").lower()
+    return "off" if mode in ("0", "false", "no", "off") else mode
 
 
 def epub_unit(site: config.Site, book: config.Book, lang: str, out_file: Path) -> Unit:
-    inputs = site_inputs(site).files(book.dir).text("pandoc", _pandoc_version()).text("node", node_version())
-    return Unit("epub", f"{book.slug}/{lang}", inputs, [Path(out_file)])
+    inputs = site_inputs(site).files(book.dir).add(_fonts())
+    inputs.text("pandoc", _pandoc_version()).text("typst", package_version("typst")).text("node", node_version())
+    inputs.text("epubcheck", _epubcheck_mode())
+    return Unit("epub", f"{book.slug}/{lang}", _dated(inputs), [Path(out_file)])
 
 
 def slides_unit(site: config.Site, book: config.Book, out_dir: Path) -> Unit:
     """A book's decks (HTML of every language and the PDFs, build/slides/<slug>/): the decks and the book's
-    metadata, the slide theme and tools, the lock (cited GIDs), the site's base path, Node and Chromium."""
+    metadata, the slide theme and tools, the lock (cited GIDs), the site's base path, Node and Chromium, and
+    whether PDFs are exported and the decks checked in a browser (decks stored unchecked are not restored
+    into a build that checks)."""
     from . import slides
 
     inputs = (Inputs()
@@ -279,6 +397,7 @@ def slides_unit(site: config.Site, book: config.Book, out_dir: Path) -> Unit:
               .text("base", slides.base_path(site))
               .text("base_url", site.base_url or "")
               .text("no_pdf", os.environ.get("TBOOK_SLIDES_NO_PDF") == "1")
+              .text("no_check", os.environ.get("TBOOK_SLIDES_NO_CHECK") == "1")
               .text("node", node_version())
               .text("chromium", chromium_version()))
     return Unit("slides", book.slug, inputs, [Path(out_dir)])
@@ -307,29 +426,45 @@ def units(site: config.Site, books: Iterable[config.Book]) -> list[Unit]:
 # --------------------------------------------------------------------------- local store
 
 
-def _rel_root(path: Path) -> str:
-    rel = Path(path).resolve().relative_to(paths.ROOT.resolve())
-    return rel.as_posix()
+def _out_path(path: Path) -> str:
+    """How an output path is recorded: repository-relative, or absolute when it is outside."""
+    rel = _root_rel(path)
+    return rel if rel is not None else Path(os.path.abspath(path)).as_posix()
 
 
-def _copy(src: Path, dst: Path) -> None:
-    if dst.is_dir() and not dst.is_symlink():
-        shutil.rmtree(dst)
-    elif dst.exists() or dst.is_symlink():
-        dst.unlink()
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if src.is_dir():
-        shutil.copytree(src, dst)
-    else:
-        shutil.copy2(src, dst)
+def _remove(path: Path) -> None:
+    """Remove a file, link or directory tree; nothing when it does not exist."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
 
 
-def _listing(root: Path) -> dict[str, dict[str, Any]]:
-    """{relative path: {sha256, size}} of every file under ``root``."""
-    out = {}
-    for f in sorted(p for p in root.rglob("*") if p.is_file()):
-        out[f.relative_to(root).as_posix()] = {"sha256": file_digest(f), "size": f.stat().st_size}
-    return out
+def _scan(root: Path) -> tuple[dict[str, dict[str, Any]], list[str], list[str]]:
+    """Everything under ``root``, read now: ({relative path: {sha256, size}} of the regular files, the
+    relative paths of the directories, the relative paths of anything else: links, devices)."""
+    files: dict[str, dict[str, Any]] = {}
+    dirs: list[str] = []
+    odd: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        d = Path(dirpath)
+        for name in sorted(dirnames):
+            rel = (d / name).relative_to(root).as_posix()
+            if (d / name).is_symlink():
+                odd.append(rel)
+                dirnames.remove(name)
+            else:
+                dirs.append(rel)
+        dirnames.sort()
+        for name in sorted(filenames):
+            f = d / name
+            rel = f.relative_to(root).as_posix()
+            st = f.lstat()
+            if not stat.S_ISREG(st.st_mode):
+                odd.append(rel)
+                continue
+            files[rel] = {"sha256": file_digest(f, memo=False), "size": st.st_size}
+    return files, sorted(dirs), odd
 
 
 def read_entry(entry: Path) -> dict[str, Any] | None:
@@ -337,28 +472,74 @@ def read_entry(entry: Path) -> dict[str, Any] | None:
         data = json.loads((entry / ENTRY).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return data if data.get("schema") == SCHEMA else None
+    if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+        return None
+    if (not isinstance(data.get("outputs"), list) or not isinstance(data.get("files"), dict)
+            or not isinstance(data.get("dirs"), list)):
+        return None
+    if not all(isinstance(data.get(k), str) for k in ("target", "unit", "key")):
+        return None
+    return data
 
 
 def verify(entry: Path) -> str:
-    """'' when ``entry`` holds exactly the files its entry.json lists, with those digests; else why not."""
+    """'' when ``entry`` holds exactly the outputs, directories and files its entry.json lists (each output
+    a file or a directory as recorded, each file with its digest, nothing else, no links); else why not."""
     data = read_entry(entry)
     if data is None:
         return "no valid entry.json"
     files = entry / "files"
-    want = data.get("files") or {}
-    have = _listing(files) if files.is_dir() else {}
-    if set(have) != set(want):
+    for i, out in enumerate(data["outputs"]):
+        p = files / str(i)
+        kind = out.get("kind") if isinstance(out, dict) else None
+        if kind not in ("file", "dir") or p.is_symlink() or not (p.is_dir() if kind == "dir" else p.is_file()):
+            return f"output {i} is not the stored {kind or 'output'}"
+    have, dirs, odd = _scan(files) if files.is_dir() else ({}, [], [])
+    if odd:
+        return f"{odd[0]} is not a regular file"
+    want = data["files"]
+    tops = {p.split("/")[0] for p in [*have, *dirs]}
+    if (set(have) != set(want) or dirs != sorted(map(str, data["dirs"]))
+            or tops != {str(i) for i in range(len(data["outputs"]))}):
         return "the stored files are not the listed ones"
     for name, info in want.items():
-        if have[name]["sha256"] != info.get("sha256"):
+        if not isinstance(info, dict) or have[name]["sha256"] != info.get("sha256"):
             return f"{name} does not match its digest"
     return ""
 
 
+def _touch(entry: Path) -> None:
+    try:
+        os.utime(entry)
+    except OSError:
+        pass
+
+
+def _publish(tmp: Path, final: Path) -> None:
+    """Move the complete entry ``tmp`` to ``final`` with a rename (never a half-written entry). An entry
+    already at ``final`` that verifies is kept (another process stored the same key: the same inputs); a
+    damaged one is replaced."""
+    if final.exists():
+        if not verify(final):
+            return
+        aside = final.parent / f".old-{uuid.uuid4().hex}"
+        try:
+            final.rename(aside)
+        except FileNotFoundError:
+            pass
+        else:
+            shutil.rmtree(aside, ignore_errors=True)
+    try:
+        tmp.rename(final)
+    except OSError:
+        if final.is_dir() and not verify(final):
+            return  # a concurrent process stored the same entry first
+        raise
+
+
 def store(unit: Unit, key: str | None = None) -> Path:
     """Copy ``unit``'s outputs into the store under ``key`` (default: its current key) and drop all but its
-    newest :data:`KEEP` entries. Returns the entry directory."""
+    newest :data:`KEEP` entries. Returns the entry directory. A missing output is a :class:`MissingOutput`."""
     key = key or unit.key
     final = unit.entry_dir(key)
     final.parent.mkdir(parents=True, exist_ok=True)
@@ -368,50 +549,92 @@ def store(unit: Unit, key: str | None = None) -> Path:
         for i, out in enumerate(unit.outputs):
             out = Path(out)
             if not out.exists():
-                raise FileNotFoundError(f"{unit.label}: the build did not write {paths.rel(out)}")
-            _copy(out, tmp / "files" / str(i))
-            outputs.append({"path": _rel_root(out), "kind": "dir" if out.is_dir() else "file"})
+                raise MissingOutput(f"{unit.label}: the build did not write {paths.rel(out)}")
+            dst = tmp / "files" / str(i)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if out.is_dir():  # links are followed: the store holds plain files
+                shutil.copytree(out, dst)
+            else:
+                shutil.copy2(out, dst)
+            outputs.append({"path": _out_path(out), "kind": "dir" if out.is_dir() else "file"})
+        (tmp / "files").mkdir(exist_ok=True)
+        listed, dirs, _ = _scan(tmp / "files")
         (tmp / ENTRY).write_text(json.dumps({
             "schema": SCHEMA, "target": unit.target, "unit": unit.name, "key": key, "created": int(time.time()),
-            "outputs": outputs, "files": _listing(tmp / "files"),
-            "inputs": [list(p) for p in unit.inputs.parts],
+            "outputs": outputs, "files": listed, "dirs": dirs, "inputs": [list(p) for p in unit.inputs.parts],
         }, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-        if final.exists():
-            shutil.rmtree(final)
-        tmp.rename(final)
+        _publish(tmp, final)
     finally:
-        if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
-    os.utime(final)
+        shutil.rmtree(tmp, ignore_errors=True)
+    _touch(final)
     _keep_newest(final.parent, KEEP)
     return final
 
 
+def _key_dirs(unit_dir: Path) -> list[Path]:
+    try:
+        return [d for d in unit_dir.iterdir() if d.is_dir() and _KEY_RE.fullmatch(d.name)]
+    except OSError:
+        return []
+
+
 def _keep_newest(unit_dir: Path, keep: int) -> None:
-    entries = sorted((d for d in unit_dir.iterdir() if d.is_dir() and not d.name.startswith(".")),
-                     key=lambda d: d.stat().st_mtime, reverse=True)
-    for old in entries[keep:]:
+    """Remove all but the ``keep`` most recently stored or restored entries of one unit."""
+    def mtime(d: Path) -> float:
+        try:
+            return d.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    for old in sorted(_key_dirs(unit_dir), key=mtime, reverse=True)[keep:]:
         shutil.rmtree(old, ignore_errors=True)
+
+
+def _place(src: Path, dst: Path) -> None:
+    """Copy ``src`` (file or directory) to ``dst``, replacing whatever is there (a file, a directory, a
+    link): copied next to it first, then renamed, so an interrupted restore leaves no half-copied output."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.parent / f".{dst.name}.restore-{uuid.uuid4().hex[:12]}"
+    try:
+        if src.is_dir():
+            shutil.copytree(src, tmp)
+        else:
+            shutil.copy2(src, tmp)
+        _remove(dst)
+        os.rename(tmp, dst)
+    finally:
+        if tmp.exists() or tmp.is_symlink():
+            _remove(tmp)
 
 
 def restore_local(unit: Unit, key: str | None = None) -> bool:
     """Copy the stored outputs of ``unit`` (``key``: default its current key) to their places; False when
-    the store has no valid entry (a damaged one is removed)."""
+    the store has no valid entry (a damaged one is removed) or the copy fails."""
+    key = key or unit.key
     entry = unit.entry_dir(key)
     if not entry.is_dir():
         return False
-    why = verify(entry)
-    data = read_entry(entry) or {}
-    want = [_rel_root(Path(o)) for o in unit.outputs]
-    if not why and [o.get("path") for o in data.get("outputs", [])] != want:
+    data = read_entry(entry)
+    if data is None:
+        why = "no valid entry.json"
+    elif (data["target"], data["unit"], data["key"]) != (unit.target, unit.name, key):
+        why = "it belongs to another unit"
+    elif [o.get("path") if isinstance(o, dict) else None for o in data["outputs"]] != [
+            _out_path(Path(o)) for o in unit.outputs]:
         why = "it was stored for other output paths"
+    else:
+        why = verify(entry)
     if why:
         _say(f"cache: dropping the stored {unit.label} ({why})")
         shutil.rmtree(entry, ignore_errors=True)
         return False
-    for i, out in enumerate(unit.outputs):
-        _copy(entry / "files" / str(i), Path(out))
-    os.utime(entry)
+    try:
+        for i, out in enumerate(unit.outputs):
+            _place(entry / "files" / str(i), Path(out))
+    except OSError as exc:
+        _say(f"cache: cannot restore {unit.label} ({exc}); building it")
+        return False
+    _touch(entry)
     return True
 
 
@@ -422,108 +645,214 @@ def _token() -> str:
     return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
 
 
-def _http(url: str, *, accept: str = "application/vnd.github+json", api: bool = True) -> bytes:
+def _api() -> str:
+    """The GitHub API (``$GITHUB_API_URL`` on Actions, also for GitHub Enterprise Server)."""
+    return (os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+
+
+class _NoAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """Drop the token when a redirect leaves the host: GitHub sends asset downloads to signed storage URLs,
+    which refuse a second credential (and must not see the token)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).netloc != urllib.parse.urlsplit(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
+def _open(url: str, *, accept: str, api: bool):
     headers = {"Accept": accept, "User-Agent": "tbook-build-cache"}
     if api and _token():
         headers["Authorization"] = f"Bearer {_token()}"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=300) as resp:  # noqa: S310 - https URLs built below
-        return resp.read()
+    opener = urllib.request.build_opener(_NoAuthOnRedirect())
+    return opener.open(urllib.request.Request(url, headers=headers), timeout=TIMEOUT)
+
+
+def _http(url: str, *, accept: str = "application/vnd.github+json", api: bool = True) -> bytes:
+    """The body of a small response (a release list, build-cache.json)."""
+    with _open(url, accept=accept, api=api) as resp:
+        data = resp.read(MAX_JSON + 1)
+    if len(data) > MAX_JSON:
+        raise ValueError(f"the answer is larger than {MAX_JSON} bytes")
+    return data
+
+
+def _asset_url(asset: dict[str, Any]) -> tuple[str, bool]:
+    """(URL, whether it takes the token): the API URL with a token (private repositories), else the public
+    download URL."""
+    if _token() and asset.get("url"):
+        return str(asset["url"]), True
+    return str(asset.get("browser_download_url") or ""), False
 
 
 def _asset_bytes(repo: str, asset: dict[str, Any]) -> bytes:
-    """An asset's bytes: through the API (works for private repositories with a token), else its public URL."""
-    if _token() and asset.get("url"):
-        return _http(asset["url"], accept="application/octet-stream")
-    return _http(asset["browser_download_url"], accept="application/octet-stream", api=False)
+    """A small asset's bytes (build-cache.json)."""
+    url, api = _asset_url(asset)
+    return _http(url, accept="application/octet-stream", api=api)
 
 
-@lru_cache(maxsize=4)
-def _remote_index(repo: str) -> dict[tuple[str, str, str], tuple[str, dict[str, Any], dict[str, Any]]]:
-    """(target, unit, key) → (release tag, manifest entry, asset) over the newest published releases."""
-    index: dict[tuple[str, str, str], tuple[str, dict[str, Any], dict[str, Any]]] = {}
-    try:
-        releases = json.loads(_http(f"https://api.github.com/repos/{repo}/releases?per_page=20"))
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        _say(f"cache: cannot list the releases of {repo} ({exc}); building instead")
+def _download(repo: str, asset: dict[str, Any], dest: Path, limit: int) -> str:
+    """Write an asset to ``dest`` (at most ``limit`` bytes); returns its SHA-256."""
+    url, api = _asset_url(asset)
+    h = hashlib.sha256()
+    size = 0
+    with _open(url, accept="application/octet-stream", api=api) as resp, dest.open("wb") as fh:
+        for chunk in iter(lambda: resp.read(1 << 20), b""):
+            size += len(chunk)
+            if size > limit:
+                raise ValueError(f"it is larger than the {limit} bytes declared")
+            h.update(chunk)
+            fh.write(chunk)
+    return h.hexdigest()
+
+
+def _why(exc: BaseException) -> str:
+    """One line for a failed request."""
+    if isinstance(exc, urllib.error.HTTPError):
+        hint = "" if _token() else "; set GITHUB_TOKEN"
+        remaining = exc.headers.get("X-RateLimit-Remaining") if exc.headers else None
+        if exc.code == 429 or (exc.code == 403 and remaining == "0"):
+            return f"HTTP {exc.code}: API rate limit reached{hint}"
+        if exc.code == 404:
+            return f"HTTP 404: not found, or no access{hint}"
+        return f"HTTP {exc.code} {exc.reason}"
+    if isinstance(exc, urllib.error.URLError):
+        return str(exc.reason)
+    return str(exc) or type(exc).__name__
+
+
+Found = tuple[str, dict[str, Any], dict[str, Any]]  # (release tag, manifest entry, asset)
+
+
+@lru_cache(maxsize=8)
+def _remote_index(repo: str) -> dict[tuple[str, str, str], Found]:
+    """(target, unit, key) → (release tag, manifest entry, asset) over the newest published releases (drafts
+    are ignored). Read once per process; a failure is reported once and gives an empty index."""
+    index: dict[tuple[str, str, str], Found] = {}
+    if not _REPO_RE.fullmatch(repo or ""):
         return index
-    published = [r for r in releases if not r.get("draft")][:REMOTE_RELEASES]
+    try:
+        releases = json.loads(_http(f"{_api()}/repos/{repo}/releases?per_page=30"))
+        if not isinstance(releases, list):
+            raise ValueError("unexpected answer")
+    except Exception as exc:  # noqa: BLE001 - the build goes on without the releases
+        _say(f"cache: cannot list the releases of {repo} ({_why(exc)}); building what is not stored")
+        return index
+    published = [r for r in releases if isinstance(r, dict) and not r.get("draft")][:REMOTE_RELEASES]
     for rel in published:
-        assets = {a.get("name"): a for a in rel.get("assets") or []}
+        tag = str(rel.get("tag_name") or "")
+        assets = {a.get("name"): a for a in rel.get("assets") or [] if isinstance(a, dict)}
         manifest_asset = assets.get(MANIFEST)
         if not manifest_asset:
             continue
         try:
             manifest = json.loads(_asset_bytes(repo, manifest_asset))
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            _say(f"cache: cannot read {MANIFEST} of release {rel.get('tag_name')} ({exc})")
+        except Exception as exc:  # noqa: BLE001
+            _say(f"cache: cannot read {MANIFEST} of release {tag} ({_why(exc)})")
             continue
-        if manifest.get("schema") != SCHEMA:
+        if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
             continue
         for e in manifest.get("entries") or []:
-            asset = assets.get(e.get("asset"))
+            if not isinstance(e, dict):
+                continue
             k = (e.get("target"), e.get("unit"), e.get("key"))
-            if asset and k not in index:
-                index[k] = (rel.get("tag_name", ""), e, asset)
+            asset = assets.get(e.get("asset"))
+            if asset and all(isinstance(x, str) for x in k) and k not in index:
+                index[k] = (tag, e, asset)  # type: ignore[index]
     return index
 
 
-def _safe_extract(data: bytes, dest: Path) -> None:
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
-        for m in tar.getmembers():
-            name = Path(m.name)
-            if name.is_absolute() or ".." in name.parts or not (m.isfile() or m.isdir()):
+def _safe_extract(tar_path: Path, dest: Path) -> None:
+    """Unpack an entry tar into the new directory ``dest``: only ``entry.json`` and regular files and
+    directories under ``files/``, no links, devices, sparse or duplicate members, no more bytes than the
+    tar holds. Written member by member (no tarfile extraction filter: the same on every Python >= 3.11)."""
+    dest.mkdir()
+    limit = tar_path.stat().st_size
+    with tarfile.open(tar_path, mode="r:") as tar:
+        members = tar.getmembers()
+        seen: set[str] = set()
+        total = 0
+        for m in members:
+            parts = m.name.split("/")
+            if (not m.name or "\\" in m.name or any(p in ("", ".", "..") for p in parts) or m.name in seen
+                    or not (m.isdir() or (m.isreg() and not m.issparse()))
+                    or not (m.name == ENTRY and m.isreg() or parts[0] == "files")):
                 raise ValueError(f"unsafe member {m.name!r}")
-        tar.extractall(dest, filter="data")
+            seen.add(m.name)
+            total += m.size if m.isreg() else 0
+            if total > limit:
+                raise ValueError("members larger than the archive")
+        for m in members:
+            target = dest.joinpath(*m.name.split("/"))
+            if m.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            src = tar.extractfile(m)
+            if src is None:
+                raise ValueError(f"unreadable member {m.name!r}")
+            with src, target.open("xb") as fh:
+                shutil.copyfileobj(src, fh)
 
 
 def restore_remote(unit: Unit, repo: str) -> bool:
-    """Fetch ``unit``'s entry for its current key from a release into the store and restore it."""
+    """Fetch ``unit``'s entry for its current key from a release into the store and restore it. False (with
+    one line saying why, when there was something to fetch) on any failure."""
     key = unit.key
     found = _remote_index(repo).get((unit.target, unit.name, key)) if repo else None
     if not found:
         return False
-    tag, entry_info, asset = found
-    try:
-        data = _asset_bytes(repo, asset)
-    except (urllib.error.URLError, OSError) as exc:
-        _say(f"cache: cannot download {asset.get('name')} from release {tag} ({exc}); building instead")
-        return False
-    digest = hashlib.sha256(data).hexdigest()
-    reported = str(asset.get("digest") or "")
-    if digest != entry_info.get("sha256") or (reported.startswith("sha256:") and reported[7:] != digest):
-        _say(f"cache: {asset.get('name')} of release {tag} does not match its digest; building instead")
-        return False
+    tag, info, asset = found
+    name = asset.get("name")
+    declared = [n for n in (info.get("size"), asset.get("size")) if isinstance(n, int) and n >= 0]
+    limit = min(declared) if declared else MAX_ASSET
     final = unit.entry_dir(key)
-    final.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix=".tmp-", dir=final.parent))
     try:
-        _safe_extract(data, tmp)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix=".tmp-", dir=final.parent))
+    except OSError as exc:
+        _say(f"cache: cannot restore {unit.label} from release {tag} ({exc}); building it")
+        return False
+    try:
+        tar_path = work / "entry.tar"
+        digest = _download(repo, asset, tar_path, limit)
+        reported = str(asset.get("digest") or "")
+        if digest != info.get("sha256") or (reported.startswith("sha256:") and reported[7:] != digest):
+            _say(f"cache: {name} of release {tag} does not match its digest; building {unit.label}")
+            return False
+        tmp = work / "entry"
+        _safe_extract(tar_path, tmp)
         meta = read_entry(tmp) or {}
         why = verify(tmp)
-        if why or (meta.get("target"), meta.get("unit"), meta.get("key")) != (unit.target, unit.name, key):
-            _say(f"cache: {asset.get('name')} of release {tag} is not the entry it claims ({why or 'other unit'})")
+        if not why and (meta.get("target"), meta.get("unit"), meta.get("key")) != (unit.target, unit.name, key):
+            why = "another unit"
+        if why:
+            _say(f"cache: {name} of release {tag} is not the entry it claims ({why}); building {unit.label}")
             return False
-        if final.exists():
-            shutil.rmtree(final)
-        tmp.rename(final)
-    except (ValueError, tarfile.TarError, OSError) as exc:
-        _say(f"cache: cannot unpack {asset.get('name')} of release {tag} ({exc})")
+        _publish(tmp, final)
+    except Exception as exc:  # noqa: BLE001 - never fail a build because a release is unreachable
+        _say(f"cache: cannot restore {unit.label} from release {tag} ({_why(exc)}); building it")
         return False
     finally:
-        if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
-    _say(f"cache: {unit.label} restored from release {tag}")
-    return restore_local(unit, key)
+        shutil.rmtree(work, ignore_errors=True)
+    if not restore_local(unit, key):
+        return False
+    _say(f"cache: {unit.label} restored from release {tag} ({key[:12]})")
+    return True
 
 
 # --------------------------------------------------------------------------- the build step
 
 
-def run(unit: Unit, build: Callable[[], Any], *, repo: str | None = None) -> str:
+def run(unit: Unit, build: Callable[[], Any] | None, *, repo: str | None = None) -> str:
     """Build ``unit`` with ``build()`` unless its key is cached. Returns 'cached' (local store), 'release'
-    (restored from a release) or 'built'."""
+    (restored from a release) or 'built'. With ``build`` None the unit is only restored: 'missing' when it
+    is not cached. Errors of ``build()`` propagate (nothing is stored); a store that fails for lack of
+    space or permissions is reported and the build counts as done."""
     if not enabled():
+        if build is None:
+            return "missing"
         build()
         return "built"
     key = unit.key
@@ -532,45 +861,93 @@ def run(unit: Unit, build: Callable[[], Any], *, repo: str | None = None) -> str
         return "cached"
     if remote_enabled():
         if repo is None:
-            repo = config.load_site().repo
-        if repo and restore_remote(unit, repo):
-            return "release"
+            try:
+                repo = config.load_site().repo
+            except Exception:  # noqa: BLE001
+                repo = None
+        try:
+            if repo and restore_remote(unit, repo):
+                return "release"
+        except Exception as exc:  # noqa: BLE001 - never fail a build because a release is unreachable
+            _say(f"cache: cannot restore {unit.label} from a release ({_why(exc)}); building it")
+    if build is None:
+        return "missing"
     build()
-    store(unit, key)
+    try:
+        store(unit, key)
+    except MissingOutput:
+        raise
+    except OSError as exc:
+        _say(f"cache: cannot store {unit.label} ({exc}); it was built but is not cached")
     return "built"
 
 
 # --------------------------------------------------------------------------- whole store
 
 
+def _walk_store() -> Iterator[tuple[str, Path]]:
+    """('entry', key directory) for every key directory in the store, ('tmp', directory) for temporary
+    directories (``.tmp-*``, ``.old-*``) and ('dir', directory) for the directories that hold them, deepest
+    first; nothing below an entry is searched (its files are a unit's outputs)."""
+    root = store_root()
+    if not root.is_dir():
+        return
+    holders: list[Path] = []
+    for dirpath, dirnames, _ in os.walk(root):
+        d = Path(dirpath)
+        if d != root and _KEY_RE.fullmatch(d.name):
+            dirnames[:] = []
+            yield "entry", d
+            continue
+        for name in sorted(dirnames):
+            if name.startswith("."):
+                dirnames.remove(name)
+                if name.startswith((".tmp-", ".old-")):
+                    yield "tmp", d / name
+        dirnames.sort()
+        if d != root:
+            holders.append(d)
+    for d in sorted(holders, key=lambda p: len(p.parts), reverse=True):
+        yield "dir", d
+
+
+def _entries() -> Iterator[tuple[Path, dict[str, Any] | None]]:
+    """(entry directory, its entry.json or None when damaged or not where its unit and key put it)."""
+    root = store_root()
+    for kind, d in _walk_store():
+        if kind != "entry":
+            continue
+        data = read_entry(d)
+        parts = d.relative_to(root).parts
+        if data and (data["target"], data["unit"], data["key"]) != (parts[0], "/".join(parts[1:-1]), parts[-1]):
+            data = None
+        yield d, data
+
+
 def stored() -> list[tuple[str, str, str, Path]]:
     """(target, unit, key, entry dir) of every entry in the local store."""
-    root = store_root()
-    out = []
-    if not root.is_dir():
-        return out
-    for entry_file in sorted(root.rglob(ENTRY)):
-        entry = entry_file.parent
-        data = read_entry(entry)
-        if data and not any(part.startswith(".tmp-") for part in entry.relative_to(root).parts):
-            out.append((data["target"], data["unit"], data["key"], entry))
-    return out
+    return sorted((data["target"], data["unit"], data["key"], entry) for entry, data in _entries() if data)
 
 
 def prune(current: Iterable[Unit]) -> list[Path]:
-    """Remove every stored entry that is not the current key of one of ``current``. Returns what it removed."""
+    """Remove every stored entry that is not the current key of one of ``current``, damaged entries,
+    temporary directories of interrupted runs (older than :data:`STALE_TMP`) and directories left empty.
+    Returns the entries it removed."""
     keep = {(u.target, u.name, u.key) for u in current}
     removed = []
-    for target, name, key, entry in stored():
-        if (target, name, key) not in keep:
+    for entry, data in list(_entries()):
+        if not data or (data["target"], data["unit"], data["key"]) not in keep:
             shutil.rmtree(entry, ignore_errors=True)
             removed.append(entry)
-    # empty unit directories left behind
-    root = store_root()
-    if root.is_dir():
-        for d in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
-            if not any(d.iterdir()):
-                d.rmdir()
+    now = time.time()
+    for kind, d in list(_walk_store()):
+        try:
+            if kind == "tmp" and now - d.stat().st_mtime > STALE_TMP:
+                shutil.rmtree(d, ignore_errors=True)
+            elif kind == "dir":
+                d.rmdir()  # only when empty
+        except OSError:
+            pass
     return removed
 
 
@@ -578,7 +955,7 @@ def actions_key(prefix: str = "build-cache-v1") -> str:
     """The Actions cache key of the store's content: the same entries give the same key, so an unchanged
     store is not saved again."""
     h = hashlib.sha256()
-    for target, name, key, _ in sorted(stored()):
+    for target, name, key, _ in stored():
         h.update(f"{target}\t{name}\t{key}\n".encode())
     return f"{prefix}-{h.hexdigest()}"
 
@@ -587,35 +964,46 @@ def asset_name(target: str, unit: str, key: str) -> str:
     return f"cache-{target}-{re.sub(r'[^A-Za-z0-9._-]+', '-', unit)}-{key[:16]}.tar"
 
 
+def _write_tar(entry: Path, out: Path) -> None:
+    """``entry`` as an uncompressed tar: sorted, directories before their contents, regular files only,
+    no owners, times or permissions beyond 0644/0755, so the same entry gives the same bytes."""
+    with tarfile.open(out, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for dirpath, dirnames, filenames in os.walk(entry):
+            dirnames.sort()
+            d = Path(dirpath)
+            rel = d.relative_to(entry).as_posix()
+            if rel != ".":
+                info = tarfile.TarInfo(rel)
+                info.type, info.mode = tarfile.DIRTYPE, 0o755
+                tar.addfile(info)
+            for name in sorted(filenames):
+                f = d / name
+                info = tarfile.TarInfo(f.relative_to(entry).as_posix())
+                info.size, info.mode = f.stat().st_size, 0o644
+                with f.open("rb") as fh:
+                    tar.addfile(info, fh)
+
+
 def export(dest: Path, current: Iterable[Unit], *, repo: str = "") -> Path:
     """Write one tar per current unit found in the store, and :data:`MANIFEST` listing them, into ``dest``
-    (for release.yml to attach). Units not in the store are left out (and named on stdout)."""
+    (for the release of the whole site to attach). Units not in the store are left out (and named on
+    stdout)."""
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     entries = []
     for unit in current:
         key = unit.key
         entry = unit.entry_dir(key)
-        if not entry.is_dir() or verify(entry):
-            print(f"cache export: {unit.label} is not in the store; build it first", flush=True)
+        why = verify(entry) if entry.is_dir() else "not stored"
+        if why:
+            print(f"cache export: {unit.label} is not in the store ({why}); build it first", flush=True)
             continue
         name = asset_name(unit.target, unit.name, key)
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:", format=tarfile.PAX_FORMAT) as tar:
-            for f in sorted(entry.rglob("*")):
-                info = tar.gettarinfo(str(f), arcname=f.relative_to(entry).as_posix())
-                info.uid = info.gid = 0
-                info.uname = info.gname = ""
-                info.mtime = 0
-                if f.is_file():
-                    with f.open("rb") as fh:
-                        tar.addfile(info, fh)
-                else:
-                    tar.addfile(info)
-        data = buf.getvalue()
-        (dest / name).write_bytes(data)
+        tmp = dest / f".{name}.tmp"
+        _write_tar(entry, tmp)
+        os.replace(tmp, dest / name)
         entries.append({"target": unit.target, "unit": unit.name, "key": key, "asset": name,
-                        "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+                        "sha256": _sha256_file(dest / name), "size": (dest / name).stat().st_size})
     manifest = dest / MANIFEST
     manifest.write_text(json.dumps({"schema": SCHEMA, "repo": repo, "generated": int(time.time()),
                                     "entries": entries}, indent=1) + "\n", encoding="utf-8")
