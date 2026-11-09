@@ -837,8 +837,10 @@ def cli_env(root: Path, **extra: str) -> dict[str, str]:
 
 
 @unittest.skipUnless(REAL_ROOT.joinpath(".git").exists() and shutil.which("git"), "needs this repository's git")
+@unittest.skipUnless((REAL_ROOT / "books" / "example-monograph").is_dir(), "books/example-monograph is absent")
 class CliTests(unittest.TestCase):
-    """./tbook cache status|key|prune|export on the example book, with stand-in outputs."""
+    """./tbook cache status|key|prune|export on the example book, with stand-in outputs (the commands
+    without any book: test_template's test_ci_and_pages_commands)."""
 
     @classmethod
     def setUpClass(cls):
@@ -931,6 +933,7 @@ def _toolchain_missing() -> str:
     return ""
 
 
+@unittest.skipUnless((REAL_ROOT / "books" / "example-monograph").is_dir(), "books/example-monograph is absent")
 @unittest.skipIf(_toolchain_missing(), _toolchain_missing())
 class BuildIntegrationTests(unittest.TestCase):
     """./tbook build html pdf epub twice on a scratch copy of the example book: the second run restores
