@@ -2024,7 +2024,7 @@ def cli(args) -> int:
         if len(rest) not in (3, 4):
             print('usage: ./tbook slides new <book> <deck> "<中文标题>" "<English title>"', file=sys.stderr)
             return 2
-        config.load_book(rest[0])  # clear error for an unknown book
+        config.named_book(rest[0])  # clear error for an unknown or hidden book
         cmd = [_node(), str(paths.TOOLS / "node" / "slides-new.mjs"), *rest]
         return subprocess.run(cmd, cwd=paths.ROOT, env=dict(os.environ, TBOOK_ROOT=str(paths.ROOT))).returncode
     print(f"tbook slides: unknown action {args.action!r} (new, list)", file=sys.stderr)

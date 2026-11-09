@@ -33,6 +33,21 @@ GIDDEF = "D5/S1/Deficit/DeficitInteger.deficit"  # a Lean def
 needs_example = unittest.skipUnless(EXAMPLE.is_dir(), "books/example-monograph is absent")
 
 
+def _example_listed() -> bool:
+    """The example book is here and site.toml does not hide it ([books].hide), so commands such as
+    ``./tbook viz list`` see it (config.load_book loads it either way)."""
+    try:
+        return EXAMPLE.is_dir() and not config.load_site().hidden_by(EXAMPLE.name)
+    except config.ConfigError:
+        return False
+    finally:
+        config.load_site.cache_clear()  # read while the module is imported: cache nothing for the tests
+
+
+# Downstream repositories usually hide the example book instead (skills/book-new): commands skip it then.
+needs_listed_example = unittest.skipUnless(_example_listed(), "books/example-monograph is absent or hidden")
+
+
 def example_book():
     return config.load_book("example-monograph")
 
@@ -705,7 +720,7 @@ class Scaffold(unittest.TestCase):
             r = subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True, timeout=60)
             self.assertEqual(r.returncode, 0, f"{f.name}: {r.stderr}")
 
-    @needs_example
+    @needs_listed_example
     def test_cli(self):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   ROOT, BOOKS, THEME_VIZ, TOKENS_CSS, RUNTIME_FILES, RESERVED, FONTSOURCE, ID_RE,
-  listBooks, readRegistry, readLock, pinLinks, favicon, localFontsCss
+  isBook, listBooks, readRegistry, readLock, pinLinks, favicon, localFontsCss
 } from './viz-common.mjs';
 
 export const BASE = '/site/';
@@ -66,7 +66,7 @@ export function route(pathname) {
   if (!pathname.startsWith(BASE)) return null;
   const parts = pathname.slice(BASE.length).split('/');
   const [slug, viz, ...rest] = parts;
-  if (!slug || viz !== 'viz' || !fs.existsSync(path.join(BOOKS, slug, 'book.toml'))) return null;
+  if (!slug || viz !== 'viz' || !isBook(slug)) return null; // a hidden book is absent here too
   if (parts.length === 2) return { redirect: `${BASE}${slug}/viz/` };
   const tail = rest.join('/');
   if (tail === '' || tail === 'index.html') return { hub: slug };

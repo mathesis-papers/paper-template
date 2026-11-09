@@ -16,10 +16,12 @@ description: 在书库中新建一本书、新增章节或新增一个语言版�
 1. 在 GitHub 上用 “Use this template” 创建仓库，克隆到本地。
 2. `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && npm ci`；`./tbook doctor` 逐项检查工具链并给出修复命令。
 3. 编辑 `site.toml`：站点标题、`languages`（默认 `["zh", "en"]`）、`[books].order`。`repo` 与 `base_url` 一般留空（自动推断）。
-4. 示例书 `books/example-monograph/` 可以保留作参考，也可以删除（检查、构建与 CI 不依赖它）。删除步骤：
-   1. 从 `site.toml` 的 `[books].order` 中去掉 `"example-monograph"`；
-   2. 删除整个 `books/example-monograph/` 目录（章节、`viz/`、`films/`、`slides/` 都在其中）；
-   3. `./tbook check`（0 错误）；`./tbook pin --refresh` 把只被示例书引用的声明从锁文件中清掉。
+4. 隐藏模板附带的示例书（`books/example-*`，如 `books/example-monograph/`），不要删除：
+   1. 在 `site.toml` 的 `[books]` 中设 `hide = ["example-*"]`，并从 `[books].order` 中去掉 `"example-monograph"`；
+   2. `./tbook check`：0 错误，并有一行 `check: hidden by site.toml [books].hide, not checked: example-…`；`./tbook books` 不再列出示例书；
+   3. `./tbook pin --refresh` 把只被示例书引用的声明从锁文件中清掉。
+
+   隐藏的书留在 `books/` 中可供参考（写法、可视化、视频、幻灯片），但检查、钉版、构建、站点、发版与 CI 都当它不存在，`--book example-monograph` 之类的点名会报错。删除也可以（检查、构建与 CI 不依赖示例书），但书库以后用 git 合并模板改动时，模板改过的示例书会与删除冲突（modify/delete），每次都要手动处理；隐藏则没有这个问题（`docs/UPGRADING.md` §6）。想看示例书的效果时，临时从 `hide` 中去掉该模式即可。
 5. 在 GitHub：Settings → Pages → Source 选 “GitHub Actions”。
 6. `./tbook check && ./tbook build all`，`./tbook serve` 本地预览。
 
@@ -30,7 +32,7 @@ description: 在书库中新建一本书、新增章节或新增一个语言版�
   [--subtitle zh=… --subtitle en=…] [--langs zh,en] [--author "…"] [--code "CODE//NAME"]
 ```
 
-- `<slug>`：kebab-case，是目录名、URL 段与下载文件名前缀，发布后不要改。
+- `<slug>`：kebab-case，是目录名、URL 段与下载文件名前缀，发布后不要改。不要用 `example-` 开头（模板的示例书用这个前缀，书库通常隐藏它们）；slug 匹配 `site.toml` 的 `[books] hide` 时书照常创建，但命令会警告它被隐藏。
 - `--langs`：逗号分隔的语言代码（小写 ISO 639 代码，可带 `-地区/文字`，如 `pt-BR`），不能重复；第一个是权威版本。每种语言都要有 `--title`。参数有误时不会创建任何文件。
 - 生成 `books/<slug>/{book.toml, zh/, en/, assets/}`。补全 `book.toml` 的 `description`、`license`、可选 `isbn`；`code` 是封面与站点卡片上的赛博朋克代号。
 - 把 `<slug>` 加入 `site.toml` 的 `[books].order`。

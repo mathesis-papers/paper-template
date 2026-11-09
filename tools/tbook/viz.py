@@ -935,7 +935,7 @@ def hub_html(site, book, lock: lean.Lock | None = None) -> str:
 
 def hub_html_for(slug: str) -> str:
     """Hub of a book by slug (used by tools/node/viz-server.mjs for local preview)."""
-    return hub_html(config.load_site(), config.load_book(slug), _lock())
+    return hub_html(config.load_site(), config.named_book(slug), _lock())
 
 
 def favicon_svg() -> str:
@@ -1085,7 +1085,7 @@ def cli(args) -> int:
         slug, viz_id, code, title = rest[:4]
         title_en = rest[4] if len(rest) == 5 else ""
         try:
-            book = config.load_book(slug)
+            book = config.named_book(slug)
             created = scaffold(book, viz_id, code, title, title_en)
         except (VizError, config.ConfigError) as exc:
             print(f"tbook viz new: {exc}", file=sys.stderr)

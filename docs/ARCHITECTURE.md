@@ -49,6 +49,25 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 .github/workflows/        CI、Pages、Release、模板同步、Lean 深度验证
 ```
 
+### 2.1 `site.toml`
+
+| 键 | 说明 |
+| --- | --- |
+| `[site] repo` | GitHub 仓库 `owner/name`；留空时 CI 用 `GITHUB_REPOSITORY`，本地由 git remote 推断（`TBOOK_REPO` 优先） |
+| `[site] base_url` | Pages 根地址，PDF/EPUB 的外链用它拼绝对地址；留空则由 `repo` 推断（`TBOOK_BASE_URL` 优先） |
+| `[site] languages` | 站点界面语言，第一个为默认语言，不得重复；默认 `["zh", "en"]` |
+| `[site.title]`、`[site.tagline]` | 站名与标语，每种语言一行 |
+| `[site] logo`、`[site] branch` | 可选：站点品牌（§6）；“建议修改”链接指向的分支（§5） |
+| `[trureturing] repo`、`branch` | 形式化仓库；`./tbook pin` 跟随、`./tbook check` 核对的分支（默认 `dev`） |
+| `[books] order` | 书库首页的顺序；未列出的书按目录名排在后面 |
+| `[books] hide` | 隐藏的书：glob 模式的列表，默认 `[]`（不隐藏）；书库用 `["example-*"]` 隐藏模板附带的示例书 |
+
+`[books] hide` 的每一项是非空字符串，按 Python 的 `fnmatch.fnmatchcase` 与书的目录名（slug）匹配：`*`、`?`、`[seq]`、`[!seq]`，区分大小写；类型不对时 `site.toml` 报错。被隐藏的书仍留在 `books/` 中，但所有命令与产物都当它不存在，这样从模板创建的书库不必删除示例书，以后用 git 合并模板改动时就不会因示例书冲突（`docs/UPGRADING.md` §6）：
+
+- 列出书的唯一来源是 `config.book_slugs()` / `config.load_books()`（Node 端是 `tools/node/slides-lib.mjs` 的 `listBooks()`，`viz-common.mjs` 的 `listBooks()` 用同一套规则，`tools/tests/test_hide.py` 核对两端的模式匹配一致），它们跳过隐藏的书。因此 `./tbook check`、`./tbook pin` 与 `pin --refresh`（只收集可见书的引用，只被隐藏的书引用的声明从锁文件中删去）、`./tbook build` 的各个目标、站点首页与 `manifest.json`、构建缓存的单元（`./tbook cache status|prune|export`；`prune` 删去隐藏书的条目）、`./tbook lean-project` 的引用说明、`release.yml` 的发版计划、`viz-validate`、`viz-test`、`slides-check`、`slides-build` 都看不到它；工作流中找视频与幻灯片的步骤用 `./tbook books --files <glob>`（只需 Python 标准库，在安装工具链之前也能运行）。`./tbook serve` 只伺服已构建的 `_site/`，不受影响。
+- 按 slug 点名一本隐藏的书是错误，并说明怎样取消隐藏：`--book <slug>`、`./tbook new-chapter <slug>`、`./tbook viz|slides|film new <slug> …`、`./tbook slides|film list <slug>`、`<slug>-v<version>` 的发版 tag、Node 脚本的书参数（`slides-check --book`、`viz-validate <slug>` 等）。目录路径不是名字：`config.load_book()`、视频流水线（`theme/film/film.sh <dir>`）与 `viz-validate <dir>` 照常读取任何书。
+- `./tbook check` 输出一行列出被隐藏的书（提示，不是警告）；`./tbook new-book` 新建的 slug 匹配 `hide` 时照常创建并警告；`./tbook doctor` 列出可见与隐藏的书；`./tbook books [--hidden] [--files GLOB]` 列出可见（或隐藏）的书，或它们的文件 `books/<slug>/GLOB`。
+
 ## 3. 写作语法
 
 全部是 Pandoc Markdown 的子集，GitHub 上可直接预览。
@@ -130,7 +149,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 ## 4. 校验（`./tbook check`）
 
-1. 配置：`site.toml`、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
+1. 配置：`site.toml`（含 `[books] hide`，§2.1；隐藏的书不检查，输出一行列出它们）、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
 2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 与 HTML 注释块闭合、无法解析的 div 开头行（报错）；行内 `<!--` 未在所在段落内闭合而后文另有 `-->`，围栏代码块随容器结束或从未闭合，mdBook 与 Pandoc 读法不同的定义，围栏代码块前未闭合、Pandoc 跨过围栏配对的 `$`（警告）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录，引用式定义的地址写在标签的下一行（警告）。
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
@@ -276,7 +295,7 @@ mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`
 
 | 模块 | 职责 |
 | --- | --- |
-| `config` | `load_site()`、`load_book()`、`load_books()`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
+| `config` | `load_site()`、`load_book()`、`load_books()`、`book_slugs()`（可见的书，站点顺序）、`hidden_books()`、`named_book(slug)`（命令点名的书；隐藏的书报错）、`Site.hidden_by(slug)`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
 | `summary` | 解析 SUMMARY，章节编号前缀 |
 | `mdscan` | 块结构（`scan_blocks`：任何容器中的围栏代码、缩进代码与注释块，跨行的行内注释与公式，mdBook 与 Pandoc 读法不同处的警告 `notes`；`fenced_code_lines`、`indented_code_lines`、`map_closed`）、fenced div、属性、行内代码、`[@id]`、链接与引用式定义（`LINK_RE`、`REFDEF_RE`，容器前缀 `CONTAINER`；定义只能开始于哪些行：`definition_roles`、`text_roles`，逐行连同角色：`iter_text`）、`lean:` 链接（`lean_link_gids`；逐行读不到的 `stray_lean_links`，其 `<lean:…>` 地址由 `hide_lean_destinations` 对逐行读取隐藏）、标题的纯文字（`unescape_markdown`） |
 | `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 给出标题的纯文字，`title_markdown()` 保留 Markdown，二者都把 `[@id]` 换成引用文字）；`Issue` |

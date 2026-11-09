@@ -19,6 +19,7 @@ const args = process.argv.slice(2);
 let books = listBooks(), ids = [];
 if (args.length) {
   try { books = [resolveBook(args[0])]; ids = args.slice(1); } catch (e) {
+    if (e.hidden) { console.error(e.message); process.exit(2); } // a book that site.toml [books].hide hides
     // not a book: treat every argument as an id across all books
     ids = args;
   }

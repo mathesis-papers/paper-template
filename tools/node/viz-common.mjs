@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bookDirs, hiddenBy, hiddenError, hidePatterns } from './slides-lib.mjs';
 
 export const ROOT = path.resolve(process.env.TBOOK_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..'));
 export const BOOKS = path.join(ROOT, 'books');
@@ -33,16 +34,25 @@ const GID_RE = /^(D[0-9]+\/S[0-9]+\/(?:[A-Za-z_][A-Za-z0-9_]*\/)*[A-Za-z_][A-Za-
 
 export const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/') || '.';
 
-/** Every book of the repository: [{ slug, dir }], sorted by slug. */
+/** Every book of the repository that site.toml [books].hide does not hide: [{ slug, dir }], sorted by slug. */
 export function listBooks() {
-  if (!fs.existsSync(BOOKS)) return [];
-  return fs.readdirSync(BOOKS).sort()
-    .filter((s) => fs.existsSync(path.join(BOOKS, s, 'book.toml')))
-    .map((slug) => ({ slug, dir: path.join(BOOKS, slug) }));
+  const hide = hidePatterns(ROOT);
+  return bookDirs(ROOT).filter((slug) => !hiddenBy(slug, hide)).map((slug) => ({ slug, dir: path.join(BOOKS, slug) }));
 }
 
-/** A book from a slug or a directory path; throws with a helpful message. */
+/** Whether books/<slug>/ is a book that site.toml [books].hide does not hide. */
+export function isBook(slug) {
+  return fs.existsSync(path.join(BOOKS, slug, 'book.toml')) && !hiddenBy(slug, hidePatterns(ROOT));
+}
+
+/** A book from a slug or a directory path; throws with a helpful message. A slug of a book that site.toml
+ * [books].hide hides is an error, as in tools/tbook/config.py named_book; a directory path is not a name and
+ * loads any book. */
 export function resolveBook(arg) {
+  if (!arg.includes('/') && !arg.includes(path.sep)) {
+    const hide = hidePatterns(ROOT);
+    if (hiddenBy(arg, hide) && bookDirs(ROOT).includes(arg)) throw hiddenError([arg], hide);
+  }
   const cands = [path.resolve(arg), path.join(BOOKS, arg)];
   for (const dir of cands) if (fs.existsSync(path.join(dir, 'book.toml'))) return { slug: path.basename(dir), dir };
   const known = listBooks().map((b) => b.slug).join(', ') || 'none';

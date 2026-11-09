@@ -267,10 +267,141 @@ export function loadBook(slug, root = ROOT) {
   };
 }
 
-export function listBooks(root = ROOT) {
+// --------------------------------------------------------------------------- books and [books].hide
+// site.toml [books].hide lists glob patterns of books that every command and output treats as absent (they
+// stay in books/, so merging template changes never conflicts over deleted example books). The same rules as
+// tools/tbook/config.py (hide_patterns, book_slugs, hidden_books, hidden_error, load_book): a pattern matches
+// the slug as Python's fnmatch.fnmatchcase does (*, ?, [seq], [!seq], case-sensitive); listings skip hidden
+// books, naming one explicitly is an error. tools/tests/test_hide.py compares the two implementations.
+
+const fnmatchCache = new Map();
+const REGEXP_SPECIAL = /[\\^$.*+?()[\]{}|/]/g;
+
+// Python's fnmatch.translate (3.12, 3.13) as a JavaScript RegExp: an unclosed [ is literal, a ] right after
+// [ or [! belongs to the set, a set's reversed range (z-a) matches nothing, backslashes are literal.
+function fnmatchRegExp(pat) {
+  const STAR = {};
+  const res = [];
+  const n = pat.length;
+  let i = 0;
+  while (i < n) {
+    const c = pat[i++];
+    if (c === '*') {
+      if (res.at(-1) !== STAR) res.push(STAR);
+    } else if (c === '?') {
+      res.push('.');
+    } else if (c === '[') {
+      let j = i;
+      if (j < n && pat[j] === '!') j++;
+      if (j < n && pat[j] === ']') j++;
+      while (j < n && pat[j] !== ']') j++;
+      if (j >= n) {
+        res.push('\\[');
+        continue;
+      }
+      let stuff = pat.slice(i, j);
+      if (!stuff.includes('-')) {
+        stuff = stuff.replaceAll('\\', '\\\\');
+      } else {
+        const chunks = [];
+        let k = pat[i] === '!' ? i + 2 : i + 1;
+        for (;;) {
+          k = pat.indexOf('-', k);
+          if (k < 0 || k >= j) break;
+          chunks.push(pat.slice(i, k));
+          i = k + 1;
+          k += 3;
+        }
+        const chunk = pat.slice(i, j);
+        if (chunk) chunks.push(chunk);
+        else chunks[chunks.length - 1] += '-';
+        for (let m = chunks.length - 1; m > 0; m--) { // drop empty (reversed) ranges
+          if (chunks[m - 1].at(-1) > chunks[m][0]) {
+            chunks[m - 1] = chunks[m - 1].slice(0, -1) + chunks[m].slice(1);
+            chunks.splice(m, 1);
+          }
+        }
+        stuff = chunks.map((x) => x.replaceAll('\\', '\\\\').replaceAll('-', '\\-')).join('-');
+      }
+      i = j + 1;
+      if (!stuff) {
+        res.push('(?!)'); // empty range: never matches
+      } else if (stuff === '!') {
+        res.push('.'); // negated empty range: any character
+      } else {
+        if (stuff[0] === '!') stuff = `^${stuff.slice(1)}`;
+        else if (stuff[0] === '^' || stuff[0] === '[') stuff = `\\${stuff}`;
+        res.push(`[${stuff.replaceAll(']', '\\]')}]`); // a ] only leads a set; JavaScript needs it escaped
+      }
+    } else {
+      res.push(c.replace(REGEXP_SPECIAL, '\\$&'));
+    }
+  }
+  return new RegExp(`^(?:${res.map((x) => (x === STAR ? '.*' : x)).join('')})$`, 's');
+}
+
+/** Python's fnmatch.fnmatchcase(name, pattern). */
+export function fnmatchcase(name, pattern) {
+  let re = fnmatchCache.get(pattern);
+  if (!re) fnmatchCache.set(pattern, (re = fnmatchRegExp(pattern)));
+  return re.test(name);
+}
+
+/** site.toml [books].hide, validated as tools/tbook/config.py hide_patterns validates it ([] when unset). */
+export function hidePatterns(root = ROOT) {
+  const books = loadSite(root).raw.books ?? {};
+  if (typeof books !== 'object' || Array.isArray(books)) throw new Error('site.toml: books must be a table ([books])');
+  const hide = books.hide;
+  if (hide === undefined) return [];
+  if (!Array.isArray(hide)) {
+    throw new Error(`site.toml: [books].hide must be a list of glob patterns, e.g. hide = ["example-*"]; got ${JSON.stringify(hide)}`);
+  }
+  for (const item of hide) {
+    if (typeof item !== 'string' || !item) {
+      throw new Error(`site.toml: [books].hide entries must be non-empty strings (glob patterns such as "example-*"); got ${JSON.stringify(item)}`);
+    }
+  }
+  return [...hide];
+}
+
+/** The first of `patterns` that hides the book `slug`, or '' when it is visible. */
+export const hiddenBy = (slug, patterns) => patterns.find((p) => fnmatchcase(slug, p)) ?? '';
+
+/** The error for naming hidden books explicitly (the same text as tools/tbook/config.py hidden_error). */
+export function hiddenError(slugs, patterns) {
+  const pats = [...new Set(slugs.map((s) => hiddenBy(s, patterns)))];
+  const one = slugs.length === 1;
+  const err = new Error(`book${one ? '' : 's'} ${slugs.join(', ')} ${one ? 'is' : 'are'} hidden by site.toml [books].hide `
+    + `(${pats.map((p) => JSON.stringify(p)).join(', ')}); to use ${one ? 'it' : 'them'}, remove `
+    + `${pats.length === 1 ? 'that pattern' : 'those patterns'} from hide`);
+  err.hidden = slugs;
+  return err;
+}
+
+/** Slugs of every directory of books/ with a book.toml, hidden ones included, sorted. */
+export function bookDirs(root = ROOT) {
   const dir = join(root, 'books');
   if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((n) => existsSync(join(dir, n, 'book.toml'))).sort().map((n) => loadBook(n, root));
+  return readdirSync(dir).filter((n) => existsSync(join(dir, n, 'book.toml'))).sort();
+}
+
+/** Slugs of the books that site.toml [books].hide hides, sorted. */
+export function hiddenBooks(root = ROOT) {
+  const hide = hidePatterns(root);
+  return bookDirs(root).filter((s) => hiddenBy(s, hide));
+}
+
+/** Every book that site.toml [books].hide does not hide, sorted by slug. */
+export function listBooks(root = ROOT) {
+  const hide = hidePatterns(root);
+  return bookDirs(root).filter((s) => !hiddenBy(s, hide)).map((n) => loadBook(n, root));
+}
+
+/** The book a command was given by slug (tools/tbook/config.py named_book): loadBook, but a hidden book is an
+ * error. loadBook itself loads any book, hidden or not. */
+export function namedBook(slug, root = ROOT) {
+  if (hiddenBooks(root).includes(slug)) throw hiddenError([slug], hidePatterns(root));
+  return loadBook(slug, root);
 }
 
 export function loadLock(root = ROOT) {
@@ -1260,6 +1391,9 @@ export function argParser(argv) {
 // Books (optionally restricted to slugs) that have at least one deck.
 export function booksWithDecks(slugs = []) {
   const books = listBooks();
+  const hidden = hiddenBooks();
+  const named = [...new Set(slugs.filter((s) => hidden.includes(s)))];
+  if (named.length) throw hiddenError(named, hidePatterns());
   const unknown = slugs.filter((s) => !books.some((b) => b.slug === s));
   if (unknown.length) throw new Error(`unknown book(s): ${unknown.join(', ')}; known: ${books.map((b) => b.slug).join(', ') || 'none'}`);
   return books.filter((b) => (!slugs.length || slugs.includes(b.slug)) && deckNames(b).length);

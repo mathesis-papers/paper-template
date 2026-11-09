@@ -1,6 +1,6 @@
 # 写作手册 · Authoring guide
 
-本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法。
+本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法（书库隐藏了示例书时它仍在原处，见 §1）。
 
 ## 1. 一本书的组成
 
@@ -27,6 +27,10 @@ books/<slug>/
 | `outputs.html` / `pdf` / `epub` | 输出开关；`pdf = ["screen", "print"]` |
 | `pdf.paper` | Typst 纸张名（`a4`、`a5`、`us-letter`、`iso-b5`…） |
 | `epub.embed_fonts` | 是否嵌入标题与等宽字体 |
+
+### 书库里有哪些书
+
+`books/` 下每个含 `book.toml` 的目录是一本书，`site.toml` 的 `[books] order` 决定书库首页的顺序。`[books] hide` 列出要隐藏的书（glob 模式，按目录名匹配）：隐藏的书仍在 `books/` 中，可以随时看它的写法，但检查、钉版、构建、站点与发版都当它不存在，按名字点它（`--book`、`./tbook new-chapter` 等）会报错。从模板创建的书库设 `hide = ["example-*"]`，隐藏模板附带的示例书，而不是删除它们（删除会让以后合并模板改动时冲突，见 `docs/UPGRADING.md` §6）。`./tbook books` 列出可见的书，`./tbook books --hidden` 列出隐藏的书。规则详见 `docs/ARCHITECTURE.md` §2.1。
 
 ### `SUMMARY.md`
 
