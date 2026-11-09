@@ -628,7 +628,7 @@
       "mode": "100644"
     },
     "tools/tbook/serve.py": {
-      "sha256": "27b2c1b006eaa10347feed11784d656d5deb1812e46ea462be2bfef1931ec70d",
+      "sha256": "ed877bbb1d921ba5d3cecbd343e10c32c4168b7f466e3d848b630548c672e5c1",
       "mode": "100644"
     },
     "tools/tbook/site.py": {
@@ -700,7 +700,7 @@
       "mode": "100644"
     },
     "tools/tests/test_serve.py": {
-      "sha256": "23ada0b650a39761637c4f30b03e2185ed1468c1159bbba33180135efbb692c9",
+      "sha256": "69df567a9a31a8a4855d1f6d7db6318293445657c5f84a9d782740918324981f",
       "mode": "100644"
     },
     "tools/tests/test_site.py": {

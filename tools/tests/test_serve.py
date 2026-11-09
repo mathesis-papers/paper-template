@@ -39,7 +39,8 @@ class ByteRangeTest(unittest.TestCase):
     def test_ignored(self):
         for header in (None, "", "bytes", "bytes=", "bytes=-", "bytes=a-b", "bytes=1-x", "bytes=3-1",
                        "bytes=+1-2", "bytes=1 - 2", "bytes=٣-", "bytes=1_0-", "items=0-3",
-                       "bytes=0-1,5-6", "bytes=0-1,99-"):
+                       "bytes=0-1,5-6", "bytes=0-1,99-", "bytes=1-2-3", "bytes=" + "0" * 100_000 + "-",
+                       "bytes=" + "0" * 100_000):
             self.assertIsNone(serve.byte_range(header, 10), header)
         self.assertIsNone(serve.byte_range("bytes=0-3", 0))  # an empty file is sent whole
 

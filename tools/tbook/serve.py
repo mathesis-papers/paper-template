@@ -23,7 +23,6 @@ import email.utils
 import functools
 import os
 import posixpath
-import re
 import sys
 import urllib.parse
 from http import HTTPStatus
@@ -86,7 +85,12 @@ class RangeNotSatisfiable(ValueError):
     """A well-formed byte range that selects nothing of the file (answered with 416)."""
 
 
-_RANGE_SPEC = re.compile(r"([0-9]*)-([0-9]*)")
+_MAX_RANGE_HEADER = 256  # a longer Range header is ignored (players send a few dozen bytes)
+
+
+def _digits(text: str) -> bool:
+    """``text`` is empty or ASCII digits only (no sign, no underscore, no other Unicode digits)."""
+    return text == "" or (text.isascii() and text.isdigit())
 
 
 def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
@@ -98,7 +102,7 @@ def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
     ask for one range at a time), or an empty file. Raises ``RangeNotSatisfiable`` for a valid
     single range that selects nothing: a first byte at or past the end, or a zero-length suffix.
     """
-    if header is None or size <= 0:
+    if header is None or size <= 0 or len(header) > _MAX_RANGE_HEADER:
         return None
     unit, sep, ranges = header.partition("=")
     if not sep or unit.strip().lower() != "bytes":
@@ -106,10 +110,9 @@ def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
     specs = [spec.strip() for spec in ranges.split(",") if spec.strip()]  # empty list items don't count
     if len(specs) != 1:
         return None
-    match = _RANGE_SPEC.fullmatch(specs[0])
-    if not match or not any(match.groups()):
+    first, dash, last = specs[0].partition("-")  # string parsing, no regular expression on the header
+    if not dash or not (first or last) or not _digits(first) or not _digits(last):
         return None
-    first, last = match.groups()
     if not first:  # suffix range "-n": the last n bytes
         length = int(last)
         if length == 0:
