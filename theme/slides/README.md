@@ -63,10 +63,10 @@ GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除�
 
 每页的背景（底色、极光、扫描线、四角折角框、暗角）在 `styles/backdrop.css`。在屏幕上它们是几层 CSS；导出 PDF 时（Slidev 的打印视图给 `<html>` 加上 `print` 类）换成一张图 `styles/backdrop.jpg`：这几层整页的半透明渐变写进 PDF 后成为软蒙版与渐变，阅读器每翻一页都要重新合成（约两秒一页），一张图则几乎即时画出，文字与其余图形仍是矢量。图由 `node tools/node/slides-backdrop.mjs` 在 Chromium 中按 `backdrop.css` 与 `theme/generated/tokens.css` 渲染（1920×1080），所用输入的指纹记在 `styles/backdrop.json`：
 
-- 改了 `backdrop.css` 或配色（`./tbook theme`）后，运行 `node tools/node/slides-backdrop.mjs`（`./tbook theme` 会自动调用）并提交 `backdrop.jpg` 与 `backdrop.json`；
-- `./tbook theme --check` 与 `node tools/node/slides-check.mjs` 发现图与输入不符时报错；`./tbook build slides` 构建前会自动重新渲染，并检查打印视图与导出的 PDF 确实用了这张图。
+- 改了 `backdrop.css` 或配色（`./tbook theme`）后，运行 `node tools/node/slides-backdrop.mjs`（`./tbook theme` 会自动调用）并提交 `backdrop.jpg` 与 `backdrop.json`；`backdrop.css` 只能用 `tokens.css` 中定义的变量，不能引用 `url()`（图只由这两个文件渲染，检查会报错）；
+- `./tbook theme --check` 与 `node tools/node/slides-check.mjs` 发现图与输入不符时报错；`./tbook build slides` 构建前会自动重新渲染，并逐页检查打印视图与导出的 PDF 确实用了这张图。
 
-某一页要换背景时，用带类名的规则（如 `.slide.my-bg { background: … }`）覆盖：打印规则用 `:where()`，不会压过它。
+某一页要换背景（底色、背景图或其他背景属性）时，写一条带类名的规则，放在演示文稿目录的 `style.css` 里（如 `.slide.my-bg { background-color: #401028; }`），并在这一页的 frontmatter 写 `class: tr-own-bg my-bg`。`tr-own-bg` 让这一页在 PDF 中保留 CSS 的背景层，与屏幕上一致（这一页翻页会慢一些）；没有它，PDF 会用背景图盖住这页的底色、去掉扫描线与折角框。`./tbook build slides` 会逐页比较每页的背景与主题的默认背景，背景不同却没有 `tr-own-bg` 的页面报错。
 
 ## 样式类（`styles/deck.css`）
 

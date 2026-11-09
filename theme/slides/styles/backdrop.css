@@ -25,7 +25,10 @@
 .tr-fx .bracket.bl { bottom: 28px; left: 28px; border-width: 0 0 3px 3px; }
 .tr-fx .bracket.br { bottom: 28px; right: 28px; border-width: 0 3px 3px 0; }
 
-/* print view (PDF export): the rendered image instead of the layers. :where() keeps the specificity
-   of .slide, so a deck's own .slide.<class> background still wins. */
-:where(html.print) .slide { background-image: url("./backdrop.jpg"); }
-:where(html.print) .tr-fx { display: none; }
+/* print view (PDF export): the rendered image instead of the layers, on every slide that keeps this
+   backdrop. A slide with a background of its own (a deck rule .slide.<class> { background: … }) has the
+   class tr-own-bg as well (frontmatter class: "tr-own-bg <class>"): it keeps the layers in the PDF, as on
+   screen; slides-build reports a slide whose background differs without it. :where() keeps these rules at
+   the specificity of .slide, so the deck's rule wins. */
+:where(html.print) .slide:where(:not(.tr-own-bg)) { background-image: url("./backdrop.jpg"); }
+:where(html.print) .slide:where(:not(.tr-own-bg)) > .tr-fx { display: none; }

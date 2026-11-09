@@ -3,6 +3,6 @@
   "width": 1920,
   "height": 1080,
   "quality": 90,
-  "fingerprint": "5a0e5cc634486f2afaa51e5d51767f17924773e4d592f28123c916f7cc7aa35b",
+  "fingerprint": "0d42558965db590c300a728532f83c3a437c4397d29a52d88835f6b734d30e22",
   "source": "tools/node/slides-backdrop.mjs from backdrop.css and theme/generated/tokens.css"
 }

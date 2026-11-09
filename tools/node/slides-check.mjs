@@ -24,7 +24,7 @@
 //     a utility that overrides the theme;
 //   - the theme's print backdrop (theme/slides/styles/backdrop.jpg, which the PDF export shows instead of
 //     the backdrop layers) matches backdrop.css and theme/generated/tokens.css (slides-backdrop.mjs).
-// Exit status 1 when any check fails; 0 (nothing to check) when no book has a deck.
+// Exit status 1 when any check fails; with no deck in any book, only the theme's print backdrop is checked.
 //
 // Adapted from chrono-company-slides scripts/check.mjs (Apache-2.0).
 import { existsSync, readFileSync, readdirSync } from 'node:fs';

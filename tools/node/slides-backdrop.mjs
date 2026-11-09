@@ -27,7 +27,7 @@ const TOKENS_CSS = join(ROOT, 'theme', 'generated', 'tokens.css');
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const QUALITY = 90;
-const VERSION = 1; // bump when the rendering below changes
+const VERSION = 2; // bump when the rendering below or the fingerprint changes
 const rel = (p) => toPosix(relative(ROOT, p));
 
 // The custom properties of the first `:root { … }` block of tokens.css (the dark palette slides use).
@@ -38,10 +38,12 @@ function rootVars(tokensCss) {
   return vars;
 }
 
-// The fingerprint of what the image shows: backdrop.css (without its print rules, which only use the
-// image) and every custom property it uses, directly or through another one, with its tokens.css value.
-export function backdropFingerprint(css, tokensCss) {
-  const shown = css.replace(/:where\(html\.print\)[^{]*\{[^}]*\}/g, '');
+// What the image shows: backdrop.css without its print rules (which only use the image), and every custom
+// property it uses, directly or through another one, with its tokens.css value. `problems` are what the
+// rendering cannot see: a property tokens.css does not define (deck.css, say), a url() it would not load.
+function backdropInputs(css, tokensCss) {
+  const shown = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/:where\(html\.print\)[^{]*\{[^}]*\}/g, '')
+    .replace(/[ \t]+$/gm, '').replace(/\n{2,}/g, '\n').trim(); // comments and blank lines draw nothing
   const vars = rootVars(tokensCss);
   const used = {};
   const todo = [...shown.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]);
@@ -51,22 +53,38 @@ export function backdropFingerprint(css, tokensCss) {
     used[name] = vars.get(name) ?? null;
     for (const m of (used[name] ?? '').matchAll(/var\(\s*(--[\w-]+)/g)) todo.push(m[1]);
   }
+  const problems = Object.keys(used).filter((k) => used[k] === null).sort()
+    .map((k) => `${rel(BACKDROP_CSS)} uses ${k}, which the first :root block of ${rel(TOKENS_CSS)} does not define; `
+      + 'the backdrop is rendered from those two files alone, so use a token');
+  if (/url\(/i.test(shown)) {
+    problems.push(`${rel(BACKDROP_CSS)} loads a url() outside its print rules; the backdrop is rendered from CSS alone`);
+  }
   const sorted = Object.fromEntries(Object.keys(used).sort().map((k) => [k, used[k]]));
-  const inputs = JSON.stringify({ version: VERSION, width: WIDTH, height: HEIGHT, quality: QUALITY, css: shown, vars: sorted });
+  return { shown, vars: sorted, problems };
+}
+
+// The fingerprint of backdropInputs: it changes exactly when the rendered image would.
+export function backdropFingerprint(css, tokensCss) {
+  const { shown, vars } = backdropInputs(css, tokensCss);
+  const inputs = JSON.stringify({ version: VERSION, width: WIDTH, height: HEIGHT, quality: QUALITY, css: shown, vars });
   return createHash('sha256').update(inputs).digest('hex');
 }
 
-// { fresh, fingerprint, message }: whether backdrop.jpg and backdrop.json match backdrop.css and tokens.css.
+// { fresh, fingerprint, problems, message }: whether backdrop.jpg and backdrop.json match backdrop.css and
+// tokens.css; `problems` (backdropInputs) make the image wrong whatever is rendered: they are reported first.
 export function backdropState() {
-  if (!existsSync(BACKDROP_CSS)) return { fresh: true, fingerprint: '', message: '' }; // no slide theme
-  const fingerprint = backdropFingerprint(readFileSync(BACKDROP_CSS, 'utf8'), readFileSync(TOKENS_CSS, 'utf8'));
+  if (!existsSync(BACKDROP_CSS)) return { fresh: true, fingerprint: '', problems: [], message: '' }; // no slide theme
+  const css = readFileSync(BACKDROP_CSS, 'utf8');
+  const tokens = readFileSync(TOKENS_CSS, 'utf8');
+  const { problems } = backdropInputs(css, tokens);
+  const fingerprint = backdropFingerprint(css, tokens);
   let recorded = '';
   try { recorded = JSON.parse(readFileSync(BACKDROP_META, 'utf8')).fingerprint ?? ''; } catch {}
-  const fresh = recorded === fingerprint && existsSync(BACKDROP_IMG);
-  const message = fresh ? '' : `${rel(BACKDROP_IMG)} does not match ${rel(BACKDROP_CSS)} and ${rel(TOKENS_CSS)}`
-    + ' (the PDF export shows it instead of the slide backdrop); run node tools/node/slides-backdrop.mjs and commit'
-    + ` ${rel(BACKDROP_IMG)} and ${rel(BACKDROP_META)}`;
-  return { fresh, fingerprint, message };
+  const fresh = !problems.length && recorded === fingerprint && existsSync(BACKDROP_IMG);
+  const message = problems.length ? problems.join('; ') : fresh ? ''
+    : `${rel(BACKDROP_IMG)} does not match ${rel(BACKDROP_CSS)} and ${rel(TOKENS_CSS)} (the PDF export shows it instead`
+      + ` of the slide backdrop); run node tools/node/slides-backdrop.mjs and commit ${rel(BACKDROP_IMG)} and ${rel(BACKDROP_META)}`;
+  return { fresh, fingerprint, problems, message };
 }
 
 async function launch() {
@@ -80,7 +98,8 @@ async function launch() {
 
 // Render backdrop.jpg and write backdrop.json (with `browser`, or a Chromium of its own). Returns the paths.
 export async function renderBackdrop(browser = null) {
-  const { fingerprint } = backdropState();
+  const { fingerprint, problems } = backdropState();
+  if (problems.length) throw new Error(problems.join('; '));
   const own = !browser;
   browser ??= await launch();
   try {
@@ -123,6 +142,9 @@ if (invoked === realpathSync(fileURLToPath(import.meta.url))) {
       process.exit(1);
     }
     console.log(`slides-backdrop: ${rel(BACKDROP_IMG)} is up to date`);
+  } else if (state.problems.length) {
+    console.error(`slides-backdrop: ${state.message}`);
+    process.exit(1);
   } else if (state.fresh && !force) {
     console.log(`slides-backdrop: ${rel(BACKDROP_IMG)} is up to date`);
   } else {

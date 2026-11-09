@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "481a3cdebecd031f188c5867c26c3cd8c87363fec68b6b658aa19ecc6faca619",
+      "sha256": "da377a37558d2206ce4421af7531d55c7bb24e1a4bba30209511ca6b06c7e78f",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -112,7 +112,7 @@
       "mode": "100644"
     },
     "skills/book-slides/SKILL.md": {
-      "sha256": "6e4925b24697bed319b25c320e20288ea64f4f83b5bf66a312db2f952a200ceb",
+      "sha256": "e48dab71b47ece8a3b9050afb83b3f4324db14b2ade1654c97a853ef8a8aeb80",
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
@@ -340,7 +340,7 @@
       "mode": "100644"
     },
     "theme/slides/README.md": {
-      "sha256": "da9c24af7d1bd4f50e1b48390625c4b3752fd972a4eb1b67f3a4a545956f54bc",
+      "sha256": "e31ea52ca8b7270e95814803fe172d99eeb4229c59d9aa34dc8424c2449a7dd4",
       "mode": "100644"
     },
     "theme/slides/components/LeanBadge.vue": {
@@ -408,7 +408,7 @@
       "mode": "100644"
     },
     "theme/slides/styles/backdrop.css": {
-      "sha256": "3530b09e4a92b35b5945baad84a395b5540b9637731f685e80ca226a034890a0",
+      "sha256": "3fdde7789b52f991dcb31eaf4121ecd1f62b9b003bdc12491e3736e200bffc44",
       "mode": "100644"
     },
     "theme/slides/styles/backdrop.jpg": {
@@ -416,7 +416,7 @@
       "mode": "100644"
     },
     "theme/slides/styles/backdrop.json": {
-      "sha256": "b46661a32b97674a32d7c751f0386babd67550871d7ccae16da42e0f8e639ebb",
+      "sha256": "cdd4836bdfa33e66c2344f28ea638101230392a354281195cbb0ecdcda10ce2d",
       "mode": "100644"
     },
     "theme/slides/styles/deck.css": {
@@ -492,15 +492,15 @@
       "mode": "100644"
     },
     "tools/node/slides-backdrop.mjs": {
-      "sha256": "2b079bca33b27fff97f72866d0b85dadc651180e54ec1d1893799e3a6fac6b23",
+      "sha256": "baff1009cd8a865fbb98468fef5c465c6ab02d5761f2a61dc55dc899f58c7da3",
       "mode": "100644"
     },
     "tools/node/slides-build.mjs": {
-      "sha256": "4c1e82aafbb48ab75d9ff1e7310c5de61dc2fb3afacfe096628de253abfc53d4",
+      "sha256": "7654eb9bff03027779ca7cf528c4538956ad0c4cbe045912d6fd0cbc3919ee6b",
       "mode": "100644"
     },
     "tools/node/slides-check.mjs": {
-      "sha256": "1924fd0df2253836df7af1c6f158969f6e20bdbb5f7fe2a2d3b594a02419b212",
+      "sha256": "691db5b01994b2a6bb33a5008744efbf05bf5515cf73d45f8cb8aefa1e125609",
       "mode": "100644"
     },
     "tools/node/slides-lib.mjs": {
@@ -696,7 +696,7 @@
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {
-      "sha256": "f85d2334a8e1d0997993972bff3aff984c467ee4e02f526d68c6cc219abff246",
+      "sha256": "c3fedd1ff09a82d3758842d59cba296db8ed246027187ab77a63cc9b17fd7b34",
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
