@@ -5,7 +5,10 @@ definition body), HTML comment blocks, or inside an inline comment that spans li
 by the CommonMark block rules that mdBook and Pandoc share. :func:`tbook.mdscan.parse_blocks` (and
 so check, the model and both render targets), the PDF/EPUB stager (:func:`tbook.pandoc._code_mask`)
 and the math scanner (:func:`tbook.mathrender.find_math`) all read it, so nothing inside code or a
-comment is rewritten, checked or typeset as math by one of them and not by the others.
+comment is rewritten, checked or typeset as math by one of them and not by the others. A formula
+over lines is one paragraph (no block starts inside it). Where mdBook and Pandoc read a text
+differently (fences that end without their closing fence, definition terms, comments in table
+cells), the model follows one of them and parse_blocks warns; RenderersAgreeTest checks both.
 
 Run: PYTHONPATH=tools:tools/tests .venv/bin/python -m unittest test_blocks
 """
@@ -24,9 +27,9 @@ from pathlib import Path
 
 from tbook import check, config, mathrender, mdscan, model
 from tbook import pandoc as tp
-from test_followups_pandoc import MDBOOK, math_hidden_lines, stage_chapters
+from test_followups_pandoc import MDBOOK, fixture_site, math_hidden_lines, stage_chapters, write_book
 from test_markdown import GID_OK, Repo, write
-from test_pandoc import have_pandoc
+from test_pandoc import HAVE_KATEX, have_pandoc
 
 
 def parse_hidden(text: str) -> list[bool]:
@@ -62,6 +65,12 @@ CORPUS = {
     "inline comment in list item": "- 项 <!-- 跨行 $x$\n  续行 --> 可见 $a$\n- 新项 $b$\n",
     "code span opener": "`<!--` 不是注释 $a$\n下一行 $b$ -->\n",
     "div with code": "::: {.theorem #t}\n陈述 $a$。\n\n    代码 $x$\n:::\n\n后文 $b$\n",
+    "display math over a list marker": "竖式：\n\n$$\n\\begin{array}{r}\n  1234567 \\\\\n+      89 \\\\\n\\hline\n"
+                                       "\\end{array}\n$$\n\n    代码 $x$\n",
+    "display math over a setext line": "求和：\n\n$$\n\\sum_{k=1}^n k\n=\n    \\frac{n(n+1)}{2}\n$$\n",
+    "colon line after code": "命令：\n\n    lake build\n\n:   冒号开头。\n\n    echo $x/$y [二](ch02.md)\n",
+    "comment open in a table cell": "| 项 | 说明 |\n| --- | --- |\n| 一 | 待定 <!-- 稍后补 |\n| 二 | 见 [@t] $a$ |\n"
+                                    "| 三 | 完成 --> 了 |\n",
 }
 
 
@@ -90,6 +99,15 @@ class ScannersAgreeTest(unittest.TestCase):
         self.assertEqual([s.tex for s in mathrender.find_math(CORPUS["inline comment over lines"])[0]], ["a"])
         self.assertEqual([s.tex for s in mathrender.find_math(CORPUS["inline comment never closed"])[0]],
                          ["a", "b", "c"])
+        # A display formula over lines is one paragraph: "+      89" in it starts no list item and no
+        # code, "=" no setext heading.
+        for name in ("display math over a list marker", "display math over a setext line"):
+            with self.subTest(name):
+                spans, notes = mathrender.find_math(CORPUS[name])
+                self.assertEqual([(s.display, s.block, s.line) for s in spans], [(True, True, 3)])
+                self.assertEqual(notes, [])
+        self.assertEqual(mathrender.find_math(CORPUS["colon line after code"])[0], [])
+        self.assertEqual([s.tex for s in mathrender.find_math(CORPUS["comment open in a table cell"])[0]], ["a"])
 
 
 # --------------------------------------------------------------------------- finding 8: definition lists
@@ -358,10 +376,159 @@ class CommentOverLinesTest(unittest.TestCase):
         self.assertEqual(mdscan.close_comments("x --> y <!-- z", (True, True)), "<!--x --> y <!-- z-->")
 
 
+# --------------------------------------------------------------------------- formulas over lines
+
+MATH_OVER_ITEM = ("# 第一章 甲\n\n竖式加法：\n\n$$\n\\begin{array}{r}\n  1234567 \\\\\n+      89 \\\\\n\\hline\n"
+                  "  1234656\n\\end{array}\n$$\n\n之后 $y$。\n")
+MATH_OVER_SETEXT = "求和：\n\n$$\n\\sum_{k=1}^n k\n=\n    \\frac{n(n+1)}{2}\n$$\n"
+
+
+class FormulaOverLinesTest(unittest.TestCase):
+    """A display formula over lines is opaque to the block rules: "+      89 \\\\" in it is no list item
+    with code, "=" no setext underline (Pandoc reads the formula first; the HTML edition renders it
+    before mdBook runs)."""
+
+    def test_scanner_and_math(self):
+        spans, notes = mathrender.find_math(MATH_OVER_ITEM)
+        self.assertEqual([(s.display, s.block, s.line) for s in spans], [(True, True, 5), (False, False, 14)])
+        self.assertIn("+      89 \\\\", spans[0].tex)
+        self.assertEqual(notes, [])
+        spans, notes = mathrender.find_math(MATH_OVER_SETEXT)
+        self.assertEqual([s.tex for s in spans], ["\\sum_{k=1}^n k\n=\n    \\frac{n(n+1)}{2}"])
+        self.assertEqual(notes, [])
+        for text in (MATH_OVER_ITEM, MATH_OVER_SETEXT):
+            lines = text.split("\n")
+            self.assertEqual(set(mdscan.scan_blocks(lines).kinds), {mdscan.TEXT, mdscan.BLANK})
+            self.assertFalse(any(tp._code_mask(lines)))
+            self.assertFalse(any(isinstance(b, mdscan.Code) for b in mdscan.walk(mdscan.parse_blocks(text))))
+
+    def test_formula_must_close(self):
+        """Lines after an opening $$ that a blank line, a code span or a comment keeps from closing are
+        read as usual."""
+        for text in ("$$ a\n+      b\n\n$$\n", "$$ a\n+      b `c`\n$$\n", "$$ a\n+      b <!-- c -->\n$$\n",
+                     "$$ a\n+      b <span>\n$$\n", "a \\$$ b\n+      c\n$$\n", "[x](http://a.b/$c) d\n+      e$\n"):
+            with self.subTest(text):
+                self.assertEqual(mdscan.scan_blocks(text.split("\n")).kinds[1], mdscan.CODE)
+                self.assertEqual(mathrender.find_math(text)[0], [])
+
+    @unittest.skipUnless(HAVE_KATEX and MDBOOK and have_pandoc(), "node, katex, mdBook and pandoc are required")
+    def test_html_and_pdf(self):
+        from tbook import html
+
+        slug = "tbook-test-blocks"
+        self.addCleanup(shutil.rmtree, config.paths.BUILD / "stage" / slug, True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ed = write_book(root, {"ch01.md": MATH_OVER_ITEM}, slug)
+            html.build_edition(fixture_site(), ed.book, ed, None, None, root / "html")
+            page = (root / "html" / "ch01.html").read_text(encoding="utf-8")
+            main = page[page.index("<main>"):page.index("</main>")]
+            self.assertIn('<div class="tr-math"><span class="katex-display">', main)
+            self.assertNotIn("<li>", main)
+            self.assertNotIn("<pre>", main)
+            self.assertNotIn("$$", main)
+            md = stage_chapters(root / "pdf", {"ch01.md": MATH_OVER_ITEM}).book_md.read_text(encoding="utf-8")
+            self.assertIn("$$\n\\begin{array}{r}\n  1234567 \\\\\n+      89 \\\\\n", md)
+
+
+# --------------------------------------------------------------------------- the review findings, end to end
+
+FENCE_CUT_BY_ITEM = textwrap.dedent("""\
+    # 第一章 甲
+
+    ::: {.definition #def-a}
+    甲。
+    :::
+
+    1. 运行：
+
+       ```bash
+       lake build
+      ```
+
+    见 [@def-a]、[@def-nope] 与[前言](README.md)。
+
+    ::: {.theorem #thm-b lean="Fake/Module.bad"}
+    乙。
+    :::
+    """)
+COLON_AFTER_CODE = "# 第一章 甲\n\n命令：\n\n    lake build\n\n:   这一行以冒号开头。\n\n    echo $HOME/$USER 见[二](ch02.md)\n"
+TABLE_COMMENT = textwrap.dedent("""\
+    # 第一章 甲
+
+    ::: {.definition #def-a}
+    甲。
+    :::
+
+    | 项 | 说明 |
+    | --- | --- |
+    | 一 | 待定 <!-- 稍后补 |
+    | 二 | 见 [@def-a] 与 [前言](README.md) |
+    | 三 | 完成 --> 了 |
+    """)
+
+
+class FindingsTest(unittest.TestCase):
+    def test_fence_cut_by_its_item_is_reported(self):
+        """mdBook ends the block at the under-indented fence (which opens a new block to the end of the
+        chapter), Pandoc takes that fence as the closing one: check says so instead of going quiet."""
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", FENCE_CUT_BY_ITEM)
+            out = checked(model.load_edition(repo.edition))
+        self.assertEqual(len(out), 2, out)
+        self.assertTrue(out[0].startswith("WARNING") and "ch01.md:11:" in out[0], out)
+        self.assertIn("the fenced code block opened on line 9 ends at this line without a closing fence", out[0])
+        self.assertTrue(out[1].startswith("WARNING") and "ch01.md:11:" in out[1], out)
+        self.assertIn("fenced code block is never closed", out[1])
+        issues: list[mdscan.ScanIssue] = []
+        mdscan.parse_blocks(FENCE_CUT_BY_ITEM.replace("  ```\n\n见", "   ```\n\n见"), issues)
+        self.assertEqual(issues, [], "a closing fence indented like the opening one")
+
+    def test_colon_line_after_code_is_no_definition(self):
+        """":" after indented code (or a list item, a block quote) is a paragraph, so the 4-space line after
+        it is code, as both renderers read it: no math, no link rewriting in it."""
+        code = "    echo $HOME/$USER 见[二](ch02.md)"
+        self.assertEqual(mdscan.indented_code_lines(COLON_AFTER_CODE.split("\n")),
+                         [False] * 4 + [True] + [False] * 3 + [True, False])
+        self.assertEqual(mathrender.find_math(COLON_AFTER_CODE)[0], [])
+        for before in ("- 项", "> 引"):
+            text = f"{before}\n\n:   定义?\n\n    第二段\n"
+            with self.subTest(before):
+                self.assertEqual(mdscan.indented_code_lines(text.split("\n")), [False] * 4 + [True, False])
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", COLON_AFTER_CODE)
+            repo.model = model.load_edition(repo.edition)
+            for target in ("mdbook", "pandoc"):
+                with self.subTest(target):
+                    out, ctx = repo.render("ch01.md", target)
+                    self.assertIn("\n" + code + "\n", out)
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = stage_chapters(Path(tmp), {"ch01.md": COLON_AFTER_CODE, "ch02.md": "# 第二章 乙\n"})
+            self.assertIn("\n" + code + "\n", staged.book_md.read_text(encoding="utf-8"))
+
+    def test_comment_left_open_in_a_table_cell(self):
+        """Each table row is a paragraph for inline comments: mdBook shows the "<!--" of row 一 as text,
+        so the references of the next rows are resolved and checked, and check warns that Pandoc
+        hides those rows."""
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", TABLE_COMMENT)
+            m = model.load_edition(repo.edition)
+            doc = next(d for d in m.chapters if d.chapter.path == "ch01.md")
+            self.assertEqual(doc.refs, [(10, "def-a")])
+            out = checked(m)
+            self.assertEqual(len(out), 1, out)
+            self.assertIn("ch01.md:9: '<!--' (column 10) is not closed in its paragraph", out[0])
+            repo.model = m
+            out, ctx = repo.render("ch01.md", "mdbook")
+            self.assertNotIn("[@def-a]", out)
+            self.assertIn("| 一 | 待定 <!-- 稍后补 |", out)
+
+
 # --------------------------------------------------------------------------- the renderers themselves
 
-# Every token zNN is code, hidden (in a comment) or text for mdBook and Pandoc alike; the cases
-# where the two disagree (raw HTML blocks, unclosed fences) are left out.
+# Every token zNN is code, hidden (in a comment), math or text for mdBook (given the source the HTML
+# edition gives it: formulas rendered) and Pandoc alike; raw HTML blocks are left out (Pandoc reads
+# Markdown in them). Where the two disagree, DISAGREE below says whom the block model follows.
 AGREED = {
     "top-level indented": "z01 para\n\n    z02 code\n\n    z03 code\n\nz04 text\n",
     "paragraph continuation": "z01 text\n    z02 more text\n",
@@ -402,25 +569,86 @@ AGREED = {
     "heading in item": "- z01 a\n\n  # z02 h\n      z03 code\n",
     "setext": "z01 a\n---\n    z02 code\n",
     "empty item": "-\n  z01 foo\n\n      z02 code\n",
+    # A formula over lines is read before the block rules (Pandoc), and rendered before mdBook runs.
+    "display math over a list marker": "z01 竖式：\n\n$$\n\\begin{array}{r}\n  z02 \\\\\n+      z03 \\\\\n\\hline\n"
+                                       "  z04\n\\end{array}\n$$\n\nz05 之后 $z06$。\n",
+    "display math over a setext line": "z01 求和：\n\n$$\n\\sum_{k=1}^n z02\n=\n    \\frac{z03}{2}\n$$\n\nz04 后文\n",
+    "display math over a fence": "z01 a\n\n$$\n```\nz02\n```\n$$\n\nz03 b\n",
+    "display math over a heading": "z01 a\n$$\n# z02\n$$\n",
+    "display math in a quote": "> z01 引\n>\n> $$\n> z02\n> +      z03\n> $$\n\nz04 后\n",
+    "inline math over a code line": "z01 a $z02\n+     z03$ z04\n",
+    # ':' starts a definition only after its term or another definition (in the same container).
+    "colon line after code": "z01 命令：\n\n    z02 lake build\n\n:   z03 冒号开头。\n\n    z04 echo $HOME/$USER 见[二](ch02.md)\n",
+    "colon line after an item": "- z01 项\n\n:   z02 定义?\n\n    z03 第二段\n",
+    "colon line after a quote": "> z01 引\n\n:   z02 定义?\n\n    z03 第二段\n",
+    "colon line after a table": "| z01 a | b |\n| - | - |\n| z02 c | d |\n\n:   z03 定义?\n\n    z04 第二段\n",
+    "colon line after an HTML block": "<div>\nz01\n</div>\n\n:   z02 定义?\n\n    z03 第二段\n",
+    "colon line in a new list item": "z01 Term\n\n- :   z02 def\n\n        z03 code\n",
+    "definition after a fence in a definition": "z01 术语\n\n:   z02 定义\n\n    ```\n    z03 code\n    ```\n\n"
+                                                ":   z04 第二个\n\n    z05 第二段\n",
+    "definition right after code in a definition": "z01 术语\n\n:   z02 定义\n\n        z03 代码\n:   z04 第二个\n\n"
+                                                   "    z05 第二段\n",
+    "definition two blank lines after a definition": "z01 术语\n\n:   z02 定义\n\n\n:   z03 第二个\n\n    z04 第二段\n",
+    # Each row of a table is a paragraph of its own for inline comments.
+    "table comment closed in its cell": "| z01 a | b |\n| - | - |\n| z02 c <!-- z03 --> z04 | d |\n",
+    "table comment open in a header cell": "| z01 a <!-- z02 | b |\n| - | - |\n| z03 c --> z04 | d |\n",
+    "table ended by a list item": "| z01 a | b |\n| - | - |\n- z02 c <!-- z03\n  z04 e --> z05\n",
+    "table ended by a lazy line": "- | z01 a | b |\n  | - | - |\n| z02 c <!-- z03 | x |\n| z04 e --> z05 | y |\n",
+    "no table: cells differ": "| z01 a | b |\n| - |\n| z02 c <!-- z03 | d |\n| z04 e --> z05 | f |\n",
+    "no table: header indented four": "z00 p\n    | z01 a | b |\n| - | - |\n| z02 c <!-- z03 | x |\n"
+                                      "| z04 e --> z05 | y |\n",
 }
 TOKEN_RE = re.compile(r"z\d\d")
+
+# Where mdBook and Pandoc read a text differently, the block model follows one of them and
+# parse_blocks warns: (text, the renderer the model follows, the lines warned about).
+DISAGREE = {
+    "fence cut by its list item": ("1. z01 运行：\n\n   ```bash\n   z02 lake build\n  ```\n\nz03 见\n", "mdbook", [5, 5]),
+    "fence cut by its block quote": ("> ```\n> z01 code\n\nz02 after\n", "mdbook", [3]),
+    "fence cut by the next item": ("- z01 a\n\n  ```\n  z02 code\n- z03 b\n", "mdbook", [5]),
+    "fence never closed": ("z01 text\n\n```\nz02 code\n\nz03 more\n", "mdbook", [3]),
+    "term of two lines": ("z01 第一行\nz02 第二行\n\n:   z03 定义?\n\n    z04 第二段\n", "pandoc", [4]),
+    "term of two lines, no blank": ("z01 第一行\nz02 第二行\n:   z03 定义?\n\n    z04 第二段\n", "pandoc", [3]),
+    "two blank lines after the term": ("z01 术语\n\n\n:   z02 定义?\n\n    z03 第二段\n", "pandoc", [4]),
+    "tilde definition": ("z01 术语\n\n~   z02 定义\n\n    z03 第二段\n", "pandoc", [3]),
+    "comment open in a table cell": ("| z01 项 | 说明 |\n| --- | --- |\n| 一 | z02 待定 <!-- z03 稍后补 |\n| 二 | z04 见 |\n"
+                                     "| 三 | z05 完成 --> z06 了 |\n", "mdbook", [3]),
+    "comment open in a row after a paragraph": ("z00 text\n| z01 a | b |\n| - | - |\n| z02 c <!-- z03 | d |\n"
+                                                "| z04 e --> z05 | f |\n", "mdbook", [4]),
+}
+
+
+def math_spans(md: str) -> list[tuple[int, int]]:
+    return [(s.start, s.end) for s in mathrender.find_math(md)[0]]
+
+
+def for_mdbook(md: str) -> str:
+    """``md`` as the HTML edition hands it to mdBook: each formula replaced by inert HTML (here its
+    TeX in a ``katex-fallback`` element, as when KaTeX cannot render it)."""
+    spans = mathrender.find_math(md)[0]
+    return mathrender.splice(md, spans, [mathrender.fallback_html(s.tex, s.display) for s in spans])
 
 
 def ours(md: str) -> dict[str, str]:
     lines = md.split("\n")
     scan = mdscan.scan_blocks(lines)
+    math = math_spans(md)
     out = {}
+    offset = 0
     for line, kind, carry in zip(lines, scan.kinds, scan.carry):
         view = mdscan.close_comments(line, carry)
         shift = 4 if carry[0] else 0
         comments = [(a - shift, b - shift) for a, b in mdscan.code_spans(view, comments=True) if view[a] == "<"]
         for m in TOKEN_RE.finditer(line):
-            if kind in (mdscan.FENCE, mdscan.CODE):
+            if any(a <= offset + m.start() < b for a, b in math):
+                out[m.group()] = "math"
+            elif kind in (mdscan.FENCE, mdscan.CODE):
                 out[m.group()] = "code"
             elif kind == mdscan.COMMENT or any(a <= m.start() < b for a, b in comments):
                 out[m.group()] = "hidden"
             else:
                 out[m.group()] = "text"
+        offset += len(line) + 1
     return out
 
 
@@ -437,6 +665,8 @@ def pandoc_kinds(md: str) -> dict[str, str]:
             kind, c = x.get("t"), x.get("c")
             if kind == "CodeBlock":
                 out.update(dict.fromkeys(TOKEN_RE.findall(c[1]), "code"))
+            elif kind == "Math":
+                out.update(dict.fromkeys(TOKEN_RE.findall(c[1]), "math"))
             elif kind in ("RawBlock", "RawInline"):
                 out.update(dict.fromkeys(TOKEN_RE.findall(c[1]), "hidden"))
             elif kind in ("Str", "Code"):
@@ -451,6 +681,9 @@ def pandoc_kinds(md: str) -> dict[str, str]:
 
 def mdbook_kinds(html: str) -> dict[str, str]:
     out: dict[str, str] = {}
+    for m in re.finditer(r'<code class="katex-fallback"[^>]*>(.*?)</code>', html, re.S):  # see for_mdbook
+        out.update(dict.fromkeys(TOKEN_RE.findall(m.group(1)), "math"))
+    html = re.sub(r'<code class="katex-fallback"[^>]*>.*?</code>', "", html, flags=re.S)
     for m in re.finditer(r"<pre><code[^>]*>(.*?)</code></pre>", html, re.S):
         out.update(dict.fromkeys(TOKEN_RE.findall(m.group(1)), "code"))
     html = re.sub(r"<pre><code[^>]*>.*?</code></pre>", "", html, flags=re.S)
@@ -462,31 +695,51 @@ def mdbook_kinds(html: str) -> dict[str, str]:
 
 
 class RenderersAgreeTest(unittest.TestCase):
-    """The block model is the one mdBook and Pandoc apply (checked against both when installed)."""
+    """The block model is the one mdBook and Pandoc apply (checked against both when installed); where
+    they disagree, it is the one of the renderer DISAGREE names, and parse_blocks warns."""
+
+    def test_warnings(self):
+        for name, (md, _, lines) in DISAGREE.items():
+            with self.subTest(name):
+                issues: list[mdscan.ScanIssue] = []
+                mdscan.parse_blocks(md, issues)
+                self.assertEqual(sorted(i.line for i in issues), lines)
+                self.assertEqual({i.severity for i in issues}, {"warning"})
+        for name, md in AGREED.items():
+            if not name.startswith("table comment open"):
+                with self.subTest(name):
+                    issues = []
+                    mdscan.parse_blocks(md, issues)
+                    self.assertEqual(issues, [])
 
     @unittest.skipUnless(have_pandoc(), "pandoc needed")
     def test_pandoc(self):
         for name, md in AGREED.items():
             with self.subTest(name):
                 self.assertEqual(pandoc_kinds(md), ours(md))
+        for name, (md, side, _) in DISAGREE.items():
+            with self.subTest(name):
+                (self.assertEqual if side == "pandoc" else self.assertNotEqual)(pandoc_kinds(md), ours(md))
 
     @unittest.skipUnless(MDBOOK and (shutil.which(MDBOOK) or os.path.exists(MDBOOK)), "mdBook needed")
     def test_mdbook(self):
+        texts = dict(AGREED, **{name: md for name, (md, _, _) in DISAGREE.items()})
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "src").mkdir()
             (root / "book.toml").write_text('[book]\ntitle = "t"\n\n[output.html]\n', encoding="utf-8")
-            names = {f"c{k:02d}": name for k, name in enumerate(AGREED)}
+            names = {f"c{k:02d}": name for k, name in enumerate(texts)}
             (root / "src" / "SUMMARY.md").write_text(
                 "# Summary\n\n" + "".join(f"- [{c}]({c}.md)\n" for c in names), encoding="utf-8")
             for c, name in names.items():
-                (root / "src" / f"{c}.md").write_text(AGREED[name], encoding="utf-8")
+                (root / "src" / f"{c}.md").write_text(for_mdbook(texts[name]), encoding="utf-8")
             subprocess.run([MDBOOK, "build"], cwd=root, capture_output=True, check=True)
             for c, name in names.items():
                 page = (root / "book" / f"{c}.html").read_text(encoding="utf-8")
                 main = page[page.index("<main>"):page.index("</main>")]
                 with self.subTest(name):
-                    self.assertEqual(mdbook_kinds(main), ours(AGREED[name]))
+                    same = name in AGREED or DISAGREE[name][1] == "mdbook"
+                    (self.assertEqual if same else self.assertNotEqual)(mdbook_kinds(main), ours(texts[name]))
 
 
 if __name__ == "__main__":
