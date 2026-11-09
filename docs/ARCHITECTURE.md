@@ -140,7 +140,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 冻结状态片的读取顺序：`$TRURETURING_DIR` 或 `../trureturing` 的 git checkout（`git show <commit>:<path>`）→ `.cache/trureturing/<commit>/` → `https://raw.githubusercontent.com/<repo>/<commit>/<path>`。
 
-分支可达性依次查 `.cache/trureturing/<commit>/.tbook-on-branch.json`（只存肯定结果）→ 本地 checkout → `api.github.com/repos/<repo>/compare/<branch>...<commit>`（`behind` 或 `identical` 才算在分支上；回答的 `base_commit` 以十六进制“分支名”开头时作废；令牌依次取 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`）。CI 中没有 trureturing checkout，各工作流的检查步骤把 `github.token` 作为 `GITHUB_TOKEN` 传入。
+分支可达性依次查 `.cache/trureturing/<commit>/.tbook-on-branch-v2.json`（只存肯定结果）→ 本地 checkout（只认恰好同名的 ref）→ `api.github.com/repos/<repo>/branches/<branch>` 取分支头 `<head>`，再 `repos/<repo>/compare/<head>...<commit>`（`behind` 或 `identical` 才算在分支上；仓库可读而分支端点回答 404 即没有这个分支，为错误；令牌依次取 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`；详见 `docs/VERIFICATION.md` §1、§2）。CI 中没有 trureturing checkout，各工作流的检查步骤把 `github.token` 作为 `GITHUB_TOKEN` 传入。
 
 PR 的运行不读缓存（`lean.cache_trusted()`）：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，上面两个顺序都跳过 `.cache/trureturing`（下载的内容仍写入），因为同一 PR 先前的运行执行的是 PR 自己的代码，可能写入伪造的缓存。工作流也只在可信的 ref（默认分支、tag）上用 `actions/cache` 恢复和保存 `.cache/trureturing`（`docs/VERIFICATION.md` §2）。
 

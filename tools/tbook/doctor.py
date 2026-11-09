@@ -19,9 +19,10 @@ command. Exit status: 1 if a required check fails, else 0.
 
 Nothing here installs anything. Network access is one HEAD request with a short timeout, made
 only when no local trureturing checkout is available, and, when neither the cache nor a checkout
-can tell, one GitHub compare API request asking whether the pinned commit is on the site.toml
-branch. The only file written is the one ``./tbook check`` writes for that question: a positive
-answer cached under ``.cache/trureturing/<commit>/``.
+can tell, two GitHub API requests asking whether the pinned commit is on the site.toml branch: the
+branch's head, then a comparison with it (when the branch is not found, one asking whether the
+repository is readable instead). The only file written is the one ``./tbook check`` writes for that
+question: a positive answer cached under ``.cache/trureturing/<commit>/``.
 """
 
 from __future__ import annotations
@@ -374,9 +375,9 @@ def check_trureturing(report: Report, pinned: str | None) -> None:
 def check_branch(report: Report, pinned: str | None) -> None:
     """``./tbook check`` requires the pinned commit on site.toml's trureturing branch (default ``dev``).
 
-    Asked as check asks it (cache, local checkout, GitHub's compare API), so a stale checkout or a
-    missing API token shows up here first. "Cannot tell" is only a warning: check makes it an error
-    in GitHub Actions alone.
+    Asked as check asks it (cache, local checkout, GitHub's branches and compare API), so a stale
+    checkout or a missing API token shows up here first. "Cannot tell" is only a warning: check makes
+    it an error in GitHub Actions alone. A branch that GitHub says does not exist is an error.
     """
     from . import config, lean
 
@@ -394,6 +395,10 @@ def check_branch(report: Report, pinned: str | None) -> None:
     label = f"pinned commit {commit[:12]} on {repo}@{branch}"
     if anc.on_branch:
         report.add(Check(label, True, anc.detail, targets=("check",)))
+    elif anc.no_branch:
+        report.add(Check(label, False, f"no branch {branch}: {anc.detail}",
+                         f"set [trureturing] branch in site.toml to an existing branch of {repo} (default dev)",
+                         targets=("check",)))
     elif anc.on_branch is False:
         report.add(Check(label, False, f"not on {branch}: {anc.detail}",
                          f"pin a commit on {branch}: ./tbook pin", targets=("check",)))

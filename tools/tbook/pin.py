@@ -10,8 +10,9 @@ pull-request heads and other unmerged commits. A commit that is not on the branc
 refused; one whose ancestry cannot be determined is refused in GitHub Actions and pinned
 with a warning elsewhere (``./tbook check`` verifies it again). The branch must be a valid
 branch name, not a commit SHA, a full ref or a revision expression such as ``<sha>^0``
-(``lean.branch_problem``); the lock records it, and ``./tbook check`` requires the lock's
-branch to be site.toml's.
+(``lean.branch_problem``), and an existing branch: when GitHub says the repository has no
+branch of that name (``dev-12-g<sha>``, ``pull/<n>/head``…), the commit is refused; the lock
+records the branch, and ``./tbook check`` requires the lock's branch to be site.toml's.
 
 The lock records, per GID, the fully qualified Lean name, its kind, its module's frozen
 ``statement_id`` and (best effort) the source line and header. When the commit moves,
@@ -126,6 +127,11 @@ def pin(ref: str | None = None, *, refresh: bool = False, offline: bool = False,
     else:
         anc = ledger.branch_contains(commit, branch)
         where = f"branch {branch!r} of {site.trureturing_repo}"
+        if anc.no_branch:
+            report.refused = (f"site.toml [trureturing] branch {branch!r} is not a branch of {site.trureturing_repo} "
+                              f"({anc.detail}): trureturing enforces its freeze rule on a branch, and only a branch "
+                              "can show that a commit was merged")
+            return report
         if anc.on_branch is False:
             report.refused = (f"{commit} is not on {where} ({anc.detail}). trureturing enforces the freeze rule "
                               f"only on {branch}: merge the formalization into {branch} first "
