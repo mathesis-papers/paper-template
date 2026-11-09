@@ -72,6 +72,55 @@ CI 中没有 trureturing 的 checkout，`./tbook check` 通过 GitHub compare AP
 
 本地：`./tbook cache status` 列出每个单元、键与是否已存；`TBOOK_CACHE=0` 关闭缓存（全部重建、不存储）。本地构建默认只查本地存储；设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复，本机没有视频工具链时可以这样取得视频（视频的键不含站点地址；其他单元的键含站点地址，只有与 Release 构建时的地址相同才能命中）。谁可以写入缓存、为何可以信任 Release，见 `docs/VERIFICATION.md` §2。
 
-## 6. 发版步骤
+## 6. 发版：tag 的原理与步骤
 
-见 `skills/book-release/SKILL.md`。简言之：`./tbook check` 通过 → 改 `book.toml` 的 `version` → 合入 `main` → `git tag <slug>-v<version> && git push origin <slug>-v<version>`。
+操作清单见 `skills/book-release/SKILL.md`；这里说明发版靠什么触发、触发后发生什么。
+
+### 6.1 tag 是什么
+
+tag（标签）是给某一个提交起的固定名字。分支（如 `main`）会随新提交前进，tag 不会：`example-monograph-v0.1.0` 打在哪个提交上，就永远指向那个提交。所以用它标记“这个版本就是这一刻的内容”：Release 中的 PDF、EPUB 与构建缓存都由这个提交构建。
+
+`git tag` 只在本地创建 tag，GitHub 上什么也不会发生；`git push origin <tag>` 把它推到 GitHub 后，发版才开始。带说明的 tag（`git tag -a … -m …`）与轻量 tag（`git tag …`）都可以。
+
+### 6.2 推送哪种 tag 会发版
+
+`release.yml` 只在推送名字符合下列形式的 tag 时运行，名字决定发布什么：
+
+| tag | 发布什么 |
+| --- | --- |
+| `<slug>-v<version>`，如 `example-monograph-v0.1.0` | 只发这一本书。`<version>` 必须等于 `books/<slug>/book.toml` 的 `version`，否则工作流失败并说明原因；被 `site.toml` 的 `[books] hide` 隐藏的书不能发 |
+| `v<日期或版本>`，如 `v2026.11.08`、`v3.0.0` | 书库：一次发布全部（未隐藏的）书。模板仓库：这类 tag 是模板自身的版本，由 `template-release.yml` 处理，`release.yml` 跳过 |
+| `film-…`（旧的单个视频 tag） | 只给出提示并跳过；视频随站点构建，不单独发布 |
+
+名字不是这两种形式的 tag 不触发发版；形如 `<x>-v<y>` 而 `<x>` 不是任何书的 tag 会触发工作流，并以“tag 不指向任何书”失败。
+
+### 6.3 推送之后发生什么
+
+1. GitHub 看到新 tag，在它指向的提交上运行 `release.yml`。
+2. 解析 tag，确定发布哪些书，核对版本号；设了仓库变量 `REQUIRE_LEAN_VERIFY=true` 时先跑深度 Lean 验证。
+3. 运行 `./tbook check`，再构建整个站点（不只所选的书）。`pages.yml` 通常已经构建过这个提交，没有变化的单元直接从缓存恢复（§5），视频也不必重新渲染。
+4. `./tbook cache export` 把每个构建单元写成一个 `cache-*.tar`，并写出清单 `build-cache.json`；有单元缺失时失败。
+5. 先建草稿 Release，上传所选书的 PDF（屏幕版、印刷版）、EPUB、幻灯片 PDF 与全部缓存文件，全部上传成功后才发布。说明中列出所钉的 trureturing 提交与定理数。
+
+### 6.4 与“从 Release 恢复”的关系
+
+已发布的 Release 是整站的恢复点。以后没有 Actions 缓存的构建（新仓库、缓存过期被清除、PR 运行，或本地设置 `TBOOK_CACHE_REMOTE=1` 的构建）查最新 5 个附有 `build-cache.json` 的 Release，下载并核对对应的 `cache-*.tar`，恢复后就不必重新编译（§5）。
+
+### 6.5 步骤
+
+1. `./tbook check` 0 错误，`./tbook build all` 成功；改好 `book.toml` 的 `version`，提交并合入 `main`。
+2. 在本地取得最新的 `main`，在要发布的提交上打 tag，再推送这个 tag：
+
+   ```bash
+   git fetch origin
+   git tag -a <slug>-v<version> origin/main -m "<slug> <version>"
+   git push origin <slug>-v<version>
+   ```
+
+3. 在仓库的 Actions 页看 `Release` 工作流；完成后在 Releases 页核对附件（读者下载与 `build-cache.json` 都在）。
+
+注意：
+
+- 不要在 GitHub 网页上用 “Draft a new release” 建发布。那样会先发布一个没有附件的 Release，随后运行的工作流遇到已发布的 Release 只更新标题与说明，PDF 与缓存文件就附不上去。
+- tag 打错了（名字或提交不对）而 Release 还没发布时，删掉重打：`git push origin :refs/tags/<tag>` 删除远端 tag，`git tag -d <tag>` 删除本地 tag，并在 Releases 页删除留下的草稿。已发布的版本不要复用 tag，发一个新的补丁版本。
+- 推送 tag 需要对仓库有写权限；只能推送分支的环境（例如受限的自动化会话）推不了 tag，由有权限的人推送。

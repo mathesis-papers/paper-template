@@ -19,12 +19,15 @@ description: 发布一本书或整个书库的版本时使用：更新版本号�
 
 ## 发布一个版本
 
+tag 是什么、哪种 tag 触发发版、推送后发生什么、与“从 Release 恢复”的关系，见 `docs/PUBLISHING.md` §6。
+
 1. 选定要发布的书 `<slug>`，确认 `./tbook check` 0 错误、`./tbook build all` 成功。
 2. 更新 `books/<slug>/book.toml` 的 `version`（语义化版本），必要时更新 `date`。
 3. （建议）手动运行 `lean-verify` 工作流，或把仓库变量 `REQUIRE_LEAN_VERIFY` 设为 `true`，让 Release 前强制深度验证。
-4. 提交并推送到 `main`，然后打 tag：
+4. 提交并合入 `main`，然后在 `main` 的提交上打 tag 并推送（只推送 tag，不要在 GitHub 网页上用 “Draft a new release” 建发布）：
    ```bash
-   git tag <slug>-v<version>
+   git fetch origin
+   git tag -a <slug>-v<version> origin/main -m "<slug> <version>"
    git push origin <slug>-v<version>
    ```
    发布全部书时用 `v<日期或版本>`，例如 `v2026.11.08`、`v2026-11-08` 或 `v3.0.0`（模板仓库自身除外——那里的 `v*` 是模板版本）。
