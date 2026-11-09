@@ -373,7 +373,8 @@ export function hiddenError(slugs, patterns) {
   const one = slugs.length === 1;
   const err = new Error(`book${one ? '' : 's'} ${slugs.join(', ')} ${one ? 'is' : 'are'} hidden by site.toml [books].hide `
     + `(${pats.map((p) => JSON.stringify(p)).join(', ')}); to use ${one ? 'it' : 'them'}, remove `
-    + `${pats.length === 1 ? 'that pattern' : 'those patterns'} from hide`);
+    + `${pats.length === 1 ? 'that pattern' : 'those patterns'} from hide, then run ./tbook pin --refresh `
+    + '(the lock file keeps only the declarations that visible books cite)');
   err.hidden = slugs;
   return err;
 }

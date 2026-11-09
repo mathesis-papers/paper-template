@@ -60,15 +60,15 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "ce0781ec7be8f6c121988b8e3bd538b483355734a6d52a8e08114e027421c64d",
+      "sha256": "d1ebec1d48a8a92a9209a58c18b031b137f3ebca719617e6f38c976b8fb52edc",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "4e8f46bb685666479a2c2ba28227bfd2390bd5bb3806d92ffe6b8f12833e16a8",
+      "sha256": "8a3ee1ce19abc09104634eda7da419736b6bed25d8b5caeac48d8ad6c023e4d6",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "3f19d12cbfaeb7efb384017eb564ff6a618fe5446671c70c5a9421b581233e5b",
+      "sha256": "4cb3ef5c4330841a43299ef48e66f0f825cea5f1bb34a17f8e378ea7972e01bf",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -76,7 +76,7 @@
       "mode": "100644"
     },
     "docs/UPGRADING.md": {
-      "sha256": "9acfaced67201cefc94b95656bebc1015eecba86c4a51cd8a08b38a3452d6718",
+      "sha256": "c75e48ee7cce43bdb0a7474265736b8911e3008bab38ca8e06b4dfa853493c02",
       "mode": "100644"
     },
     "docs/VERIFICATION.md": {
@@ -104,7 +104,7 @@
       "mode": "100644"
     },
     "skills/book-new/SKILL.md": {
-      "sha256": "510cdfae3c00cd9a40b8dacb9e3f73026c2a0ef0546ac03d18f9c77ed0813115",
+      "sha256": "a96b46b0117410c49df7fee38765c770e5cc356bed91c763336d871fbdc0ec0d",
       "mode": "100644"
     },
     "skills/book-release/SKILL.md": {
@@ -508,7 +508,7 @@
       "mode": "100644"
     },
     "tools/node/slides-lib.mjs": {
-      "sha256": "a52f8e7026815993fac2ae4f6bc875c8215e0f79097ec580246d268b3fd16741",
+      "sha256": "6f074ccf3804219e5a08e012a4643c687b6ea608d37010c18a74250abab5d94f",
       "mode": "100644"
     },
     "tools/node/slides-new.mjs": {
@@ -568,7 +568,7 @@
       "mode": "100644"
     },
     "tools/tbook/config.py": {
-      "sha256": "79dd39f50c42359dc5577ec9b6e5aeaabc07adc2fec8f9215ba37994c73158f4",
+      "sha256": "4ad890be729ab5c68a0612c66c8533e582b957b6b0533b003145f400d3622580",
       "mode": "100644"
     },
     "tools/tbook/cover.py": {
@@ -684,7 +684,7 @@
       "mode": "100644"
     },
     "tools/tests/test_hide.py": {
-      "sha256": "9a23b5b83461f47363c014f93f1e26358f81794fdf6e25822ab588dec9109b39",
+      "sha256": "bb407393cf5ad2ac9a78c1395d3cbe1bfacdbc1835eda7163b08f21debacfde9",
       "mode": "100644"
     },
     "tools/tests/test_html.py": {

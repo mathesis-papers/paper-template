@@ -35,7 +35,7 @@ section: "Guarantees"
   </div>
   <div class="g3 mt-l">
     <Stat value="33" label="formal results in the whole book, all kernel-verified in Lean" tone="ok" />
-    <Stat value="4" label="open problems and conjectures in the whole book, marked OPEN" tone="warn" />
+    <Stat value="3" label="open problems and conjectures in the whole book, marked OPEN" tone="warn" />
     <Stat value="0" label="unverified citations: ./tbook check refuses to publish" />
   </div>
 </div>

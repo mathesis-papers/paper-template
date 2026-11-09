@@ -19,7 +19,7 @@ Readout
 
 ## Refuting a conjecture
 
-For a positive integer $n$, let $a(n)$ be the greatest natural number $k$ with $(1 + 1/n)^k \le 2$[^sup]; this is the OEIS sequence A175406. The formula field of the entry reads:
+For a positive integer $n$, let $a(n)$ be the greatest natural number $k$ with $(1 + 1/n)^k \le 2$; this is the OEIS sequence A175406.[^sup] The formula field of the entry reads:
 
 > a(n) = n log 2 + O(1). Conjecture: a(n) = floor((n + 1/2) log 2).
 >
@@ -89,11 +89,11 @@ The residue can also be found by hand. $2310 = 2 \cdot 3 \cdot 5 \cdot 7 \cdot 1
 
 The hand computation also shows what the conjecture missed. The four residues all have the form $1 + 210k$, with $k = 0, 2, 3, 4$; modulo $11$ they are $1, 3, 4, 5$. The class that is $9$ modulo $11$ is missing.
 
-::: {.conjecture #conj-a008365-corrected title="The corrected characterization"}
-For every positive integer $n$: $n$ is 13-rough if and only if $n^{24} \bmod 2310 \in \{1, 421, 631, 841, 1681\}$.
+::: {.remark #rem-a008365-corrected title="The corrected characterization"}
+For every positive integer $n$: $n$ is 13-rough if and only if $n^{24} \bmod 2310 \in \{1, 421, 631, 841, 1681\}$. Both directions have elementary paper proofs, given below, and Lean has checked neither. So the characterization is not an open problem; it only lacks a Lean proof. What remains is to formalize both directions in Lean and freeze them.
 :::
 
-This characterization is recorded in the problem file `Problems/oeis-a008365-detlefs-rough-residue-characterization-refutation.md` as "disclosed but not claimed": trureturing does not prove it, and the Blueprint states that it asserts neither the corrected characterization nor its converse. The file gives the structural reason. If $n$ is coprime to $2310$, then $n^{24} \equiv 1 \pmod{210}$, while modulo $11$ we have $n^{24} \equiv n^4$, which takes only the five quartic residues $1, 3, 4, 5, 9$; the five listed residues are all congruent to $1$ modulo $210$, and modulo $11$ they are exactly these five values. This shows only that the residues of 13-rough numbers lie among these five values, which is one direction of the characterization; the file does not discuss the other direction (that an $n$ which is not 13-rough lands outside them). This is a paper argument that Lean has not checked. Our computation, which is not a proof: for $1 \le n \le 200000$ the corrected characterization has no exception, while the original four-residue version has $8311$ exceptions, all of them 13-rough numbers outside the four residues; the first five are $17, 61, 71, 83, 127$. What remains to be done is to prove both directions in Lean and freeze them; until then, the statement is only a conjecture in this book.
+This characterization is recorded in the problem file `Problems/oeis-a008365-detlefs-rough-residue-characterization-refutation.md` as "disclosed but not claimed": trureturing does not prove it, and the Blueprint states that it asserts neither the corrected characterization nor its converse. The file gives the structural reason, which is one direction of the characterization. A 13-rough $n$ is coprime to $2310$, so $n^{24} \equiv 1 \pmod{210}$, while modulo $11$ we have $n^{24} \equiv n^4$, which takes only the five quartic residues $1, 3, 4, 5, 9$. The residues modulo $2310$ that are congruent to $1$ modulo $210$ are $1 + 210k$ with $0 \le k \le 10$; since $210 \equiv 1 \pmod{11}$, such a residue is $1 + k$ modulo $11$, which is one of the five values exactly when $k = 0, 2, 3, 4, 8$. These are the residues $1, 421, 631, 841, 1681$. The file does not discuss the other direction, but it is just as direct. If a positive integer $n$ is not 13-rough, it has a prime factor $p < 13$, that is, $p \in \{2, 3, 5, 7, 11\}$; then $p$ divides both $n^{24}$ and $2310$, so it also divides $n^{24} \bmod 2310$. Each of the five residues is congruent to $1$ modulo $210$, so none is divisible by $2$, $3$, $5$ or $7$, and none is $0$ modulo $11$; so $p$ divides none of them, and $n^{24} \bmod 2310$ is not among them. Computation agrees, though it is not a proof: for $1 \le n \le 200000$ the corrected characterization has no exception, while the original four-residue version has $8311$ exceptions, all of them 13-rough numbers outside the four residues; the first five are $17, 61, 71, 83, 127$.
 
 The second kind of certificate shows that "find a counterexample" is a general pattern.
 

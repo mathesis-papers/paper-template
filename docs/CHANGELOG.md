@@ -6,8 +6,8 @@
 
 ### 新增
 
-- 示例书扩充为四章加一个附录：收缩面与相位判据（附图与小数值表）、有限证书与反驳（Detlefs、反例搜索、Farkas）、细化与目标风险、遗忘与熵、黄金词与回归得分、$\lambda_-$ 的几乎可加性、齐肯多夫表示与进位（附图）；33 条定理类结论都引用所钉提交上已冻结的 Lean 声明，另有 2 个开放问题与 2 个猜想。定理 2.1 改为只陈述 Lean 证明的内容（该取整公式并非对所有 $n \ge 1$ 成立），见证值移到证明中。
-- 新增第二本示例书 `books/example-primer/`《斐波那契与卢卡斯：一本可验证的入门小书》：两章、12 条定理与一个开放问题，没有媒体，演示一本书最少需要什么。两本示例书都以 `example-` 开头，书库用 `hide = ["example-*"]` 一并隐藏。
+- 示例书扩充为四章加一个附录：收缩面与相位判据（附图与小数值表）、有限证书与反驳（Detlefs、反例搜索、Farkas）、细化与目标风险、遗忘与熵、黄金词与回归得分、$\lambda_-$ 的几乎可加性、齐肯多夫表示与进位（附图）；33 条定理类结论都引用所钉提交上已冻结的 Lean 声明，另有 2 个开放问题与 1 个猜想；Detlefs 刻画补上漏掉的剩余类后得到的修正刻画写成注记（两个方向都有纸面证明，尚无 Lean 证明），不算开放问题。定理 2.1 改为只陈述 Lean 证明的内容（该取整公式并非对所有 $n \ge 1$ 成立），见证值移到证明中。
+- 新增第二本示例书 `books/example-primer/`《斐波那契与卢卡斯：一本可验证的入门小书》：两章、11 条定理与一个开放问题，没有媒体，演示一本书最少需要什么。两本示例书都以 `example-` 开头，书库用 `hide = ["example-*"]` 一并隐藏。
 - 构建缓存（`tools/tbook/buildcache.py`，`docs/ARCHITECTURE.md` §5.1、`docs/PUBLISHING.md` §5）：每个构建单元（每个语言版本的 HTML、每种 PDF、EPUB、每本书的幻灯片、每个视频）按全部输入的 SHA-256 定键，输入没有变化就恢复存下的产物，不再构建。示例书 `./tbook build html pdf epub slides` 从约 50 秒降到约 0.5 秒，视频从约 3 分钟降到约 0.3 秒。查找顺序：本地存储 `.cache/artifacts/` → Actions 缓存（只由 `pages.yml` 在默认分支上保存，PR 事件不读不写）→ 最新 5 个附有 `build-cache.json` 的已发布 Release（`TBOOK_CACHE_REMOTE=1`，逐个核对 SHA-256 与 GitHub 的 `digest`）→ 构建。新命令 `./tbook cache status|key|prune|export`；`TBOOK_CACHE=0` 关闭缓存。
 - 每个 Release 都是整站的恢复点：`release.yml` 无论 tag 是单本还是全部书都构建整个站点，把每个单元的 tar 与清单 `build-cache.json` 与读者下载一并附上；先建草稿、上传全部附件再发布，兼容 immutable releases。模板仓库的 `template-release.yml` 为示例站点做同样的事。没有 Actions 缓存的构建（新仓库、缓存被淘汰、PR）由此恢复。
 - 视频是构建产物：`./tbook build films|site|all` 渲染或从缓存恢复每个视频（`TBOOK_FILMS=auto|require|skip`；CI 与 Pages 用 `require`，视频渲染失败则构建失败），成片随站点发布在 `_site/<slug>/films/<id>/`（同源，iOS Safari 可播放），书中播放器用 720p 版本。视频工具链由 `theme/film/setup.sh`（不再需要视频参数）装入 `.cache/film/`，Python 包钉在 `theme/film/requirements.txt`。渲染不再改写提交入库的 `poster.jpg`。站点没有某个视频时，章节显示海报与说明，首页不显示“观看”。
