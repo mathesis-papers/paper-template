@@ -122,6 +122,22 @@ def compare_path(branch: str, commit: str) -> str:
     return f"repos/{TRU}/compare/{branch}...{commit}"
 
 
+DEV_HEAD = "d" * 40  # the head of dev in the FakeGitHub answers below
+
+
+def branch_path(branch: str) -> str:
+    return f"repos/{TRU}/branches/{urllib.parse.quote(branch, safe='/')}"
+
+
+def branch_answers(branch: str = "dev", head: str = DEV_HEAD) -> dict[str, dict]:
+    """FakeGitHub answers for an existing branch of trureturing at ``head`` (and for the repository itself)."""
+    return {branch_path(branch): {"name": branch, "commit": {"sha": head}}, f"repos/{TRU}": {"full_name": TRU}}
+
+
+def api(path: str) -> str:
+    return f"https://api.github.com/{path}"
+
+
 # --------------------------------------------------------------------------- finding 0: branch ancestry
 
 
@@ -154,6 +170,39 @@ class GitAncestryTests(unittest.TestCase):
                       "origin/dev (at A) wins over the local dev (at B)")
         h.track("gh", f"git@github.com:{TRU}")
         self.assertEqual(lean._branch_ref(h.dir, TRU, "dev"), "refs/remotes/gh/dev", "the remote of the repository")
+
+    def test_describe_like_names_are_not_branches(self):
+        """git reads a name ending in '-g<hex>' (git describe output) as that abbreviated commit, also after
+        refs/remotes/origin/: such a "branch" would contain any commit it abbreviates. Only a ref of exactly that
+        name counts, and a checkout without one cannot tell (verification re-review 4, item 0)."""
+        h = self.h
+        h.track("origin", UPSTREAM)
+        for name in (f"dev-12-g{h.c[:7]}", f"x-0-g{h.c[:12]}", f"release/2026-1-g{h.c[:8]}"):
+            with self.subTest(name=name):
+                self.assertEqual(lean.branch_problem(name, h.c), "", "a valid branch name")
+                self.assertEqual(git(h.dir, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{name}^{{commit}}"),
+                                 h.c, "what git makes of it: the unmerged commit C itself")
+                self.assertIsNone(lean._branch_ref(h.dir, TRU, name))
+                anc = lean.git_branch_contains(h.dir, TRU, name, h.c)
+                self.assertIsNone(anc.on_branch)
+                self.assertIn(f"has no branch {name!r}", anc.detail)
+        with CoreRepo():
+            name = f"x-0-g{h.c[:12]}"
+            offline = lean.Ledger(TRU, offline=True, checkout=h.dir).branch_contains(h.c, name)
+            self.assertIsNone(offline.on_branch, "the checkout cannot tell whether GitHub has such a branch")
+            self.assertIn("has no branch", offline.detail)
+            self.assertFalse((paths.CACHE / "trureturing" / h.c / lean.ANCESTRY_FILE).exists())
+            gh = FakeGitHub({f"repos/{TRU}": {"full_name": TRU}, compare_path(name, h.c): {"status": "identical"}})
+            with mock.patch.object(lean.urllib.request, "urlopen", gh):
+                online = lean.Ledger(TRU, checkout=h.dir).branch_contains(h.c, name)
+            self.assertEqual((online.on_branch, online.no_branch), (False, True), "GitHub has no such branch")
+            self.assertEqual([r.full_url for r in gh.requests], [api(branch_path(name)), api(f"repos/{TRU}")])
+        # a real branch counts whatever its name looks like, and is compared as the branch, not as a commit
+        name = f"dev-12-g{h.c[:7]}"
+        git(h.dir, "update-ref", f"refs/remotes/origin/{name}", h.b)
+        self.assertEqual(lean._branch_ref(h.dir, TRU, name), f"refs/remotes/origin/{name}")
+        self.assertIs(lean.git_branch_contains(h.dir, TRU, name, h.c).on_branch, False)
+        self.assertTrue(lean.git_branch_contains(h.dir, TRU, name, h.a).on_branch)
 
     def test_same_repo_urls(self):
         for url in (UPSTREAM, f"https://github.com/{TRU}", f"git@github.com:{TRU}.git", f"HTTPS://GitHub.com/{TRU}/"):
@@ -200,25 +249,29 @@ class LedgerAncestryTests(unittest.TestCase):
         self.assertIn("network disabled", res.detail)
 
     def test_github_compare(self):
-        gh = self.github({compare_path("dev", COMMIT): {"status": "behind", "ahead_by": 0, "behind_by": 3},
-                          compare_path("dev", OLD_COMMIT): {"status": "diverged", "ahead_by": 2, "behind_by": 9},
-                          compare_path("dev", "c" * 40): {"status": "ahead", "ahead_by": 1, "behind_by": 0},
-                          compare_path("dev", "d" * 40): {"status": "identical", "ahead_by": 0, "behind_by": 0},
-                          compare_path("dev", "e" * 40): 403,
-                          compare_path("release/1", COMMIT): {"status": "behind"}})
+        """The branch's head from the branches endpoint, then compare/<head>...<commit>."""
+        gh = self.github({**branch_answers("dev", DEV_HEAD), **branch_answers("release/1", "1" * 40),
+                          compare_path(DEV_HEAD, COMMIT): {"status": "behind", "ahead_by": 0, "behind_by": 3},
+                          compare_path(DEV_HEAD, OLD_COMMIT): {"status": "diverged", "ahead_by": 2, "behind_by": 9},
+                          compare_path(DEV_HEAD, "c" * 40): {"status": "ahead", "ahead_by": 1, "behind_by": 0},
+                          compare_path(DEV_HEAD, DEV_HEAD): {"status": "identical", "ahead_by": 0, "behind_by": 0},
+                          compare_path(DEV_HEAD, "e" * 40): 403,
+                          compare_path("1" * 40, COMMIT): {"status": "behind"}})
         os.environ.pop("GITHUB_TOKEN", None)
         os.environ.pop("GH_TOKEN", None)
         os.environ["TRURETURING_TOKEN"] = "tok"
         led = lean.Ledger(TRU)
-        self.assertTrue(led.branch_contains(COMMIT, "dev").on_branch)
-        req = gh.requests[0]
-        self.assertEqual(req.full_url, f"https://api.github.com/{compare_path('dev', COMMIT)}")
-        self.assertEqual(req.get_header("Authorization"), "Bearer tok")
+        yes = led.branch_contains(COMMIT, "dev")
+        self.assertEqual(yes, lean.Ancestry(True, f"GitHub compare {DEV_HEAD[:12]} (head of dev)...{COMMIT[:12]}: behind"))
+        self.assertEqual([r.full_url for r in gh.requests], [api(branch_path("dev")), api(compare_path(DEV_HEAD, COMMIT))])
+        for req in gh.requests:
+            self.assertEqual(req.get_header("Authorization"), "Bearer tok")
         no = led.branch_contains(OLD_COMMIT, "dev")
         self.assertIs(no.on_branch, False)
         self.assertIn("diverged, 2 commit(s) not on dev", no.detail)
         self.assertIs(led.branch_contains("c" * 40, "dev").on_branch, False, "ahead of dev: not merged yet")
-        self.assertTrue(led.branch_contains("d" * 40, "dev").on_branch, "the head of dev")
+        self.assertFalse(no.no_branch)
+        self.assertTrue(led.branch_contains(DEV_HEAD, "dev").on_branch, "the head of dev")
         limited = led.branch_contains("e" * 40, "dev")
         self.assertIsNone(limited.on_branch)
         self.assertIn("HTTP 403 status 403", limited.detail)
@@ -226,6 +279,17 @@ class LedgerAncestryTests(unittest.TestCase):
         self.assertIsNone(missing.on_branch)
         self.assertIn("unknown commit", missing.detail)
         self.assertTrue(led.branch_contains(COMMIT, "release/1").on_branch, "slashes in branch names")
+        # GitHub redirects a renamed branch to its new name: the old name is no branch any more
+        gh.answers[branch_path("master")] = {"name": "main", "commit": {"sha": DEV_HEAD}}
+        renamed = led.branch_contains(COMMIT, "master")
+        self.assertEqual((renamed.on_branch, renamed.no_branch), (False, True))
+        self.assertIn("answered with branch 'main'", renamed.detail)
+        gh.answers[branch_path("busy")] = 403  # e.g. the rate limit: nobody can tell
+        busy = led.branch_contains(COMMIT, "busy")
+        self.assertEqual((busy.on_branch, busy.no_branch), (None, False))
+        self.assertIn("HTTP 403", busy.detail)
+        gh.answers[branch_path("odd")] = {"name": "odd"}
+        self.assertIsNone(led.branch_contains(COMMIT, "odd").on_branch, "no head commit in the answer")
         os.environ.pop("TRURETURING_TOKEN")
         os.environ["GITHUB_TOKEN"] = "gh"
         gh.requests.clear()
@@ -239,10 +303,10 @@ class LedgerAncestryTests(unittest.TestCase):
     def test_github_overrides_a_stale_checkout_and_a_checkout_no_stands_alone(self):
         h = self.h
         git(h.dir, "update-ref", "refs/remotes/origin/dev", h.a)  # stale: dev has moved to B since the last fetch
-        gh = self.github({compare_path("dev", h.b): {"status": "identical"}})
+        gh = self.github({**branch_answers("dev", h.b), compare_path(h.b, h.b): {"status": "identical"}})
         led = lean.Ledger(TRU, checkout=h.dir)
         self.assertTrue(led.branch_contains(h.b, "dev").on_branch)
-        self.assertEqual(len(gh.requests), 1)
+        self.assertEqual(len(gh.requests), 2, "the head of dev, then compare")
         no = led.branch_contains(h.c, "dev")  # GitHub does not know C (404): the checkout's answer stands
         self.assertIs(no.on_branch, False)
         self.assertIn("not an ancestor of origin/dev", no.detail)
@@ -779,7 +843,8 @@ class PullRequestCacheTests(unittest.TestCase):
             self.assertEqual(led.branch_contains(COMMIT, "dev"), lean.Ancestry(True, "planted (cached)"))
 
     def test_pull_request_runs_ask_github(self):
-        gh = self.net({**raw_states(COMMIT), compare_path("dev", COMMIT): {"status": "behind", "behind_by": 3}})
+        gh = self.net({**raw_states(COMMIT), **branch_answers(),
+                       compare_path(DEV_HEAD, COMMIT): {"status": "behind", "behind_by": 3}})
         os.environ["GITHUB_TOKEN"] = "gh"
         for event in ("pull_request", "pull_request_target"):
             plant_cache(COMMIT)
@@ -791,10 +856,12 @@ class PullRequestCacheTests(unittest.TestCase):
                 lean.resolve(led, COMMIT, GID_RH)
             self.assertEqual(lean.resolve(led, COMMIT, GID_3V).statement_id, "sha256:3v")
             anc = led.branch_contains(COMMIT, "dev")
-            self.assertEqual(anc, lean.Ancestry(True, f"GitHub compare dev...{COMMIT[:12]}: behind"))
+            self.assertEqual(anc, lean.Ancestry(True, f"GitHub compare {DEV_HEAD[:12]} (head of dev)...{COMMIT[:12]}: "
+                                                      "behind"))
             self.assertEqual([r.full_url for r in gh.requests],
-                             [state_url(COMMIT, MOD_3V), f"https://api.github.com/{compare_path('dev', COMMIT)}"])
-            self.assertEqual(gh.requests[1].get_header("Authorization"), "Bearer gh", "github.token in CI")
+                             [state_url(COMMIT, MOD_3V), api(branch_path("dev")), api(compare_path(DEV_HEAD, COMMIT))])
+            for req in gh.requests[1:]:
+                self.assertEqual(req.get_header("Authorization"), "Bearer gh", "github.token in CI")
             offline = lean.Ledger(TRU, offline=True)
             self.assertEqual([(type(s).__name__, s.readable) for s in offline.sources], [("CacheSource", False)],
                              "kept, to be written, but not read")
@@ -817,16 +884,16 @@ class PullRequestCacheTests(unittest.TestCase):
         os.environ["GITHUB_TOKEN"] = "gh"
         os.environ["GITHUB_EVENT_NAME"] = "pull_request"
         # passes: frozen state from raw.githubusercontent.com, ancestry from the compare API
-        gh = self.net({**raw_states(COMMIT), compare_path("dev", COMMIT): {"status": "identical"}})
+        gh = self.net({**raw_states(COMMIT), **branch_answers(), compare_path(DEV_HEAD, COMMIT): {"status": "behind"}})
         self.assertEqual(self.check_lean(make_lock()), [])
         self.assertEqual(sorted(r.full_url for r in gh.requests),
-                         sorted([f"https://api.github.com/{compare_path('dev', COMMIT)}", *raw_states(COMMIT)]))
+                         sorted([api(branch_path("dev")), api(compare_path(DEV_HEAD, COMMIT)), *raw_states(COMMIT)]))
         # an off-branch commit whose state and ancestry an earlier run of the pull request planted
         plant_cache(OLD_COMMIT)
         lock = make_lock()
         lock.commit = OLD_COMMIT
-        self.net({**raw_states(OLD_COMMIT),
-                  compare_path("dev", OLD_COMMIT): {"status": "diverged", "ahead_by": 1, "behind_by": 4}})
+        self.net({**raw_states(OLD_COMMIT), **branch_answers(),
+                  compare_path(DEV_HEAD, OLD_COMMIT): {"status": "diverged", "ahead_by": 1, "behind_by": 4}})
         errors = messages(self.check_lean(lock), "error")
         self.assertEqual(len(errors), 1, errors)
         self.assertIn(f"pinned commit {OLD_COMMIT[:12]} is not on branch 'dev'", errors[0])
@@ -941,17 +1008,21 @@ class PullRequestCacheTests(unittest.TestCase):
             self.assertRegex(meta.get("integrity", ""), r"^sha512-[A-Za-z0-9+/]+=*$", name)
 
     def test_pull_request_workflows_restore_no_other_cache(self):
-        """No other step of a workflow that runs in pull-request events (triggered by one, or called from one)
-        restores a cache there: actions/cache steps are skipped, and no setup-* action caches anything but npm."""
+        """No other step of a workflow that can run in pull-request events restores or saves a cache there:
+        actions/cache steps are skipped, and no setup-* action caches anything but npm. A workflow runs in them
+        when one triggers it, or when a workflow that one triggers calls it; and every workflow that can be called
+        (workflow_call) is checked too, since a books repository may call it from its own pull-request workflow
+        (lean-verify.yml's Lake and pip caches, re-review 4, item 1)."""
         pr_events = {"pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment"}
         texts = {wf.name: wf.read_text(encoding="utf-8") for wf in self.WORKFLOWS.glob("*.yml")}
         todo = []
         for name, text in texts.items():
             m = re.search(r"^on:(.*)\n((?:  .*\n|\n)*)", text, re.M)
             events = set(re.findall(r"[a-z_]+", m.group(1))) | set(re.findall(r"^  ([a-z_]+):", m.group(2), re.M))
-            if events & pr_events:
+            if events & (pr_events | {"workflow_call"}):
                 todo.append(name)
         self.assertIn("ci.yml", todo)
+        self.assertIn("lean-verify.yml", todo, "callable (workflow_call)")
         seen, caches = set(), 0
         while todo:
             name = todo.pop()
@@ -962,17 +1033,59 @@ class PullRequestCacheTests(unittest.TestCase):
             for step in re.split(r"\n(?=\s+- )", texts[name]):
                 uses = re.search(r"^\s+-?\s*uses:\s*(\S+)", step, re.M)
                 uses = uses.group(1) if uses else ""
-                if re.match(r"actions/cache(/restore)?@", uses):
+                if re.match(r"actions/cache(/restore|/save)?@", uses):
                     caches += 1
                     m = re.search(r"^(\s+)if:\s*(>-?)?\s*(.*?)$((?:\n\1\s+.*)*)", step, re.M)
                     self.assertTrue(m, f"{name}: {uses} needs an if:")
                     cond = " ".join([m.group(3), *m.group(4).split()])
+                    # a skipped restore step leaves its outputs empty
+                    context = {k: "" for k in re.findall(r"steps\.[\w-]+\.outputs\.[\w-]+", cond)}
                     for event in pr_events:
-                        self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge"), f"{name}: {event}")
+                        self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context),
+                                         f"{name}: {uses} on {event}")
                 elif re.match(r"actions/setup-\w+@", uses) and re.search(r"^\s+cache:", step, re.M):
                     self.assertTrue(uses.startswith("actions/setup-node@"), f"{name}: {uses} caches")
                     self.assertRegex(step, r"(?m)^\s+cache:\s*npm\s*$", name)
+        self.assertIn("lean-verify.yml", seen)
         self.assertGreater(caches, 0, "ci.yml's .cache/trureturing step was examined")
+
+    def test_lean_verify_caches_outside_pull_requests(self):
+        """lean-verify.yml restores and saves its pip and Lake caches (built .olean files, which the axiom check
+        reads) in its other events, schedule, workflow_dispatch and a release's workflow_call, as the setup
+        action does: actions/cache/restore + actions/cache/save, saved only when the restore missed."""
+        text = (self.WORKFLOWS / "lean-verify.yml").read_text(encoding="utf-8")
+        steps = re.split(r"\n(?=      - name:)", text.split("\n    steps:\n", 1)[1])
+        fields = []
+        for chunk in steps:
+            step = {k: m.group(1).strip() for k in ("uses", "id", "if")
+                    if (m := re.search(rf"^        {k}:\s*(.*)$", chunk, re.M))}
+            step["with"] = {k: m.group(1).strip() for k in ("path", "key", "cache")
+                            if (m := re.search(rf"^          {k}:\s*(.*)$", chunk, re.M))}
+            fields.append(step)
+        self.assertFalse([s for s in fields if re.fullmatch(r"actions/cache@v\d+", s.get("uses", ""))])
+        python = next(s for s in fields if s.get("uses", "").startswith("actions/setup-python@"))
+        self.assertNotIn("cache", python["with"])
+        restores = {s["with"]["path"]: s for s in fields if s.get("uses", "").startswith("actions/cache/restore@")}
+        saves = {s["with"]["path"]: s for s in fields if s.get("uses", "").startswith("actions/cache/save@")}
+        self.assertEqual(set(restores), {"~/.cache/pip", "build/lean-verify/.lake"})
+        self.assertEqual(set(saves), set(restores))
+        for path, save in saves.items():
+            restore = restores[path]
+            hit = f"steps.{restore['id']}.outputs.cache-hit"
+            self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
+            for event in ("schedule", "workflow_dispatch", "push"):
+                self.assertTrue(gha_if(restore["if"], event=event, ref="refs/heads/main"), path)
+                self.assertTrue(gha_if(save["if"], event=event, ref="refs/heads/main", context={hit: ""}), path)
+                self.assertFalse(gha_if(save["if"], event=event, ref="refs/heads/main", context={hit: "true"}), path)
+            for event in ("pull_request", "pull_request_target", "pull_request_review"):
+                self.assertFalse(gha_if(restore["if"], event=event, ref="refs/pull/7/merge"), path)
+                self.assertFalse(gha_if(save["if"], event=event, ref="refs/pull/7/merge", context={hit: ""}), path)
+        order = [s.get("id") or s.get("uses", "") for s in fields]
+        lake = restores["build/lean-verify/.lake"]
+        self.assertLess(order.index("project"), order.index(lake["id"]), "the key needs the pinned commit")
+        build = next(i for i, s in enumerate(steps) if "lake build BookVerify" in s)
+        self.assertLess(build, fields.index(saves["build/lean-verify/.lake"]), "saved after the build succeeded")
+        self.assertNotIn("always()", saves["build/lean-verify/.lake"]["if"])
 
 
 # --------------------------------------------------------------------------- re-review 1: a committed .cache symlink
@@ -1064,11 +1177,12 @@ class LockBranchTests(unittest.TestCase):
             self.addCleanup(h.cleanup)
             h.track("origin", UPSTREAM)
             desc = "9" * 40  # an unmerged descendant of the pinned commit, written as the "branch"
+            # what GitHub's compare API answers for these names (it reads them as commits); never asked now
             gh = FakeGitHub({compare_path(COMMIT, COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}},
                              compare_path(COMMIT[:7], COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}},
                              compare_path(desc[:10], COMMIT): {"status": "behind", "base_commit": {"sha": desc}},
-                             compare_path("facade", COMMIT): {"status": "behind", "base_commit": {"sha": "1" * 40}},
-                             compare_path(h.b[:10], h.a): {"status": "behind", "base_commit": {"sha": h.b}}})
+                             compare_path(h.b[:10], h.a): {"status": "behind", "base_commit": {"sha": h.b}},
+                             **branch_answers("facade", "1" * 40), compare_path("1" * 40, COMMIT): {"status": "behind"}})
             with mock.patch.object(lean.urllib.request, "urlopen", gh):
                 led = lean.Ledger(TRU)
                 for branch in (COMMIT, COMMIT[:7]):
@@ -1079,12 +1193,12 @@ class LockBranchTests(unittest.TestCase):
                 anc = lean.github_branch_contains(TRU, COMMIT, COMMIT)
                 self.assertIsNone(anc.on_branch, "compare/<sha>...<sha> is 'identical'")
                 anc = led.branch_contains(COMMIT, desc[:10])
-                self.assertIsNone(anc.on_branch, "GitHub took the name for a commit")
-                self.assertIn("as a commit, not a branch", anc.detail)
+                self.assertEqual((anc.on_branch, anc.no_branch), (False, True), "no branch has that name")
+                self.assertIn(f"has no branch {desc[:10]!r}", anc.detail)
                 self.assertTrue(led.branch_contains(COMMIT, "facade").on_branch, "a branch named in hex letters")
                 anc = lean.Ledger(TRU, checkout=h.dir).branch_contains(h.a, h.b[:10])
-                self.assertIsNone(anc.on_branch, "the checkout has no such branch, GitHub read it as a commit")
-                self.assertIn("as a commit, not a branch", anc.detail)
+                self.assertEqual((anc.on_branch, anc.no_branch), (False, True), "neither the checkout nor GitHub")
+                self.assertFalse([r for r in gh.requests if "/compare/" in r.full_url and "1111" not in r.full_url])
             cached = json.loads((paths.CACHE / "trureturing" / COMMIT / lean.ANCESTRY_FILE).read_text(encoding="utf-8"))
             self.assertEqual(list(cached), [f"{TRU}@facade"], "only the real branch's answer is cached")
             self.assertFalse((paths.CACHE / "trureturing" / h.a / lean.ANCESTRY_FILE).exists())
@@ -1187,6 +1301,80 @@ class BranchNameTests(unittest.TestCase):
                     with self.assertRaisesRegex(lean.LeanError, r"\[trureturing\] branch .* is not a branch name"):
                         pin.pin(COMMIT, dry_run=True)
                 self.assertFalse(paths.LOCK_FILE.exists(), "nothing written")
+        # Valid branch names that are no branch of trureturing. GitHub's compare API reads git describe output
+        # ('dev-12-g<sha7>': the abbreviated commit after '-g') as that commit, also 'pull/<n>/head' (a pull
+        # request's head), and answers 'identical'; its branches endpoint answers 404 (re-review 4, item 0).
+        for branch in (f"dev-12-g{COMMIT[:7]}", f"x-0-g{COMMIT[:12]}", f"release/2026-1-g{COMMIT[:8]}",
+                       "pull/123/head", "no-such-branch"):
+            with self.subTest(branch=branch), CoreRepo(site=SITE.replace('"dev"', json.dumps(branch))) as repo:
+                repo.book()
+                for key in API_TOKENS:
+                    os.environ.pop(key, None)
+                os.environ.update(GITHUB_ACTIONS="true", GITHUB_EVENT_NAME="pull_request", GITHUB_TOKEN="gh")
+                self.assertEqual(lean.branch_problem(branch, COMMIT), "", "syntactically a branch name")
+                answers = {**raw_states(COMMIT), f"repos/{TRU}": {"full_name": TRU},
+                           compare_path(branch, COMMIT): {"status": "identical", "base_commit": {"sha": COMMIT}}}
+                gh = FakeGitHub(answers)  # branches/<branch>: 404, as GitHub answers
+                lock = make_lock()
+                lock.branch = branch
+                with mock.patch.object(lean.urllib.request, "urlopen", gh):
+                    issues: list[model.Issue] = []
+                    check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock,
+                                     config.load_site(), issues, offline=False)
+                    errors = messages(issues, "error")
+                    self.assertEqual(len(errors), 1, messages(issues))
+                    self.assertIn(f"{TRU} has no branch {branch!r}", errors[0])
+                    self.assertIn("[trureturing] branch in site.toml must name an existing branch", errors[0])
+                    for anc in (lean.Ledger(TRU).branch_contains(COMMIT, branch),
+                                lean.github_branch_contains(TRU, branch, COMMIT)):
+                        self.assertEqual((anc.on_branch, anc.no_branch), (False, True), anc.detail)
+                    self.assertFalse([r for r in gh.requests if "/compare/" in r.full_url], "compare is not asked")
+                    report = pin.pin(COMMIT, dry_run=True)
+                    self.assertIn(f"[trureturing] branch {branch!r} is not a branch of {TRU}", report.refused)
+                    self.assertIn("**Refused (lock not written):**", report.markdown())
+                    self.assertFalse(report.written)
+                    os.environ.pop("GITHUB_ACTIONS")
+                    self.assertTrue(pin.pin(COMMIT, dry_run=True).refused, "refused outside GitHub Actions too")
+                    os.environ["GITHUB_ACTIONS"] = "true"
+                # a repository GitHub does not show (private, no token): nobody can tell, an error in CI
+                del answers[f"repos/{TRU}"]
+                with mock.patch.object(lean.urllib.request, "urlopen", FakeGitHub(answers)):
+                    anc = lean.github_branch_contains(TRU, branch, COMMIT)
+                    self.assertEqual((anc.on_branch, anc.no_branch), (None, False), anc.detail)
+                    issues = []
+                    check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock,
+                                     config.load_site(), issues, offline=False)
+                    self.assertIn("could not verify that pinned commit", messages(issues, "error")[0])
+                    self.assertIn("could not verify", pin.pin(COMMIT, dry_run=True).refused)
+                self.assertFalse(paths.LOCK_FILE.exists(), "nothing written")
+
+
+class NoSuchBranchTests(unittest.TestCase):
+    """What else follows from "the branch must exist" (re-review 4, item 0)."""
+
+    def test_answers_cached_by_earlier_versions_are_not_read(self):
+        """Earlier versions cached positive answers for names that are no branch (git describe output)."""
+        with CoreRepo():
+            old = paths.CACHE / "trureturing" / COMMIT / ".tbook-on-branch.json"
+            write(old, json.dumps({f"{TRU}@dev-12-g{COMMIT[:7]}": "ancestor of origin/dev-12-gaaaaaaa"}))
+            self.assertNotEqual(lean.ANCESTRY_FILE, old.name)
+            anc = lean.Ledger(TRU, offline=True).branch_contains(COMMIT, f"dev-12-g{COMMIT[:7]}")
+            self.assertIsNone(anc.on_branch)
+
+    def test_doctor_reports_a_missing_branch(self):
+        from tbook import doctor
+
+        with CoreRepo():
+            led = FakeLedger()
+            led.ancestry = lean.Ancestry(False, f"GitHub: {TRU} has no branch 'dev'", no_branch=True)
+            with mock.patch.object(lean, "Ledger", lambda repo, **kw: led):
+                report = doctor.Report()
+                doctor.check_branch(report, f"{TRU}@{COMMIT}")
+        c = report.checks[0]
+        self.assertFalse(c.ok)
+        self.assertTrue(c.is_required)
+        self.assertIn("no branch dev", c.detail)
+        self.assertIn("[trureturing] branch in site.toml", c.hint)
 
 
 if __name__ == "__main__":

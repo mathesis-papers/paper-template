@@ -29,15 +29,33 @@ jobs:
       - name: Check out
         uses: actions/checkout@v5
 
+      # Caches (pip, and the Lake workspace with its built .olean files, which the axiom check reads) are
+      # restored and saved only outside pull-request events, as in .github/actions/setup: this repository runs
+      # this workflow on a schedule, on demand and from release.yml, but a books repository may call it from
+      # a pull-request workflow, whose runs execute the pull request's own files and restore what its earlier
+      # runs saved (docs/VERIFICATION.md §2). No actions/cache or setup-python cache: both save in pull requests.
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
+
+      - name: Restore the pip cache
+        id: pip-cache
+        if: ${{ !startsWith(github.event_name, 'pull_request') }}
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ runner.arch }}-py3.12-${{ hashFiles('requirements.txt') }}
 
       - name: Install the Python toolchain
         run: python -m pip install -r requirements.txt
+
+      - name: Save the pip cache
+        if: steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ steps.pip-cache.outputs.cache-primary-key }}
 
       - name: Generate the verification project
         id: project
@@ -54,8 +72,10 @@ jobs:
             | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      - name: Cache the Lake workspace
-        uses: actions/cache@v5
+      - name: Restore the Lake workspace
+        id: lake-cache
+        if: ${{ !startsWith(github.event_name, 'pull_request') }}
+        uses: actions/cache/restore@v5
         with:
           path: build/lean-verify/.lake
           key: lean-verify-${{ steps.project.outputs.commit }}-${{ hashFiles('build/lean-verify/lean-toolchain') }}
@@ -67,6 +87,14 @@ jobs:
           set -o pipefail
           cd build/lean-verify
           (lake exe cache get || true) && lake build BookVerify 2>&1 | tee verify.log
+
+      # Only after a successful build (actions/cache, used before, also saved only when the job succeeded).
+      - name: Save the Lake workspace
+        if: steps.lake-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+        uses: actions/cache/save@v5
+        with:
+          path: build/lean-verify/.lake
+          key: ${{ steps.lake-cache.outputs.cache-primary-key }}
 
       - name: Summary
         if: always()

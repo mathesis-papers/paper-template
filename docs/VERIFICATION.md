@@ -20,14 +20,18 @@ trureturing @ commit:  D5/S1/Deficit/DeficitThreeValued.lean   （Lean 源；由
 
 trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片 `Golden/Frozen/state/<module>.lean.json` 存在，当且仅当该模块已冻结**；状态片只在声明经内核验证（无 `sorry`、无私有公理）后由 trureturing 的流程写入。因此“在所钉提交上，状态片列有该声明且种类为 theorem”就是本书库对“已经 Lean 验证”的判据。
 
-这条判据只在 trureturing 的集成分支上成立：冻结律由 trureturing 的 CI 在 `site.toml` 的 `[trureturing].branch`（默认 `dev`）上执行。GitHub 也会按 SHA 提供从未合入的提交（任何人发起的 PR 的 head、其他分支），那些提交上的状态片可以是任意内容。所以**所钉提交必须能从该分支到达**：`./tbook pin` 拒绝不在分支上的提交，`./tbook check` 每次复核（§2）。锁文件的 `branch` 字段记录的就是被核对的分支，`./tbook check` 要求它与 `site.toml` 的分支相同（改了 `site.toml` 的分支就要重新 `./tbook pin`，或在提交也在新分支上时 `./tbook pin --refresh`），站点清单发布的分支因此就是被核对的分支。`[trureturing].branch` 必须是合法的分支名，因为 GitHub compare API 读的不只是分支名：`compare/<sha>...<sha>` 与 `compare/<sha>^0...<sha>` 的结果都是 `identical`，`owner:branch` 则指向另一个仓库（例如 fork）的分支。所以下列写法都是错误：`git check-ref-format --branch` 不接受的名字（含 `^`、`~`、`:`、`?`、`*`、`[`、`\`、`..`、`@{`、空白或控制字符；以 `-` 开头或以 `.` 结尾；有空的分量，即以 `/` 开头或结尾或含 `//`；有以 `.` 开头或以 `.lock` 结尾的分量；`HEAD`）；单独的 `@`（在修订表达式里 git 把它当作 `HEAD`）与含 Unicode 空白或不可见字符的名字（git 接受，但不同的名字会显示得一模一样）；完整 SHA、所钉提交的缩写 SHA 与 `refs/…`。
+这条判据只在 trureturing 的集成分支上成立：冻结律由 trureturing 的 CI 在 `site.toml` 的 `[trureturing].branch`（默认 `dev`）上执行。GitHub 也会按 SHA 提供从未合入的提交（任何人发起的 PR 的 head、其他分支），那些提交上的状态片可以是任意内容。所以**所钉提交必须能从该分支到达**：`./tbook pin` 拒绝不在分支上的提交，`./tbook check` 每次复核（§2）。锁文件的 `branch` 字段记录的就是被核对的分支，`./tbook check` 要求它与 `site.toml` 的分支相同（改了 `site.toml` 的分支就要重新 `./tbook pin`，或在提交也在新分支上时 `./tbook pin --refresh`），站点清单发布的分支因此就是被核对的分支。`[trureturing].branch` 必须是 trureturing 中一个**现有分支**的名字，因为 git 与 GitHub compare API 读的不只是分支名：`compare/<sha>...<sha>` 与 `compare/<sha>^0...<sha>` 的结果都是 `identical`；`dev-12-g7bbf30f` 这类形如 `git describe` 输出的名字，git 与 compare API 都读作 `-g` 后面那段缩写所指的提交；`owner:branch` 指向另一个仓库（例如 fork）的分支；`pull/123/head` 在 git 里是 `refs/pull/123/head`，即某个 PR 的 head。核对分两步。
+
+第一步只看名字，不问任何人。下列写法都是错误：`git check-ref-format --branch` 不接受的名字（含 `^`、`~`、`:`、`?`、`*`、`[`、`\`、`..`、`@{`、空白或控制字符；以 `-` 开头或以 `.` 结尾；有空的分量，即以 `/` 开头或结尾或含 `//`；有以 `.` 开头或以 `.lock` 结尾的分量；`HEAD`）；单独的 `@`（在修订表达式里 git 把它当作 `HEAD`）与含 Unicode 空白或不可见字符的名字（git 接受，但不同的名字会显示得一模一样）；完整 SHA、所钉提交的缩写 SHA 与 `refs/…`。
+
+第二步核对这个分支确实存在，并且只把它当分支查，不当修订表达式解析（§2）：本地 checkout 只认恰好同名的 ref（`git show-ref --verify` 核对 `refs/remotes/<远程>/<分支>` 或 `refs/heads/<分支>`）；GitHub 上先问 `repos/<repo>/branches/<分支>`，再用它回答的分支头提交的完整 SHA（而不是名字）去比较。GitHub 回答仓库里没有这个分支，或回答的是另一个分支（改过名的分支会被重定向到新名字），`./tbook check` 报错，`./tbook pin` 拒绝（**Refused**）。形如 describe 输出的名字、`pull/123/head` 与拼错的名字在语法上都是合法的分支名，就在这一步被拒绝；真有一个这样命名的分支时，按那个分支本身核对。本地 checkout 里没有同名 ref 时，它说不清 GitHub 上有没有这个分支，只能算“无法判定”（规则见 §2 的表）。
 
 ## 2. 每个 PR 都运行的检查（`./tbook check`）
 
 | 检查 | 失败时 |
 | --- | --- |
 | 形式结论必须有 `lean`；开放条目不得有 `lean` | 错误 |
-| 所钉提交可从 `site.toml` 的 trureturing 分支到达 | 错误；无法判定时：GitHub Actions 中为错误，本地或 `--offline` 下为警告 |
+| 所钉提交可从 `site.toml` 的 trureturing 分支到达，且该分支存在（§1） | 错误（GitHub 回答没有这个分支时也是错误）；无法判定时：GitHub Actions 中为错误，本地或 `--offline` 下为警告 |
 | 锁文件的 `branch` 与 `site.toml` 的 trureturing 分支相同；该分支是合法的分支名（`git check-ref-format --branch` 接受，且不是 `@`、SHA、`refs/…`，见 §1） | 错误，提示 `./tbook pin`；分支名不合法时指出原因 |
 | GID 语法（与 trureturing Blueprint 相同的地址格式；声明名是 Lean 名，分量可含希腊字母等类字母符号、下标与 `'` `!` `?`，其他分量写成 `«…»`；不得含空白或逗号） | 错误 |
 | 每个被引用的 GID 都在锁文件中 | 错误，提示 `./tbook pin --refresh` |
@@ -40,15 +44,22 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 状态片的来源依次为：本地 trureturing checkout（`$TRURETURING_DIR` 或 `../trureturing`，用 `git show <commit>:<path>`）、缓存 `.cache/trureturing/<commit>/`、`raw.githubusercontent.com/<repo>/<commit>/<path>`。因为路径中带着完整 SHA，读到的内容不可变。
 
-分支可达性的判定依次为：缓存 `.cache/trureturing/<commit>/.tbook-on-branch.json` 中的肯定结果；本地 checkout 的 `git merge-base --is-ancestor <commit> <ref>`，`<ref>` 依次取指向该仓库的远程的跟踪分支、`origin/<branch>`、本地 `<branch>`；联网时 GitHub compare API `repos/<repo>/compare/<branch>...<commit>`（状态为 `behind` 或 `identical` 才算在分支上；若回答的 `base_commit` 以“分支名”开头，说明 GitHub 把这个十六进制名字当成了 SHA，结果作废）。GitHub 的回答优先于可能过期的 checkout；只有肯定结果会被缓存。访问 API 时依次使用 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`（未设置时匿名，每小时 60 次）。CI 中没有 trureturing checkout，各工作流的检查步骤因此把 `github.token` 作为 `GITHUB_TOKEN` 传入（`trureturing-bump.yml` 用作业的 `GH_TOKEN`）。
+分支可达性的判定依次为：
+
+1. 缓存 `.cache/trureturing/<commit>/.tbook-on-branch-v2.json` 中的肯定结果。旧版工具写的 `.tbook-on-branch.json` 不再读取：旧版会把形如 describe 输出的名字当作分支。
+2. 本地 checkout 的 `git merge-base --is-ancestor <commit> <ref>`，`<ref>` 依次取指向该仓库的远程的跟踪分支、`origin/<branch>`、本地 `<branch>`，且只取确实存在的同名 ref（`git show-ref --verify`）。一个都没有时，本地无法判定。
+3. 联网时问 GitHub：先 `repos/<repo>/branches/<branch>`，取回答中的分支头提交 `<head>`，再问 `repos/<repo>/compare/<head>...<commit>`，状态为 `behind` 或 `identical` 才算在分支上。比较的基准是分支头的完整 SHA 而不是名字，GitHub 对名字的其他读法因此不起作用。分支端点回答 404 时再问 `repos/<repo>`：仓库可读，就确定没有这个分支；仓库也读不到（例如私有仓库而没有令牌）则无法判定。
+
+本地 checkout 已确认在分支上时不再问 GitHub；否则 GitHub 的确定回答优先于可能过期的 checkout，GitHub 答不出时 checkout 的“不在分支上”仍然有效。只有肯定结果会被缓存。访问 API 时依次使用 `$TRURETURING_TOKEN`、`$GITHUB_TOKEN`、`$GH_TOKEN`（未设置时匿名，每小时 60 次）。CI 中没有 trureturing checkout，各工作流的检查步骤因此把 `github.token` 作为 `GITHUB_TOKEN` 传入（`trureturing-bump.yml` 用作业的 `GH_TOKEN`）。
 
 **缓存在 CI 中的信任边界。** GitHub Actions 的缓存按 ref 隔离，但一个 PR 的运行会恢复同一 PR 之前的运行保存的缓存，而那些运行执行的是 PR 自己的代码：第一次推送改动工具、把伪造的状态片和“在分支上”的结论写进 `.cache/trureturing`，第二次推送撤回改动，最终 diff 看起来干净，检查却读到伪造的缓存。因此：
 
 - 工作流只在可信的 ref 上恢复和保存 `.cache/trureturing`：`ci.yml` 在默认分支的 push（及手动运行）与 tag 上（包括 tag 工作流通过 `workflow_call` 调用时），`pages.yml` 与 `trureturing-bump.yml` 在默认分支上（定时运行总在默认分支上），`release.yml` 在 tag 上。PR 与其他分支的运行不使用这份缓存。
-- `tbook` 自身也做纵深防御：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，不从 `.cache/trureturing` 读取状态片和分支结论（仍会写入），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次都问 compare API（用 `GITHUB_TOKEN`）。所以 PR 的检查需要网络；`--offline` 下这些项目只是警告。
+- `tbook` 自身也做纵深防御：`$GITHUB_EVENT_NAME` 为 `pull_request`、`pull_request_target`、`pull_request_review` 或 `pull_request_review_comment` 时，不从 `.cache/trureturing` 读取状态片和分支结论（仍会写入），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次都问 GitHub 的分支端点与 compare API（用 `GITHUB_TOKEN`）。所以 PR 的检查需要网络；`--offline` 下这些项目只是警告。
 - 本地运行时，缓存是开发者自己的，照常读取。
 - 工具链缓存（`.github/actions/setup` 中的 pip 缓存、Playwright 的 Chromium、`.cache/fonts`）在 PR 事件（`github.event_name` 以 `pull_request` 开头）中既不恢复也不保存，PR 的运行每次从 PyPI、Playwright 的下载站和 GitHub 重新下载。只是不保存还不够：PR 的运行执行的是 PR 自己的工作流和 action 文件，第一次推送可以去掉保存条件（或另加一个 `actions/cache/save` 步骤），把篡改过的包或 Chromium 存进该 PR 的缓存作用域；第二次推送恢复原样，最终 diff 干净，恢复步骤却会先在 PR 自己的作用域里找到那份缓存，找不到才去目标分支和默认分支。跳过恢复的条件写在最终版本的文件里，早先推送的改动左右不了它。其他事件照常恢复和保存（`actions/cache/restore` + `actions/cache/save`；不用会在 PR 中保存的 `actions/cache` 与 setup-python 自带缓存），作用域是所在分支，找不到时回落到默认分支。
-- npm 缓存（setup-node 的 `cache: npm`）在 PR 中照常恢复和保存，这是安全的：`npm ci` 只按 `package-lock.json` 为每个包记录的 sha512 完整性值从缓存取 tarball，字节对不上就丢弃并重新下载，植入的条目只会被忽略，不会被安装。单元测试检查锁文件中每个包都带有这个值，且安装用的是 `npm ci`；也检查在 PR 事件中运行的工作流（目前只有 `ci.yml`）没有别的步骤恢复缓存：`actions/cache` 步骤在 PR 中都被跳过，`setup-*` 动作除 npm 外不启用缓存。
+- `lean-verify.yml` 的 pip 缓存与 Lake 工作区缓存（`build/lean-verify/.lake`，公理检查读的正是其中已构建的 `.olean`）按同样的规则处理：PR 事件中既不恢复也不保存，其他事件用 `actions/cache/restore` + `actions/cache/save`，恢复未精确命中时才保存，Lake 工作区还要等构建成功。本仓库只在定时、手动运行与 `release.yml`（tag）中运行它，但它可以经 `workflow_call` 被调用，书库若从自己的 PR 工作流调用它，这条规则同样生效。
+- npm 缓存（setup-node 的 `cache: npm`）在 PR 中照常恢复和保存，这是安全的：`npm ci` 只按 `package-lock.json` 为每个包记录的 sha512 完整性值从缓存取 tarball，字节对不上就丢弃并重新下载，植入的条目只会被忽略，不会被安装。单元测试检查锁文件中每个包都带有这个值，且安装用的是 `npm ci`；也检查可能在 PR 事件中运行的工作流（由 PR 事件触发的、被它们调用的，以及所有可经 `workflow_call` 调用的；目前是 `ci.yml` 与 `lean-verify.yml`）没有别的步骤在 PR 中恢复或保存缓存：`actions/cache`、`actions/cache/restore` 与 `actions/cache/save` 步骤在 PR 事件中都被跳过，`setup-*` 动作除 npm 外不启用缓存。
 
 ## 3. 深度验证（`lean-verify` 工作流）
 
@@ -61,7 +72,7 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 ## 4. 升级所钉提交时
 
-`./tbook pin` 先核对目标提交在 `site.toml` 的分支上（不在则 **Refused**，锁文件不写；无法判定时 GitHub Actions 中拒绝、其他情况列为 **Warnings**），再列出：新增与删除的 GID（仍被引用但无法解析的只列在 Unresolved）、名称或种类变化、**模块陈述摘要变化**、源码行号变化。`statement_id` 是模块级摘要：它变了，说明该模块中至少一条声明的陈述变了，不一定是你引用的那条。合并前必须对照新旧提交的 Lean 源复核被引用定理的陈述，并同步书中文字（`skills/trureturing-pin`）。
+`./tbook pin` 先核对目标提交在 `site.toml` 的分支上（不在，或 GitHub 回答没有这个分支，则 **Refused**，锁文件不写；无法判定时 GitHub Actions 中拒绝、其他情况列为 **Warnings**；不带参数时用 `git ls-remote` 取 `refs/heads/<分支>` 的头，分支不存在则直接报错退出），再列出：新增与删除的 GID（仍被引用但无法解析的只列在 Unresolved）、名称或种类变化、**模块陈述摘要变化**、源码行号变化。`statement_id` 是模块级摘要：它变了，说明该模块中至少一条声明的陈述变了，不一定是你引用的那条。合并前必须对照新旧提交的 Lean 源复核被引用定理的陈述，并同步书中文字（`skills/trureturing-pin`）。
 
 ## 5. 不由机器保证、需要人工负责的部分
 

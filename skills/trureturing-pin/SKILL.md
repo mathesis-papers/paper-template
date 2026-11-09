@@ -21,16 +21,16 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 
 加 `--dry-run` 只看报告不写锁文件；加 `--report build/pin.md` 把报告写成文件（PR 正文用，目录不存在时自动创建）。
 
-无论哪种写法，目标提交都必须能从 `site.toml` 的分支（默认 `dev`）到达：trureturing 只在该分支上执行冻结律，GitHub 却也按 SHA 提供未合入的提交（PR head、其他分支）。不在分支上的提交会被拒绝（报告中的 **Refused**，锁文件不写）；无法判定时（没有含该提交的本地 checkout，且 GitHub API 不可用或加了 `--offline`），在 GitHub Actions 中（未加 `--offline`）拒绝，其他情况写入锁文件并在 **Warnings** 中提示，之后由 `./tbook check` 再次核对。本地 checkout 的 `origin/dev` 过期时先 `git -C ../trureturing fetch`。只支持分支（`refs/heads/*`）与 tag（`refs/tags/*`），不支持 `refs/pull/*`。
+无论哪种写法，目标提交都必须能从 `site.toml` 的分支（默认 `dev`）到达：trureturing 只在该分支上执行冻结律，GitHub 却也按 SHA 提供未合入的提交（PR head、其他分支）。不在分支上的提交会被拒绝（报告中的 **Refused**，锁文件不写）；无法判定时（没有同时含该提交与该分支的本地 checkout，且 GitHub API 不可用或加了 `--offline`），在 GitHub Actions 中（未加 `--offline`）拒绝，其他情况写入锁文件并在 **Warnings** 中提示，之后由 `./tbook check` 再次核对。本地 checkout 的 `origin/dev` 过期时先 `git -C ../trureturing fetch`。只支持分支（`refs/heads/*`）与 tag（`refs/tags/*`），不支持 `refs/pull/*`。
 
-`site.toml` 的 `[trureturing].branch` 必须是合法的分支名：写成 SHA（完整的，或所钉提交的缩写）、`refs/…`、`<sha>^0` 这类修订表达式、`owner:branch`、`HEAD`、`@`，或任何 `git check-ref-format --branch` 不接受的名字时，pin 直接报错，`./tbook check` 也报错并指出原因（GitHub compare API 会把 SHA 与 `<sha>^0` 当作比较基准，`compare/<sha>...<sha>` 恒为 `identical`，什么也证明不了；`owner:branch` 比较的是另一个仓库的分支；完整规则见 `docs/VERIFICATION.md` §1）。锁文件的 `branch` 记录钉版时核对的分支；`./tbook check` 要求它与 `site.toml` 相同。确有理由更换分支时（例如 trureturing 改了集成分支），改 `site.toml` 后运行 `./tbook pin`（钉到新分支的最新提交），或在当前提交也在新分支上时运行 `./tbook pin --refresh`；报告首行下方会写出 `Branch: <旧> → <新>`。
+`site.toml` 的 `[trureturing].branch` 必须是 trureturing 中现有分支的名字。写成 SHA（完整的，或所钉提交的缩写）、`refs/…`、`<sha>^0` 这类修订表达式、`owner:branch`、`HEAD`、`@`，或任何 `git check-ref-format --branch` 不接受的名字时，pin 直接报错，`./tbook check` 也报错并指出原因（GitHub compare API 会把 SHA 与 `<sha>^0` 当作比较基准，`compare/<sha>...<sha>` 恒为 `identical`，什么也证明不了；`owner:branch` 比较的是另一个仓库的分支）。名字合法但不是现有分支时（例如 `dev-12-g7bbf30f` 这类形如 `git describe` 输出、会被 git 与 compare API 读作缩写 SHA 的名字，`pull/123/head`，或拼错的名字），GitHub 的分支端点回答没有这个分支，`./tbook pin <sha>` 与 `./tbook pin --refresh` 拒绝（**Refused**），不带参数的 `./tbook pin` 用 `git ls-remote` 找不到该分支而直接报错，`./tbook check` 报错；只有本地 checkout、没有网络时，checkout 里没有同名 ref 只算无法判定（完整规则见 `docs/VERIFICATION.md` §1、§2）。锁文件的 `branch` 记录钉版时核对的分支；`./tbook check` 要求它与 `site.toml` 相同。确有理由更换分支时（例如 trureturing 改了集成分支），改 `site.toml` 后运行 `./tbook pin`（钉到新分支的最新提交），或在当前提交也在新分支上时运行 `./tbook pin --refresh`；报告首行下方会写出 `Branch: <旧> → <新>`。
 
-在 PR 的 GitHub Actions 运行里，`./tbook check` 与 `./tbook pin` 不读 `.cache/trureturing`（同一 PR 先前的运行可能写入伪造的缓存），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次问 compare API，所以那里离不开网络与 `GITHUB_TOKEN`（`docs/VERIFICATION.md` §2）。
+在 PR 的 GitHub Actions 运行里，`./tbook check` 与 `./tbook pin` 不读 `.cache/trureturing`（同一 PR 先前的运行可能写入伪造的缓存），状态片从 `raw.githubusercontent.com` 读取，分支可达性每次问 GitHub（先问分支端点取分支头，再用 compare API 比较），所以那里离不开网络与 `GITHUB_TOKEN`（`docs/VERIFICATION.md` §2）。
 
 ## 步骤
 
 1. 运行 `./tbook pin --dry-run`，读报告：
-   - **Refused**：目标提交不在所跟随的分支上（或在 CI 中无法核对）。改钉已合入该分支的提交；不要为此修改 `site.toml` 的分支。
+   - **Refused**：目标提交不在所跟随的分支上（或在 CI 中无法核对）。改钉已合入该分支的提交；不要为此修改 `site.toml` 的分支。若原因是 `site.toml` 的分支在 trureturing 中不存在（“is not a branch of …”），把它改回 trureturing 的集成分支（默认 `dev`）。
    - **Unresolved**：某个 GID 在新提交上不存在或未冻结（模块被移动、改名、删除冻结状态片）。到 trureturing 查明原因（`git log -- Golden/Frozen/state/<module>.lean.json`），改用新的 GID，或把条目降级为 `conjecture` 并说明。锁文件在全部解析前不会写入。
    - **Changed — module statement digest changed**：该模块中某些声明的陈述变了（`statement_id` 是模块级摘要，不一定是你引用的那条）。逐条打开新旧两个提交上的 Lean 源，比较被引用声明的陈述；若变了，更新所有语言版本中的书面陈述。
    - **name/kind changed**：后缀匹配到了别的声明，或声明种类变化。改用更长的名字后缀。
@@ -51,6 +51,6 @@ description: 升级或刷新本书库所钉的 trureturing 提交时使用（./t
 - 手改 `trureturing.lock.json`。
 - 钉未合入所跟随分支的提交（例如自己尚未合并的形式化 PR 的 head）。
 - 提交 `.cache/` 下的文件，或把 `.cache` 作为符号链接提交（`./tbook check` 报错）。
-- 为让 PR 通过而修改 `site.toml` 的 `[trureturing].branch`，或把它写成 SHA、修订表达式或别的仓库的分支。
+- 为让 PR 通过而修改 `site.toml` 的 `[trureturing].branch`，或把它写成 SHA、修订表达式、形如 `git describe` 输出的名字、别的仓库的分支或任何不存在的分支。
 - 为让检查通过而删除 `lean` 属性或把定理改成注释。
 - 在未复核陈述变化的情况下合并 bump PR。

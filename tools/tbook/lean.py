@@ -24,7 +24,10 @@ The freeze rule is enforced by trureturing's CI on its integration branch (``dev
 pinned commit must be reachable from that branch (``Ledger.branch_contains``): raw URLs
 also serve commits that were never merged (pull-request heads, other branches). The
 branch must be a valid branch name, not a commit SHA, a full ref or a revision expression
-such as ``<sha>^0`` (``branch_problem``).
+such as ``<sha>^0`` (``branch_problem``), and an existing branch of the repository: the
+name is looked up as a ref or a branch, never read as a revision, which would take git
+describe output such as ``dev-12-g<sha>`` for the commit it abbreviates (``_branch_ref``,
+``github_branch_contains``).
 """
 
 from __future__ import annotations
@@ -352,10 +355,12 @@ class Ledger:
 
         Asked, in order: a positive answer cached under ``.cache/trureturing/<commit>/`` (not in a
         pull request's run, see ``cache_trusted``); the local checkout (``git merge-base --is-ancestor``
-        against the branch's remote-tracking ref, else the local branch); GitHub's compare API unless
-        offline. The last definite answer wins, so GitHub overrides a stale checkout, and a checkout's
-        "no" stands when GitHub cannot answer. Positive answers are cached; ``None`` means nobody could
-        tell, or that ``branch`` is not a branch name (``branch_problem``).
+        against the branch's remote-tracking ref, else the local branch; ``git_branch_contains``);
+        GitHub's API unless offline (``github_branch_contains``). The last definite answer wins, so
+        GitHub overrides a stale checkout, and a checkout's "no" stands when GitHub cannot answer.
+        GitHub's "the repository has no branch of that name" is a definite no (``Ancestry.no_branch``);
+        a checkout without the branch cannot tell. Positive answers are cached; ``None`` means nobody
+        could tell, or that ``branch`` is not a branch name (``branch_problem``).
         """
         problem = branch_problem(branch, commit)
         if problem:
@@ -421,15 +426,21 @@ class Ledger:
 
 # --------------------------------------------------------------------------- branch ancestry
 
-ANCESTRY_FILE = ".tbook-on-branch.json"  # positive answers, in .cache/trureturing/<commit>/
+# Positive answers, in .cache/trureturing/<commit>/. Versioned: the answers earlier versions cached (in
+# .tbook-on-branch.json) are not read, because those versions took some names that are no branch, such as
+# git describe output (dev-12-g<sha>), for one.
+ANCESTRY_FILE = ".tbook-on-branch-v2.json"
 
 
 @dataclass(frozen=True)
 class Ancestry:
-    """Is a commit reachable from a branch? ``on_branch`` is True, False, or None (cannot tell)."""
+    """Is a commit reachable from a branch? ``on_branch`` is True, False, or None (cannot tell).
+
+    ``no_branch``: the repository has no branch of that name (``on_branch`` is then False)."""
 
     on_branch: bool | None
     detail: str
+    no_branch: bool = False
 
 
 def ancestry_required(offline: bool) -> bool:
@@ -504,12 +515,12 @@ def branch_problem(branch: str, commit: str = "") -> str:
     """Why ``branch`` (site.toml ``[trureturing].branch``) cannot stand for trureturing's integration
     branch, as a phrase that follows the name ('' if it can).
 
-    Ancestry is asked as ``compare/<branch>...<commit>``, where GitHub reads more than branch names:
-    with the pinned commit, an abbreviation of it, or ``<sha>^0`` in place of the branch, the answer is
-    ``identical``; ``owner:branch`` names another repository's branch. Refused here: every name
+    Git and GitHub's compare API read more than branch names: with the pinned commit, an abbreviation
+    of it, or ``<sha>^0`` in place of the branch, compare answers ``identical``; ``owner:branch`` names
+    another repository's branch. Refused here, before anybody is asked: every name
     ``git check-ref-format --branch`` refuses, and a few more (``branch_name_problem``); a full ref
-    (``refs/…``); a full SHA, and a hex name that abbreviates ``commit``. Other hex names are caught
-    when GitHub's answer shows that it read them as a commit (``github_branch_contains``).
+    (``refs/…``); a full SHA, and a hex name that abbreviates ``commit``. A name that passes must
+    still be an existing branch: ``_branch_ref`` and ``github_branch_contains`` look it up as one.
     """
     if not branch.strip():
         return "is empty"
@@ -535,7 +546,11 @@ def _same_repo(url: str, repo: str) -> bool:
 
 def _branch_ref(repo_dir: Path, repo: str, branch: str) -> str | None:
     """The ref of ``branch`` in a checkout: the remote-tracking ref of a remote that points at ``repo``,
-    else ``origin/<branch>``, else the local branch."""
+    else ``origin/<branch>``, else the local branch.
+
+    Only a ref of exactly that name counts (``git show-ref --verify``). ``git rev-parse`` would also
+    read the name as a revision: to it ``refs/remotes/origin/dev-12-g<sha>`` is git describe output,
+    i.e. the commit ``<sha>`` abbreviates, which such a "branch" would then contain."""
     remotes = []
     for line in _git(repo_dir, "config", "--get-regexp", r"^remote\..*\.url$").stdout.splitlines():
         key, _, url = line.partition(" ")
@@ -544,13 +559,14 @@ def _branch_ref(repo_dir: Path, repo: str, branch: str) -> str | None:
     candidates = [f"refs/remotes/{r}/{branch}" for r in remotes]
     candidates += [f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"]
     for ref in dict.fromkeys(candidates):
-        if _git(repo_dir, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}").returncode == 0:
+        if _git(repo_dir, "show-ref", "--verify", "-q", ref).returncode == 0:
             return ref
     return None
 
 
 def git_branch_contains(repo_dir: Path, repo: str, branch: str, commit: str) -> Ancestry:
-    """Ancestry from a local checkout (None when it lacks the commit or the branch)."""
+    """Ancestry from a local checkout (None when it lacks the commit or the branch: a checkout cannot tell
+    whether the repository has a branch that it has not fetched)."""
     if _git(repo_dir, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         return Ancestry(None, f"the checkout {repo_dir} does not have {commit[:12]}")
     ref = _branch_ref(repo_dir, repo, branch)
@@ -603,24 +619,40 @@ def github_api(path: str, timeout: float = 30.0) -> tuple[int, object, str]:
 
 
 def github_branch_contains(repo: str, branch: str, commit: str) -> Ancestry:
-    """Ancestry from GitHub's compare API.
+    """Ancestry from GitHub's API: the branch's head commit, then the compare API.
 
-    ``compare/<branch>...<commit>`` describes the commit relative to the branch: ``behind`` or
-    ``identical`` means the branch contains it (and the answer is small: no commits, no files);
-    ``ahead`` or ``diverged`` means the commit has history the branch does not. GitHub also reads a
-    commit SHA in place of the branch: a hex "branch" that the answer's ``base_commit`` begins with was
-    read that way, and proves nothing.
+    The branch is looked up by name (``branches/<branch>``), and the commit is compared with the head
+    commit of that answer (``compare/<head>...<commit>``), never with the name: in place of the base,
+    the compare API also reads a commit SHA, an abbreviation of one, ``<sha>^0`` or git describe output
+    such as ``dev-12-g<sha>``, and answers ``identical`` when that is the commit itself. The branches
+    endpoint answers 404 for any name that is not a branch of the repository; when the repository
+    itself is readable, that is a definite "no such branch" (``Ancestry.no_branch``), and so is an
+    answer for another branch (GitHub redirects a renamed branch to its new name). ``compare``:
+    ``behind`` or ``identical`` means the branch contains the commit (and the answer is small: no
+    commits, no files); ``ahead`` or ``diverged`` means the commit has history the branch does not.
     """
-    what = f"GitHub compare {branch}...{commit[:12]}"
+    what = f"GitHub branch {branch!r}"
     problem = branch_problem(branch, commit)
     if problem:
-        return Ancestry(None, f"{what}: branch {branch!r} {problem}")
-    code, data, err = github_api(f"repos/{repo}/compare/{urllib.parse.quote(branch, safe='/')}...{commit}")
+        return Ancestry(None, f"{what}: {branch!r} {problem}")
+    missing = f"GitHub: {repo} has no branch {branch!r}"
+    fix = "; [trureturing] branch in site.toml must name an existing branch (default dev)"
+    code, data, err = github_api(f"repos/{repo}/branches/{urllib.parse.quote(branch, safe='/')}")
+    if code == 404:
+        if github_api(f"repos/{repo}")[0] == 200:
+            return Ancestry(False, missing + fix, no_branch=True)
+        return Ancestry(None, f"{what}: {err} (unknown branch or repository, or a private repository without "
+                              "$TRURETURING_TOKEN)")
+    head = data.get("commit") if code == 200 and isinstance(data, dict) else None
+    head = head.get("sha") if isinstance(head, dict) else None
+    if not (isinstance(head, str) and SHA_RE.match(head) and isinstance(data.get("name"), str)):
+        return Ancestry(None, f"{what}: {err or 'unexpected answer'}")
+    if data["name"] != branch:
+        return Ancestry(False, f"{missing} (GitHub answered with branch {data['name']!r}: renamed?){fix}",
+                        no_branch=True)
+    what = f"GitHub compare {head[:12]} (head of {branch})...{commit[:12]}"
+    code, data, err = github_api(f"repos/{repo}/compare/{head}...{commit}")
     if code == 200 and isinstance(data, dict):
-        base = data.get("base_commit")
-        base_sha = base.get("sha") if isinstance(base, dict) else None
-        if HEXISH_RE.match(branch) and isinstance(base_sha, str) and base_sha.lower().startswith(branch.lower()):
-            return Ancestry(None, f"{what}: GitHub read {branch!r} as a commit, not a branch")
         status = data.get("status")
         if status in ("behind", "identical"):
             return Ancestry(True, f"{what}: {status}")
@@ -628,7 +660,7 @@ def github_branch_contains(repo: str, branch: str, commit: str) -> Ancestry:
             return Ancestry(False, f"{what}: {status}, {data.get('ahead_by', '?')} commit(s) not on {branch}")
         return Ancestry(None, f"{what}: unexpected status {status!r}")
     if code == 404:
-        err += " (unknown commit or branch, or a private repository without $TRURETURING_TOKEN)"
+        err += " (unknown commit, or a private repository without $TRURETURING_TOKEN)"
     return Ancestry(None, f"{what}: {err}")
 
 
