@@ -482,6 +482,12 @@ def chapter_markdown(doc: ChapterDoc, ctx: RenderContext) -> str:
         return "\n".join(without_stray_lean(mdscan.map_text(node, lambda line: transform_line(line, doc, ctx)), node.start, doc, ctx))
 
     def div_fn(div: mdscan.Div, inner: str) -> str:
+        out = div_markup(div, inner)
+        # For mdBook a div is an HTML block, which goes on to the next blank line: one follows it,
+        # so text right after the closing ":::" stays Markdown (Pandoc reads it so too).
+        return out + "\n" if ctx.target == "mdbook" else out
+
+    def div_markup(div: mdscan.Div, inner: str) -> str:
         env = envs_by_div.get(id(div))
         if env is None:
             if ctx.target == "mdbook":
