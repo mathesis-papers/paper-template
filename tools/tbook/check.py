@@ -126,6 +126,15 @@ def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> 
                 _warn(issues, doc.path, lineno, msg[len(prefix):] if msg.startswith(prefix) else msg)
 
 
+def check_footnotes(model: EditionModel, issues: list[Issue]) -> None:
+    """Footnotes that the HTML edition and the PDF/EPUB would show differently (:func:`tbook.pandoc.footnote_problems`)."""
+    from . import pandoc
+
+    for doc in model.chapters:
+        for line, msg in pandoc.footnote_problems(doc.text):
+            _warn(issues, doc.path, line, msg)
+
+
 def _env_signature(model: EditionModel) -> list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]]:
     sig = []
     for ch in model.chapters:
@@ -367,6 +376,7 @@ def run(books: list[config.Book], *, offline: bool = False) -> list[Issue]:
             check_env_policy(model, issues)
             check_orphans(model, issues)
             check_links(model, site, issues)
+            check_footnotes(model, issues)
             if model.summary is not None and not model.chapters:
                 _warn(issues, model.edition.summary, 0, "edition has no chapters yet")
         check_parity(book, models, issues)

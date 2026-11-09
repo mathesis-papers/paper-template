@@ -404,6 +404,32 @@ FOOTNOTE_HEADINGS = [
     ("de-duplication", "# 甲\n\n## 注释[^a]\n\n## 注释1\n\n[^a]: A。\n", ["甲", "注释1", "注释1-1"]),
     ("lists, quotes and tables", "# 甲\n\n- 项[^a]\n\n> 引[^b]\n\n| t |\n|---|\n| 表[^c] |\n\n## 注释[^d]\n\n"
                                  "[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n", ["甲", "注释4"]),
+    # What mdBook does not read as a reference: raw HTML (blocks, tags, a line that starts with a
+    # comment), autolinks, link destinations and titles, "[^b](…)" and "[^b][x]" (links, or text
+    # when x is no link reference), and code in a list item.
+    ("raw HTML is not read",
+     "# 甲\n\n<div class=\"aside\">另见[^b]</div>\n\n<pre>\n[^b]\n</pre>\n\n<custom-el>\n[^b]\n</custom-el>\n\n"
+     "<span title=\"[^b]\">悬停</span> <https://e.com/[^b]> [x](y.md \"[^b]\")\n\n<!-- c --> 又[^b]\n\n"
+     "> <div>[^b]</div>\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n", ["甲", "注释1"]),
+    ("link forms are not references", "# 甲\n\n某定理[^b](1972)、[^b](<a b>)、[^b]((1)) 与 [^b][x]、[^b][y]、[^b]\\[x]。\n\n"
+                                      "[x]: https://e.com\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n", ["甲", "注释1"]),
+    ("indented code in a list item", "# 甲\n\n- 项\n\n      深缩进[^b]\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n",
+     ["甲", "注释1"]),
+    ("what is read", "# 甲\n\n某[^b] (1972)、[^c][]、<code>[^d]</code>、[^e](a b)、[^g]\\(1972)。\n\n"
+                     "正文\n<custom-el>[^f]</custom-el>\n\n## 注释[^a]\n\n"
+                     "[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n[^e]: E。\n[^f]: F。\n[^g]: G。\n", ["甲", "注释7"]),
+    ("definitions in block quotes and list items", "# 甲\n\n> [^b]: 引用中的定义。\n\n- [^c]: 列表中的定义。\n\n"
+                                                   "正文[^b]与[^c]。\n\n## 注释[^a]\n\n[^a]: A。\n", ["甲", "注释3"]),
+    ("a definition right under a paragraph line", "# 甲\n\n正文[^b]\n[^b]: B。\n\n## 注释[^a]\n\n[^a]: A。\n",
+     ["甲", "注释2"]),
+    ("an indented line under a paragraph line is no definition",
+     "# 甲\n\n正文[^b]。\n    [^b]: 不是定义\n\n## 注释[^a]\n\n[^a]: A。\n", ["甲", "注释1"]),
+]
+# mdBook reads "[^a](…)" in a heading as a link (text "^a"); Pandoc's own slug differs, so these
+# are not part of test_fallback_is_pandocs_own_slug.
+MDBOOK_ONLY_HEADINGS = [
+    ("a reference followed by a destination is a link", "# 甲\n\n## 注释[^a](1972)\n\n## 又[^a]\n\n[^a]: A。\n",
+     ["甲", "注释a", "又1"]),
 ]
 
 
@@ -417,7 +443,7 @@ class FootnoteHeadingIdsTest(unittest.TestCase):
     in the PDF/EPUB too; Pandoc's own slug keeps the label (``注释a``) and stays a fallback."""
 
     def test_ids_and_fragments_follow_mdbook(self):
-        for name, md, want in FOOTNOTE_HEADINGS:
+        for name, md, want in FOOTNOTE_HEADINGS + MDBOOK_ONLY_HEADINGS:
             with self.subTest(name):
                 ids = tp.assign_heading_ids([("ch01.md", md)], {"ch01.md": "ch-ch01"}, {"ch-ch01"})
                 self.assertEqual(list(ids.by_line["ch01.md"].values()), want[1:])
@@ -475,13 +501,14 @@ class FootnoteHeadingIdsTest(unittest.TestCase):
             (root / "src").mkdir()
             (root / "book.toml").write_text('[book]\ntitle = "t"\n\n[output.html.search]\nenable = false\n',
                                             encoding="utf-8")
-            files = [f"c{k:02d}.md" for k in range(len(FOOTNOTE_HEADINGS))]
+            table = FOOTNOTE_HEADINGS + MDBOOK_ONLY_HEADINGS
+            files = [f"c{k:02d}.md" for k in range(len(table))]
             (root / "src" / "SUMMARY.md").write_text(
                 "# Summary\n\n" + "".join(f"- [{f}]({f})\n" for f in files), encoding="utf-8")
-            for f, (_, md, _) in zip(files, FOOTNOTE_HEADINGS):
+            for f, (_, md, _) in zip(files, table):
                 (root / "src" / f).write_text(md, encoding="utf-8")
             subprocess.run([MDBOOK, "build", str(root)], check=True, capture_output=True)
-            for f, (name, _, want) in zip(files, FOOTNOTE_HEADINGS):
+            for f, (name, _, want) in zip(files, table):
                 page = (root / "book" / f.replace(".md", ".html")).read_text(encoding="utf-8")
                 main = page[page.index("<main>"):page.index("</main>")]
                 self.assertEqual(re.findall(r'<h[1-6][^>]* id="([^"]+)"', main), want, name)
@@ -539,6 +566,209 @@ class FragmentsMatchMdbookTest(unittest.TestCase):
             err = pandoc_stderr(staged)
             self.assertNotIn("dangling", err)
             self.assertNotIn("Duplicate identifier", err)
+
+
+# --------------------------------------------------------------------------- footnotes as mdBook reads them
+
+
+def pandoc_output(staged: tp.Stage, fmt: str = "html5") -> str:
+    """book.md through Pandoc and the book filters (html5 shows what the EPUB shows)."""
+    return subprocess.run([tp.pandoc_path(), "book.md", "-f", tp.READER, "-t", fmt, "--wrap", "none",
+                           *tp._filter_meta("zh"), *tp._filters()],
+                          cwd=staged.dir, capture_output=True, text=True, check=True).stdout
+
+
+def mdbook_main(chapters: dict[str, str]) -> dict[str, str]:
+    """The ``<main>`` of each page that plain mdBook makes of ``chapters`` (file → Markdown)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "book.toml").write_text('[book]\ntitle = "t"\n\n[output.html.search]\nenable = false\n',
+                                        encoding="utf-8")
+        (root / "src" / "SUMMARY.md").write_text("# Summary\n\n" + "".join(f"- [{n}]({n})\n" for n in chapters),
+                                                 encoding="utf-8")
+        for name, md in chapters.items():
+            (root / "src" / name).write_text(md, encoding="utf-8")
+        subprocess.run([MDBOOK, "build", str(root)], check=True, capture_output=True)
+        pages = {name: (root / "book" / name.replace(".md", ".html")).read_text(encoding="utf-8") for name in chapters}
+    return {name: page[page.index("<main>"):page.index("</main>")] for name, page in pages.items()}
+
+
+class ScopedFootnotesTest(unittest.TestCase):
+    """book.md scopes exactly the footnote references that mdBook reads, and the definitions (also in
+    block quotes and list items). What the HTML edition shows as text stays as written, so Pandoc
+    finds no footnote with that label and shows the same text."""
+
+    def test_escaped_reference_is_text(self):
+        out = tp.scope_footnotes("正文\\[^a] 与 [^a]，又 \\\\[^a]。\n\n[^a]: 甲注。\n", "ch-x")
+        self.assertEqual(out, "正文\\[^a] 与 [^ch-x--a]，又 \\\\[^ch-x--a]。\n\n[^ch-x--a]: 甲注。\n")
+
+    def test_what_mdbook_shows_as_text_stays(self):
+        md = ('::: {.remark title="说明[^b]"}\n一条说明。\n:::\n\n记号 $[^b]$ 与\n$$\n[^b]\n$$\n\n'
+              '<div class="aside">另见[^b]</div>\n\n<span title="[^b]">悬停</span> <https://e.com/[^b]> '
+              '[x](y.md "[^b]") 某定理[^b](1972)\n\n正文[^b]。\n\n[^b]: 乙注。\n')
+        self.assertEqual(tp.scope_footnotes(md, "ch-x"),
+                         md.replace("正文[^b]", "正文[^ch-x--b]").replace("[^b]: ", "[^ch-x--b]: "))
+        self.assertEqual(tp.footnote_numbers(md), {"b": 1})
+
+    def test_definitions_in_containers(self):
+        md = "正文[^q]与[^r]。\n\n> [^q]: 引用中的定义。\n\n- [^r]: 列表中的定义。\n"
+        self.assertEqual(tp.scope_footnotes(md, "ch-x"),
+                         "正文[^ch-x--q]与[^ch-x--r]。\n\n> [^ch-x--q]: 引用中的定义。\n\n- [^ch-x--r]: 列表中的定义。\n")
+        self.assertEqual(tp.footnote_numbers(md), {"q": 1, "r": 2})
+
+    @unittest.skipUnless(have_pandoc(), "pandoc is required")
+    def test_pandoc_shows_what_the_html_edition_shows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = stage_chapters(Path(tmp), {
+                "ch01.md": "# 甲\n\n正文\\[^a] 与 [^a]。\n\n> [^q]: 甲的引用注。\n\n又[^q]。\n\n[^a]: 甲注。\n",
+                "ch02.md": "# 乙\n\n乙文[^q]。\n\n- [^q]: 乙的列表注。\n\n记号 $[^q]$。\n",
+            })
+            html = pandoc_output(staged)
+        self.assertIn("正文[^a] 与 <a", html)
+        self.assertEqual(html.count('class="footnote-ref"'), 3)
+        self.assertIn("甲的引用注。", html)
+        self.assertIn("乙的列表注。", html)
+        self.assertNotIn("ch-ch0", re.sub(r'(?:id|href)="[^"]*"', "", html))  # no scoped label shows
+
+    @unittest.skipUnless(have_pandoc(), "pandoc is required")
+    def test_definition_right_under_a_line_of_text(self):
+        # mdBook reads the definition there; Pandoc only after a blank line, so book.md gets one.
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = stage_chapters(Path(tmp), {
+                "ch01.md": "# 甲\n\n正文[^b][^d]\n[^b]: 定义。\n[^c]: 紧随的定义。\n\n> 引[^c]\n> [^d]: 引用中的定义。\n",
+            })
+            md = staged.book_md.read_text(encoding="utf-8")
+            self.assertIn("正文[^ch-ch01--b][^ch-ch01--d]\n\n[^ch-ch01--b]: 定义。\n[^ch-ch01--c]: 紧随的定义。\n", md)
+            self.assertIn("> 引[^ch-ch01--c]\n>\n> [^ch-ch01--d]: 引用中的定义。", md)
+            html = pandoc_output(staged)
+        self.assertEqual(html.count('class="footnote-ref"'), 3)
+        self.assertNotIn("[^", html)
+
+
+class FootnoteCheckTest(unittest.TestCase):
+    """``./tbook check`` warns about footnotes that mdBook and Pandoc read differently."""
+
+    MD = ("正文[^A]、[^a]、某定理[^a](1972)、[^a][x]、[^a] (1972)。\n\n[^a]: 甲注。\n[^b c]: 有空格。\n\n"
+          "```\n[^B]\n```\n")
+
+    def test_problems(self):
+        problems = tp.footnote_problems(self.MD)
+        self.assertEqual([line for line, _ in problems], [1, 1, 1, 4], problems)
+        self.assertIn("[^A]", problems[0][1])
+        self.assertIn("[^a]", problems[0][1])
+        self.assertIn("(", problems[1][1])
+        self.assertIn("[^b c]", problems[3][1])
+        self.assertEqual(tp.footnote_problems("正文[^a]。\n\n[^a]: 甲注。\n"), [])
+
+    def test_check_reports_them(self):
+        from tbook import check
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = load_edition(write_book(Path(tmp), {"ch01.md": "# 甲\n\n" + self.MD}))
+            issues: list = []
+            check.check_footnotes(model, issues)
+        self.assertEqual([(i.severity, i.line) for i in issues], [("warning", 3)] * 3 + [("warning", 6)])
+
+    @unittest.skipUnless(MDBOOK and have_pandoc(), "mdBook and pandoc are required")
+    def test_the_editions_differ(self):
+        # mdBook matches [^A] to [^a] ignoring case, but keys its notes by the label as written:
+        # a number that leads nowhere. Pandoc matches case-sensitively: the text [^A].
+        md = "正文[^A]。\n\n[^a]: 甲注。\n"
+        main = mdbook_main({"c.md": md})["c.md"]
+        self.assertIn('<sup class="footnote-reference" id="fr-A-1"><a href="#footnote-A">1</a></sup>', main)
+        self.assertNotIn('id="footnote-', main)
+        out = subprocess.run([tp.pandoc_path(), "-f", tp.READER, "-t", "html"], input=md,
+                             capture_output=True, text=True, check=True).stdout
+        self.assertIn("正文[^A]。", out)
+
+
+class EnvUnderTextTest(unittest.TestCase):
+    """A ``:::`` opener right under a line of text opens an environment for tbook (and so for the HTML
+    edition); Pandoc only opens a div after a blank line, so book.md gets one. Text right after a
+    closing ``:::`` goes on as Markdown in every edition."""
+
+    MD = ("# 甲\n\n正文一行。\n::: {.problem #prob-x}\n问题正文。\n:::\n后文紧接[^a]。\n\n- 列表项\n"
+          "::: {.remark #rem-x title=\"列表后\"}\n说明正文。\n:::\n## 小结\n\n> 引文\n::: {.example #exa-x}\n"
+          "例子正文。\n:::\n\n[^a]: 甲注。\n")
+
+    def test_blank_line_before_an_opener(self):
+        md = "# 甲\n\n正文。\n:::::: {#x .tr-env}\n内容。\n:::: {.y}\n里面。\n::::\n::::::\n后文。\n"
+        out = tp.restructure_chapter(md, chapter_path="ch01.md", depth=0, chapter_id="ch-ch01", title="甲",
+                                     classes=["tr-chapter"], kv={}, linker=None)
+        self.assertIn("正文。\n\n:::::: {#x .tr-env}\n内容。\n\n:::: {.y}\n里面。\n::::\n::::::\n后文。\n", out)
+
+    @unittest.skipUnless(have_pandoc(), "pandoc is required")
+    def test_pdf_and_epub_keep_the_environments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = stage_chapters(Path(tmp), {"ch01.md": self.MD})
+            html = pandoc_output(staged)
+            typst = pandoc_output(staged, "typst")
+        self.assertNotIn(":::", html)
+        for id_, label in (("prob-x", "开放问题1.1"), ("rem-x", "注1.2"), ("exa-x", "例1.3")):
+            self.assertIn(f'<section id="{id_}" class="tr-env', html)
+            self.assertIn(f'<span class="tr-env-label">{label}</span>', html)
+            self.assertIn(f'id: "{id_}")[', typst)
+        self.assertIn('class="tr-badge tr-badge-open"', html)
+        self.assertIn('badge: "OPEN"', typst)
+        self.assertIn("<p>后文紧接<a", html)
+        self.assertIn('<h2 id="小结">小结</h2>', html)
+
+    @unittest.skipUnless(HAVE_KATEX and MDBOOK, "node, katex and mdBook are required")
+    def test_html_edition_reads_text_after_a_closing_fence(self):
+        from tbook import html
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ed = write_book(root, {"ch01.md": self.MD}, "tbook-test-env-under-text")
+            try:
+                html.build_edition(fixture_site(), ed.book, ed, None, None, root / "html")
+            finally:
+                shutil.rmtree(paths.BUILD / "stage" / "tbook-test-env-under-text", ignore_errors=True)
+            page = (root / "html" / "ch01.html").read_text(encoding="utf-8")
+        for id_ in ("prob-x", "rem-x", "exa-x"):
+            self.assertIn(f'id="{id_}"', page)
+        self.assertRegex(page, r"<p>后文紧接<sup")
+        self.assertRegex(page, r'<h2 id="小结">')
+
+
+@unittest.skipUnless(HAVE_KATEX and MDBOOK and have_pandoc(), "node, katex, mdBook and pandoc are required")
+class FootnoteIdsInTheBookTest(unittest.TestCase):
+    """The HTML edition's id of a heading with a footnote reference reaches that heading in the
+    PDF/EPUB, also when the chapter has ``[^b]`` that mdBook does not read as a reference: in an
+    environment title, a formula, raw HTML or a link form (its numbers would shift otherwise)."""
+
+    SLUG = "tbook-test-footnote-ids"
+    BODY = "## 注释[^a]\n\n正文[^b]。\n\n[^a]: 甲注。\n[^b]: 乙注。\n"
+    CHAPTERS = {
+        "ch01.md": "# 甲\n\n" + BODY,
+        "ch02.md": "# 乙\n\n::: {.remark title=\"说明[^b]\"}\n一条说明。\n:::\n\n记号 $[^b]$ 表示上标。\n\n" + BODY,
+        "ch03.md": ("# 丙\n\n<div class=\"aside\">另见[^b]</div>\n\n某定理[^b](1972)。\n\n> [^c]: 引用中的定义。\n\n"
+                    "见[^c]。\n\n" + BODY),
+    }
+
+    def tearDown(self):
+        shutil.rmtree(paths.BUILD / "stage" / self.SLUG, ignore_errors=True)
+
+    def test_html_ids_reach_their_chapter(self):
+        from tbook import html
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ed = write_book(root, self.CHAPTERS, self.SLUG)
+            html.build_edition(fixture_site(), ed.book, ed, None, None, root / "html")
+            html_ids = {name: re.findall(r'<h2[^>]* id="([^"]+)"', (root / "html" / name.replace(".md", ".html"))
+                                         .read_text(encoding="utf-8"))
+                        for name in self.CHAPTERS}
+            self.assertEqual(html_ids, {"ch01.md": ["注释1"], "ch02.md": ["注释1"], "ch03.md": ["注释2"]})
+            links = "\n".join(f"[{name}]({name}#{ids[0]})" for name, ids in html_ids.items())
+            staged = stage_chapters(root / "pdf", {**self.CHAPTERS, "ch04.md": "# 丁\n\n" + links + "\n"})
+            md = staged.book_md.read_text(encoding="utf-8")
+            self.assertIn('tr-title="说明[^b]"', md)
+            self.assertIn("记号 $[^b]$ 表示上标。", md)
+            self.assertIn("[ch01.md](#注释1)\n[ch02.md](#ch-ch02--注释1)\n[ch03.md](#注释2)", md)
+            self.assertIn("## 注释[^ch-ch02--a] {#ch-ch02--注释1}", md)
+            self.assertNotIn("dangling", pandoc_stderr(staged))
 
 
 if __name__ == "__main__":

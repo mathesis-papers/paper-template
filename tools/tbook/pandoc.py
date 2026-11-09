@@ -22,12 +22,12 @@ Staging (:func:`stage`):
   ``.tr-part`` headings;
 * chapters are separate pages in HTML but one document here, so names that are only unique
   per chapter are scoped: footnote labels become ``[^<chapter id>--<label>]``
-  (:func:`scope_footnotes`), and every heading without an explicit id gets one
-  (:func:`heading_slugs` — its mdBook id, formulas counted as the text KaTeX shows and
-  footnote references as their numbers in the chapter, or ``<chapter id>--<slug>`` when
-  another chapter already uses that slug); ``{-}`` is read as
-  ``.unnumbered``, and a heading right under a line of text gets a blank line before it so
-  Pandoc reads it as one;
+  (:func:`scope_footnotes`, only where mdBook reads a footnote), and every heading without
+  an explicit id gets one (:func:`heading_slugs` — its mdBook id, formulas counted as the
+  text KaTeX shows and footnote references as their numbers in the chapter, or
+  ``<chapter id>--<slug>`` when another chapter already uses that slug); ``{-}`` is read as
+  ``.unnumbered``, and a heading, a ``:::`` div opener or a footnote definition right under
+  a line of text gets a blank line before it so Pandoc reads it as one;
 * fenced and indented code blocks, HTML comments and inline code are never rewritten
   (:func:`_code_mask`);
 * links between chapter files (``other.md``, ``other.md#x``, ``#x``) become internal ``#ids``
@@ -322,12 +322,41 @@ SETEXT_RE = re.compile(r"^ {0,3}(?P<ch>=+|-+)[ \t]*$")
 REFDEF_RE = mdscan.REFDEF_RE  # a line that only defines a link reference (CommonMark)
 NOT_PARAGRAPH_RE = re.compile(r"^(?: {4,}|\s*$|\s*[#>|<]|\s*:{3,}|\s*[-*+][ \t]|\s*\d+[.)][ \t]|\s*(?:`{3,}|~{3,}))")
 SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_-]+")
-# Pandoc footnote labels: no whitespace, "^", "[" or "]".
-FOOTNOTE_REF_RE = re.compile(r"\[\^(?P<label>[^\s^\[\]]+)\]")
-FOOTNOTE_DEF_RE = re.compile(r"^ {0,3}\[\^(?P<label>[^\s^\[\]]+)\]:")
+# Footnote labels as Pandoc reads them: no whitespace, "^", "[" or "]" (mdBook also takes spaces
+# and "^", which Pandoc reads as a link: footnote_problems).
+_LABEL = r"(?P<label>[^\s^\[\]]+)"
+# A footnote definition, also in a block quote or a list item (``> [^a]: …``, ``- [^a]: …``):
+# mdBook and Pandoc both read it as a footnote of the document.
+FOOTNOTE_DEF_RE = re.compile(r"^(?P<lead>" + mdscan.CONTAINER + r")\[\^" + _LABEL + r"\]:")
+# What makes ``[^a]`` the text of a link for mdBook instead of a reference: a destination ``(…)``
+# (``[^a](1972)``, ``[^a]()``) or a link label ``[x]`` (``[^a][x]``, also ``[^a]\[x]``; text when x
+# is no link reference). ``[^a][^b]``, ``[^a][]``, ``[^a] (1972)`` and ``[^a]\(1972)`` are references.
+_LINK_TAIL = (r"\([ \t]*(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))++)?(?:[ \t]+" + mdscan.LINK_TITLE
+              + r")?[ \t]*\)|\\?\[(?!\^)(?:[^\[\]\\]|\\.)+\]")
 # A footnote reference that is not escaped (``\[^a]`` is text; ``\\[^a]`` is a backslash and a
-# reference), with the escaped backslashes before it.
-_NOTE_REF_RE = re.compile(r"(?<!\\)(?P<esc>(?:\\\\)*)\[\^(?P<label>[^\s^\[\]]+)\]")
+# reference), with the escaped backslashes before it, and not the text of a link.
+_NOTE_REF_RE = re.compile(r"(?<!\\)(?P<esc>(?:\\\\)*)\[\^" + _LABEL + r"\](?!" + _LINK_TAIL + ")")
+_NOTE_LINK_RE = re.compile(r"(?<!\\)(?P<esc>(?:\\\\)*)\[\^" + _LABEL + r"\](?=" + _LINK_TAIL + ")")
+# A definition whose label Pandoc does not read as one (spaces or "^" in it).
+_ODD_DEF_RE = re.compile(r"^(?P<lead>" + mdscan.CONTAINER + r")\[\^(?P<label>[^\[\]]*[\s^][^\[\]]*)\]:")
+# CommonMark HTML blocks, which mdBook passes on as raw HTML (no footnotes, links or emphasis in
+# them): start → end (a line holding it; None: a blank line). Types 1-6 may interrupt a
+# paragraph; type 7, one complete tag alone on its line, may not.
+_HTML_BLOCK_TAGS = ("address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
+                    "dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|"
+                    "header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|"
+                    "param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")
+_HTML_BLOCKS = [
+    (re.compile(r"<(?:script|pre|style|textarea)(?=[\s>]|$)", re.I),
+     re.compile(r"</(?:script|pre|style|textarea)>", re.I)),
+    (re.compile(r"<!--"), re.compile(r"-->")),
+    (re.compile(r"<\?"), re.compile(r"\?>")),
+    (re.compile(r"<![A-Za-z]"), re.compile(r">")),
+    (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>")),
+    (re.compile(r"</?(?:" + _HTML_BLOCK_TAGS + r")(?=[\s/>]|$)", re.I), None),
+]
+# Block-quote and list markers before a line's own text (an HTML block may sit in either).
+_MARKERS_RE = re.compile(r"(?: {0,3}(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*")
 # Inline link or image (text kept) and raw HTML tags: what heading slugs strip; a trailing
 # brace block that Pandoc cannot parse ({weird stuff}) stays text in Pandoc, but mdBook
 # reads it as attributes and drops it from the id.
@@ -472,31 +501,125 @@ def chapter_slug(path: str) -> str:
     return "ch-" + (SAFE_ID_RE.sub("-", stem).strip("-").lower() or "chapter")
 
 
+def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
+    """True for each line that mdBook passes on as raw HTML: the lines of CommonMark HTML blocks
+    (:data:`_HTML_BLOCKS`, also in block quotes and list items) and the ``:::`` lines of divs,
+    which the HTML edition writes as HTML between blank lines (an environment's title too)."""
+    raw = [False] * len(lines)
+    end: re.Pattern | None = None  # what ends the open HTML block (None: a blank line)
+    open_ = para = False  # an HTML block goes on; the line before goes on with a paragraph
+    for i, line in enumerate(lines):
+        if scan.hidden[i] or mdscan.DIV_OPEN_RE.match(line) or mdscan.DIV_CLOSE_RE.match(line):
+            raw[i] = not scan.hidden[i]
+            open_ = para = False
+            continue
+        body = line[_MARKERS_RE.match(line).end():]
+        text = body.lstrip(" \t")
+        if open_:
+            if end is None and not text:
+                open_ = False
+            else:
+                raw[i] = True
+                open_ = end is None or not end.search(body)
+                continue
+        if not text:
+            para = False
+            continue
+        if len(body.expandtabs(4)) - len(text) < 4:
+            for start, stop in _HTML_BLOCKS:
+                m = start.match(text)
+                if m:
+                    raw[i], end = True, stop
+                    open_ = stop is None or not stop.search(text, m.end())
+                    break
+            else:
+                if not para and mathrender.TAG_RE.fullmatch(text.rstrip()):  # type 7
+                    raw[i], end, open_ = True, None, True
+        para = not raw[i] and not text.startswith("#")
+    return raw
+
+
+def _math_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
+    """Per line, the parts inside formulas (the HTML edition shows them rendered by KaTeX)."""
+    out: list[list[tuple[int, int]]] = [[] for _ in lines]
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line) + 1)
+    for span in mathrender.find_math("\n".join(lines))[0]:
+        k = span.line - 1
+        while k < len(lines) and starts[k] < span.end:
+            out[k].append((max(span.start - starts[k], 0), min(span.end - starts[k], len(lines[k]))))
+            k += 1
+    return out
+
+
+def _not_read(line: str, carry: tuple[bool, bool] = (False, False),
+              math: list[tuple[int, int]] | None = None) -> list[tuple[int, int]]:
+    """The parts of a line where mdBook reads no footnote reference: code spans, HTML comments,
+    formulas (``math``), HTML tags, autolinks and link destinations and titles."""
+    spans = mdscan.hidden_spans(line, carry) + list(math or [])
+    for pattern in (mathrender.TAG_RE, mathrender.AUTOLINK_RE, mathrender.LINK_DEST_RE):
+        spans += [m.span() for m in pattern.finditer(line)]
+    return spans
+
+
+def _refs(line: str, spans: list[tuple[int, int]], pattern: re.Pattern = _NOTE_REF_RE) -> list[re.Match]:
+    """The matches of ``pattern`` (footnote references) whose ``[`` is outside ``spans``."""
+    return [m for m in pattern.finditer(line)
+            if not any(a <= m.start("label") - 2 < b for a, b in spans)]
+
+
+def _footnote_def(lines: list[str], i: int) -> re.Match | None:
+    """The footnote definition line ``i`` holds (:data:`FOOTNOTE_DEF_RE`). Without a block-quote or
+    list marker and indented 4 columns or more, a line right under another one goes on with it."""
+    m = FOOTNOTE_DEF_RE.match(lines[i])
+    lead = m.group("lead") if m else ""
+    if m and not lead.strip() and len(lead.expandtabs(4)) >= 4 and i and lines[i - 1].strip():
+        return None
+    return m
+
+
+def _note_lines(md: str) -> list[tuple[int, str, re.Match | None, list[tuple[int, int]]]]:
+    """``(index, line, definition, spans)`` for each line of ``md`` where mdBook reads footnotes:
+    not in code, an HTML comment or raw HTML (:func:`_raw_html_lines`). ``definition`` is the
+    footnote definition the line holds, or None; ``spans`` are the parts where no reference is
+    read (:func:`_not_read`, and the definition's own label)."""
+    lines = md.split("\n")
+    scan = mdscan.scan_blocks(lines)
+    raw = _raw_html_lines(lines, scan)
+    math = _math_spans(lines)
+    out = []
+    for i, line in enumerate(lines):
+        if scan.hidden[i] or raw[i]:
+            continue
+        d = _footnote_def(lines, i)
+        spans = _not_read(line, scan.carry[i], math[i]) + ([(0, d.end())] if d else [])
+        out.append((i, line, d, spans))
+    return out
+
+
 def scope_footnotes(md: str, prefix: str) -> str:
     """Rename the footnotes defined in this chapter: ``[^n]`` → ``[^<prefix>--n]``.
 
     Each chapter is its own page in HTML, so ``[^1]`` is reused from chapter to chapter;
     book.md holds every chapter and Pandoc would give every ``[^1]`` the text of the last
-    definition in the book. Only labels defined in the chapter are renamed; fenced and
-    indented code, HTML comments and inline code are left alone.
+    definition in the book. The definitions (also in block quotes and list items) and the
+    references that mdBook reads (:func:`_note_lines`, :data:`_NOTE_REF_RE`) to a label defined
+    in the chapter are renamed. Everything else stays as written: what the HTML edition shows as
+    text (escaped, in code, a comment, a formula, raw HTML, an environment title, a link) then
+    names no footnote of book.md, and Pandoc shows the same text.
     """
-    lines = md.split("\n")
-    scan = mdscan.scan_blocks(lines)
-    mask = scan.hidden
-    labels = {m.group("label") for i, line in enumerate(lines)
-              if not mask[i] and (m := FOOTNOTE_DEF_RE.match(line))}
+    notes = _note_lines(md)
+    labels = {d.group("label") for _, _, d, _ in notes if d}
     if not labels:
         return md
-
-    def repl(m: re.Match) -> str:
-        label = m.group("label")
-        return f"[^{prefix}--{label}]" if label in labels else m.group(0)
-
-    def scoped(line: str) -> str:
-        return mdscan.sub_outside_code(FOOTNOTE_REF_RE, repl, line)
-
-    return "\n".join(line if mask[i] else mdscan.map_closed(scoped, line, scan.carry[i])
-                     for i, line in enumerate(lines))
+    lines = md.split("\n")
+    for i, line, d, spans in notes:
+        starts = [m.start("label") for m in _refs(line, spans) if m.group("label") in labels]
+        for pos in sorted(starts + ([d.start("label")] if d else []), reverse=True):
+            line = f"{line[:pos]}{prefix}--{line[pos:]}"
+        lines[i] = line
+    return "\n".join(lines)
 
 
 def footnote_numbers(md: str) -> dict[str, int]:
@@ -505,21 +628,52 @@ def footnote_numbers(md: str) -> dict[str, int]:
     mdBook (0.5) numbers the labels in the order of their first reference, in source order
     (body, headings and footnote definitions alike), keyed by the label as written; a
     reference counts when a definition in the chapter matches its label ignoring case. A
-    reference without a definition, in code or a comment, or escaped (``\\[^a]``) is text.
+    reference without a definition is text, and so is one mdBook does not read
+    (:func:`_note_lines`): escaped (``\\[^a]``), in code, a comment, a formula, raw HTML or an
+    environment title, or the text of a link (``[^a](1972)``).
     """
-    lines = md.split("\n")
-    mask = _code_mask(lines)
-    defined = {m.group("label").casefold() for i, line in enumerate(lines)
-               if not mask[i] and (m := FOOTNOTE_DEF_RE.match(line))}
+    notes = _note_lines(md)
+    defined = {d.group("label").casefold() for _, _, d, _ in notes if d}
     numbers: dict[str, int] = {}
-    for i, line in enumerate(lines):
-        if mask[i]:
-            continue
-        own = FOOTNOTE_DEF_RE.match(line)  # a definition's own label is not a reference
-        for m in mdscan.find_outside_code(_NOTE_REF_RE, line):
-            if (not own or m.start() >= own.end()) and m.group("label").casefold() in defined:
+    for _, line, _, spans in notes:
+        for m in _refs(line, spans):
+            if m.group("label").casefold() in defined:
                 numbers.setdefault(m.group("label"), len(numbers) + 1)
     return numbers
+
+
+def footnote_problems(md: str) -> list[tuple[int, str]]:
+    """``(line, message)`` for each footnote that the HTML edition (mdBook) and the PDF/EPUB
+    (Pandoc) read differently, for ``./tbook check``: a reference whose label matches a definition
+    only ignoring case, ``[^a]`` right before ``(…)`` or ``[x]`` (a link for mdBook), and a label
+    with a space or ``^`` (a link for Pandoc)."""
+    notes = _note_lines(md)
+    defined = {d.group("label") for _, _, d, _ in notes if d}
+    folded: dict[str, str] = {}
+    for label in sorted(defined):
+        folded.setdefault(label.casefold(), label)
+    out: list[tuple[int, str]] = []
+    for i, line, d, spans in notes:
+        found: list[tuple[int, str]] = []
+        for m in _refs(line, spans):
+            label = m.group("label")
+            if label not in defined and label.casefold() in folded:
+                found.append((m.start(), f"[^{label}] matches the footnote [^{folded[label.casefold()]}] only ignoring "
+                                         f"case: the HTML edition shows a number that leads to no note, the PDF/EPUB "
+                                         f"show the text [^{label}]; write the label as defined"))
+        for m in _refs(line, spans, _NOTE_LINK_RE):
+            label, after = m.group("label"), line[m.end():].lstrip("\\")[:1]
+            if label.casefold() in folded:
+                fix = "a space or a backslash" if after == "(" else "a space"
+                found.append((m.start(), f"[^{label}] right before '{after}' is the text of a link in the HTML edition "
+                                         f"(mdBook), not a footnote reference; put {fix} before the '{after}'"))
+        odd = None if d else _ODD_DEF_RE.match(line)
+        if odd and odd.group("label").strip():
+            label = odd.group("label")
+            found.append((0, f"footnote label '{label}' has a space or '^': the HTML edition reads [^{label}] as a "
+                             f"footnote, the PDF/EPUB (Pandoc) as a link; use a label without them"))
+        out += [(i + 1, msg) for _, msg in sorted(found)]
+    return out
 
 
 def _heading_plain(text: str) -> str:
@@ -558,17 +712,19 @@ def _mdbook_plain(text: str, math: dict[tuple[str, bool], str] | None,
     text = "".join(parts) + text[cursor:]
     if notes:
         last = -1  # where the previous reference ended
+        # Formulas left as TeX (without ``math``) hold no references either.
+        skip = _not_read(text, math=[(s.start, s.end) for s in mathrender.find_math(text)[0]])
 
         def number(m: re.Match) -> str:
             nonlocal last
             n = notes.get(m.group("label"))
-            if n is None:
+            if n is None or any(a <= m.start("label") - 2 < b for a, b in skip):
                 return m.group(0)
             side_by_side = not m.group("esc") and m.start() == last
             last = m.end()
             return m.group("esc") + (" " if side_by_side else "") + mark(str(n))
 
-        text = mdscan.sub_outside_code(_NOTE_REF_RE, number, text)
+        text = _NOTE_REF_RE.sub(number, text)
     plain = _heading_plain(text)
     for k, s in enumerate(shown):
         plain = plain.replace(chr(_MARK + k), s)
@@ -820,6 +976,10 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
     :func:`assign_heading_ids` gave headings without one. A heading right under a line of
     text gets a blank line before it: mdBook reads it as a heading there, Pandoc
     (``blank_before_header``) would read the line, ``{#id}`` included, as paragraph text.
+    So do a ``:::`` div opener (the HTML edition gets HTML that ends the paragraph; Pandoc
+    opens a div only after a blank line) and a footnote definition (mdBook reads it there,
+    Pandoc only after a blank line; in a block quote the blank line is a ``>`` line); a
+    definition right under another one stays as it is, as does one that starts a list item.
     """
     md = normalize_setext(md)
     lines = md.split("\n")
@@ -849,6 +1009,12 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
                 out.append("")
             out.append(format_heading(min(6, level + depth), text, attrs))
             continue
+        note = _footnote_def(lines, i)
+        if out and out[-1].strip() and mdscan.DIV_OPEN_RE.match(line):
+            out.append("")
+        elif (note and out and out[-1].strip(" \t>") and not FOOTNOTE_DEF_RE.match(out[-1])
+              and not re.search(r"[-*+]|\d[.)]", note.group("lead"))):
+            out.append(" ".join(">" * note.group("lead").count(">")))
         out.append(mdscan.map_closed(lambda s: linker.rewrite_line(s, chapter_path), line, scan.carry[i])
                    if linker else line)
     if not title_done:
