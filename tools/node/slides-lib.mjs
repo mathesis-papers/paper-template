@@ -1114,6 +1114,60 @@ export function stripCode(text) {
   return text.split(NEWLINE_RE).map((line, i) => (mask[i] ? '' : line)).join('\n');
 }
 
+// --------------------------------------------------------------------------- component tags (as Slidev reads them)
+// The same scan as citations() in tools/tbook/slides.py (keep them in step: test_slides compares both, and with the
+// components Vue compiles from Slidev's Markdown). Slidev's Markdown hands a tag to Vue only where a complete open
+// tag starts at the '<' (OPEN_TAG: a name, attributes — name, or name=value with the value in quotes or free of ASCII
+// spaces, control characters and "'=<>` —, an optional '/', then '>'); any other '<' is text, so `$a <b + 1$` starts
+// no tag and does not run on to the next '>'. citations() tries a complete tag at every '<', also inside the quoted
+// values of a complete tag: a '<' in a code span, in $…$ or after a backslash is text, and a tag inside quotes that
+// open there is rendered. A '<' and a citing component's name that start no complete tag are reported: in a
+// paragraph they are text, but in an HTML block Vue may render the tag (e.g. with a #slot attribute) unchecked. Vue
+// ends a tag name at a space, \t, \n, \f, \r, '/' or '>' (NAME_RE); component() resolves the name.
+export const COMPONENTS = new Set(['LeanBadge', 'TheoremCard']);
+const TAG_RE = new RegExp(`<([A-Za-z][A-Za-z0-9\\-]*)(${ATTR}*)\\s*\\/?>`, 'y');
+const NAME_RE = /<([A-Za-z][A-Za-z0-9-]*)(?=[\t\n\f\r />]|$)/y;
+// one attribute of ATTR: name, unquoted, '…', "…"
+const ATTR_RE = /\s+([a-zA-Z_:@][a-zA-Z0-9:._-]*)(?:\s*=\s*(?:([^"'=<>`\x00-\x20]+)|'([^']*)'|"([^"]*)"))?/g;
+
+// The component name a template tag resolves to, as Vue resolves it (capitalize(camelize(tag))): lean-badge and
+// leanBadge are LeanBadge.
+export const component = (tag) => { const n = tag.replace(/-(\w)/g, (_, c) => c.toUpperCase()); return n[0].toUpperCase() + n.slice(1); };
+
+// <LeanBadge> / <TheoremCard> tags of a slide (in any spelling Vue accepts, e.g. <lean-badge>) outside code blocks
+// (codeLines), in order, and problems found: [[{ tag, gid, attrs }], [message]]. `tag` is the PascalCase name.
+export function citations(content) {
+  const out = [];
+  const problems = [];
+  const text = stripCode(content);
+  for (let lt = text.indexOf('<'); lt >= 0; lt = text.indexOf('<', lt + 1)) {
+    TAG_RE.lastIndex = lt;
+    const m = TAG_RE.exec(text);
+    if (!m) {
+      NAME_RE.lastIndex = lt;
+      const name = NAME_RE.exec(text);
+      if (name && COMPONENTS.has(component(name[1]))) {
+        problems.push(`<${name[1]} …> is not a complete tag (attributes are name or name=value, the value in quotes or `
+          + 'free of spaces and "\'=<>`), so it is not checked, yet Vue may render it in an HTML block; write it as a '
+          + 'complete tag');
+      }
+      continue;
+    }
+    const tag = component(m[1]);
+    if (!COMPONENTS.has(tag)) continue;
+    const attrs = {};
+    for (const a of m[2].matchAll(ATTR_RE)) attrs[a[1]] = a[2] ?? a[3] ?? a[4] ?? true;
+    let gid = attrs.gid;
+    if (attrs[':gid'] !== undefined) {
+      const lit = /^\s*(['"`])(.*)\1\s*$/.exec(String(attrs[':gid']));
+      if (lit) gid = lit[2];
+      else problems.push(`<${m[1]} :gid="${attrs[':gid']}">: write gid as a literal string so it can be checked`);
+    }
+    out.push({ tag, gid: typeof gid === 'string' ? gid.trim() : '', attrs });
+  }
+  return [out, problems];
+}
+
 // Publication paths, shared with tools/tbook/slides.py (keep in sync):
 //   site:  _site/<slug>/slides/<deck>/        the book's first language
 //          _site/<slug>/slides/<deck>/<lang>/ every other language

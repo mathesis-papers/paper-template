@@ -1295,10 +1295,19 @@ def strip_code(text: str) -> str:
 # --------------------------------------------------------------------------- decks
 
 
-# Every start tag; :func:`component` keeps those Vue resolves to a citing component.
-_TAG_RE = re.compile(r"<([A-Za-z][\w-]*)(?=[\s/>])((?:\"[^\"]*\"|'[^']*'|[^'\">])*)>")
+# Component tags as Slidev reads them. Its Markdown (@mdit-vue/plugin-component) hands a tag to Vue only where a
+# complete open tag starts at the '<' (_OPEN_TAG: a name, attributes — name, or name=value with the value in quotes
+# or free of ASCII spaces, control characters and "'=<>` —, an optional '/', then '>'); any other '<' is text, so
+# `$a <b + 1$` starts no tag and does not run on to the next '>'. citations() tries a complete tag at every '<', also
+# inside the quoted values of a complete tag: a '<' in a code span, in $…$ or after a backslash is text, and a tag
+# inside quotes that open there is rendered. A '<' and a citing component's name that start no complete tag are
+# reported: in a paragraph they are text, but in an HTML block Vue may render the tag (e.g. with a #slot attribute)
+# unchecked. Vue ends a tag name at a space, \t, \n, \f, \r, '/' or '>' (_NAME_RE); component() resolves the name.
+_TAG_RE = re.compile(rf"<([A-Za-z][A-Za-z0-9\-]*)({_ATTR}*){_S}*/?>")
+_NAME_RE = re.compile(r"<([A-Za-z][A-Za-z0-9\-]*)(?=[\t\n\f\r />]|\Z)")
 COMPONENTS = ("LeanBadge", "TheoremCard")
-_ATTR_RE = re.compile(r"([:@]?[\w.-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'))?")
+_ATTR_RE = re.compile(rf"{_S}+([a-zA-Z_:@][a-zA-Z0-9:._-]*)"  # one attribute of _ATTR: name, unquoted, '…', "…"
+                      rf"(?:{_S}*={_S}*(?:([^\"'=<>`\x00-\x20]+)|'([^']*)'|\"([^\"]*)\"))?")
 _ABS_LINK_RES = (
     re.compile(r"\b(?:href|src|poster|data)\s*=\s*[\"'](/(?!/)[^\"']*|file:[^\"']*)[\"']", re.I),
     re.compile(r"\]\((/(?!/)[^)\s]*|file:[^)\s]*)\)"),
@@ -1322,25 +1331,35 @@ def component(tag: str) -> str:
 
 def citations(content: str) -> tuple[list[Citation], list[str]]:
     """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide (in any spelling Vue accepts, e.g.
-    ``<lean-badge>``) outside code blocks (:func:`code_lines`), in order, and problems found.
-    ``Citation.tag`` is the PascalCase name."""
+    ``<lean-badge>``) outside code blocks (:func:`code_lines`), in order, and problems found (see the
+    comment above ``_TAG_RE``). ``Citation.tag`` is the PascalCase name."""
     out: list[Citation] = []
     problems: list[str] = []
-    for m in _TAG_RE.finditer(strip_code(content)):
+    text = strip_code(content)
+    for lt in (i.start() for i in re.finditer("<", text)):
+        m = _TAG_RE.match(text, lt)
+        if not m:
+            name = _NAME_RE.match(text, lt)
+            if name and component(name.group(1)) in COMPONENTS:
+                problems.append(f"<{name.group(1)} …> is not a complete tag (attributes are name or name=value, the "
+                                "value in quotes or free of spaces and \"'=<>`), so it is not checked, yet Vue may "
+                                "render it in an HTML block; write it as a complete tag")
+            continue
         tag = component(m.group(1))
         if tag not in COMPONENTS:
             continue
         attrs: dict[str, Any] = {}
         for a in _ATTR_RE.finditer(m.group(2)):
-            attrs[a.group(1)] = a.group(2) if a.group(2) is not None else (a.group(3) if a.group(3) is not None else True)
+            attrs[a.group(1)] = next((v for v in a.group(2, 3, 4) if v is not None), True)
         gid = attrs.get("gid")
         if ":gid" in attrs:
-            lit = re.fullmatch(r"\s*(['\"`])(.*)\1\s*", str(attrs[":gid"]))
+            expr = "true" if attrs[":gid"] is True else attrs[":gid"]  # as JavaScript's String() writes it
+            lit = re.fullmatch(rf"{_S}*(['\"`])({_DOT}*)\1{_S}*", expr)
             if lit:
                 gid = lit.group(2)
             else:
-                problems.append(f"<{m.group(1)} :gid=\"{attrs[':gid']}\">: write gid as a literal string so it can be checked")
-        out.append(Citation(tag, gid.strip() if isinstance(gid, str) else "", attrs))
+                problems.append(f"<{m.group(1)} :gid=\"{expr}\">: write gid as a literal string so it can be checked")
+        out.append(Citation(tag, _js_trim(gid) if isinstance(gid, str) else "", attrs))
     return out, problems
 
 

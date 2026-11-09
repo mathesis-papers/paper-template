@@ -53,7 +53,9 @@ GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除�
 - 空白与大小写按 JavaScript：标签名后的空白按 `\s` 判断（全角空格、不换行空格也算），标签名只按 ASCII 折叠大小写；切分幻灯片、去掉每页首尾的空白也与 `@slidev/parser` 一致。
 - 演示文稿自己加入的语法不在其中：`mdc: true`、`setup/transformers.ts`、`vite.config` 里的 Markdown 选项都会让检查与渲染不一致，不要使用。
 
-`test_slides` 用 `@slidev/parser` 切分随机生成的演示文稿，再用 Slidev 构建出的解析器与两种实现逐行比对。
+标签也按 Slidev 的 Markdown 读取（`@mdit-vue/plugin-component`）：只有从 `<` 起是一个完整的开始标签时，它才把标签交给 Vue。完整的开始标签是标签名，接着若干属性（`名` 或 `名=值`；值放在单引号或双引号里，或者不含 ASCII 空白与控制字符、`"'=<>` 和反引号），可选的 `/`，最后是 `>`；其余的 `<` 都是文字。所以 `$a <b + 1$`、`$0 <x <1$` 里的 `<` 不会一直读到下一个 `>`，其后的徽章与定理卡照常渲染，也照常受检查。检查在每个 `<` 处尝试读取完整的开始标签，其他标签引号里的 `<` 也不跳过：行内代码里、`$…$` 里或反斜杠后的 `<` 是文字，从那里开始的引号就不是属性值，引号里的标签会被渲染。名字解析为 `LeanBadge` 或 `TheoremCard` 的标签（Vue 的标签名到空格、`\t`、`\n`、`\f`、`\r`、`/` 或 `>` 为止）若不是完整的开始标签，例如带 `#slot`、`v-bind:[参数]` 这类属性或写成 `/ >`，检查报错：它在段落里显示为文字，在 HTML 块里却可能被 Vue 渲染，而无法核对。`tools/tbook/slides.py` 的 `citations` 与 `tools/node/slides-lib.mjs` 的 `citations` 逐条对应。
+
+`test_slides` 用 `@slidev/parser` 切分随机生成的演示文稿，再用 Slidev 构建出的解析器与两种实现逐行比对，并比对两种实现找到的标签；另把随机生成的幻灯片用 Slidev 的 Markdown 渲染、由 Vue 编译，确认编译出的每个 `LeanBadge`、`TheoremCard` 都受检查，或者所在的幻灯片报告了不完整的标签。
 
 ## 样式类（`styles/deck.css`）
 
