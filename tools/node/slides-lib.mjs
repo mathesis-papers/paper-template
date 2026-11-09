@@ -1129,13 +1129,21 @@ const TAG_RE = new RegExp(`<([A-Za-z][A-Za-z0-9\\-]*)(${ATTR}*)\\s*\\/?>`, 'y');
 const NAME_RE = /<([A-Za-z][A-Za-z0-9-]*)(?=[\t\n\f\r />]|$)/y;
 // one attribute of ATTR: name, unquoted, '…', "…"
 const ATTR_RE = /\s+([a-zA-Z_:@][a-zA-Z0-9:._-]*)(?:\s*=\s*(?:([^"'=<>`\x00-\x20]+)|'([^']*)'|"([^"]*)"))?/g;
+// The gid prop as Vue's compiler passes it: of the attributes that may set gid (gid, :gid and v-bind:gid with or
+// without modifiers, v-model:gid) the first in the tag wins; citations() reads gid and a string literal in :gid or
+// v-bind:gid and reports the others (also .prop and .attr, which set no prop) when they come first. A v-bind without
+// an argument (v-bind="{…}", :="…", v-bind.prop=…) merges an object whose gid wins over the attributes before it:
+// always reported.
+const GID_ATTR_RE = /^(?:gid|(?::|v-bind:|v-model:)gid(?:\..*)?)$/;
+const SPREAD_RE = /^(?::|v-bind:?)(?:\..*)?$/;
 
 // The component name a template tag resolves to, as Vue resolves it (capitalize(camelize(tag))): lean-badge and
 // leanBadge are LeanBadge.
 export const component = (tag) => { const n = tag.replace(/-(\w)/g, (_, c) => c.toUpperCase()); return n[0].toUpperCase() + n.slice(1); };
 
 // <LeanBadge> / <TheoremCard> tags of a slide (in any spelling Vue accepts, e.g. <lean-badge>) outside code blocks
-// (codeLines), in order, and problems found: [[{ tag, gid, attrs }], [message]]. `tag` is the PascalCase name.
+// (codeLines), in order, and problems found: [[{ tag, gid, attrs }], [message]]. `tag` is the PascalCase name, `gid`
+// the gid as Vue passes it (GID_ATTR_RE), '' where it cannot be read.
 export function citations(content) {
   const out = [];
   const problems = [];
@@ -1156,12 +1164,26 @@ export function citations(content) {
     const tag = component(m[1]);
     if (!COMPONENTS.has(tag)) continue;
     const attrs = {};
-    for (const a of m[2].matchAll(ATTR_RE)) attrs[a[1]] = a[2] ?? a[3] ?? a[4] ?? true;
-    let gid = attrs.gid;
-    if (attrs[':gid'] !== undefined) {
-      const lit = /^\s*(['"`])(.*)\1\s*$/.exec(String(attrs[':gid']));
+    let first = null; // the attribute Vue takes gid from (GID_ATTR_RE): [name, value]
+    for (const a of m[2].matchAll(ATTR_RE)) {
+      const name = a[1];
+      attrs[name] = a[2] ?? a[3] ?? a[4] ?? true;
+      if (SPREAD_RE.test(name)) {
+        problems.push(`<${m[1]} ${name}=…>: an object bound with v-bind can set gid, which cannot be checked; bind each `
+          + 'prop on its own');
+      } else if (!first && GID_ATTR_RE.test(name)) first = [name, attrs[name]];
+    }
+    let gid = first?.[0] === 'gid' ? first[1] : '';
+    if (first && first[0] !== 'gid') {
+      const [name, expr] = first;
+      const lit = name === ':gid' || name === 'v-bind:gid' ? /^\s*(['"`])(.*)\1\s*$/.exec(String(expr)) : null;
       if (lit) gid = lit[2];
-      else problems.push(`<${m[1]} :gid="${attrs[':gid']}">: write gid as a literal string so it can be checked`);
+      else if (name === ':gid' || name === 'v-bind:gid') {
+        problems.push(`<${m[1]} ${name}="${expr}">: write gid as a literal string so it can be checked`);
+      } else {
+        problems.push(`<${m[1]} ${name}="${expr}">: write gid="<GID>" (or :gid with a literal string, without `
+          + 'modifiers) so it can be checked');
+      }
     }
     out.push({ tag, gid: typeof gid === 'string' ? gid.trim() : '', attrs });
   }

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -799,6 +800,47 @@ LONE_LT_GIDS = [f"D5/S9/Lt/Case.c{i}" for i in range(len(LONE_LT) + 1)]
 LONE_LT_DECK = "".join("\n---\n\n" + text.replace('gid="x"', f'gid="{gid}"')
                        for gid, text in zip(LONE_LT_GIDS, [*LONE_LT.values(), INCOMPLETE_TAG]))
 
+# The gid prop as Vue's compiler passes it (checked against it in NodeTagScanTest): of gid, :gid and v-bind:gid the
+# first in the tag wins; :gid.<modifier> and v-model:gid bind it too, and a v-bind without an argument merges an
+# object over the attributes before it. (tag, the gid Vue renders (None: not a string literal, or an object merged
+# in), the gid the checks read (None: the slide reports the tag)); '@' is a GID the fake lock has (FAKE_THM).
+# Findings: the checks read the static gid where Vue renders v-bind:gid or the object, and :gid where Vue renders
+# the static gid.
+GID_BINDINGS = [
+    ("<LeanBadge v-bind:gid=\"'D5/S9/Bind/Vue.long_first'\" gid=\"@\" />", "D5/S9/Bind/Vue.long_first",
+     "D5/S9/Bind/Vue.long_first"),
+    ("<LeanBadge gid=\"D5/S9/Bind/Vue.static_first\" :gid=\"'@'\" />", "D5/S9/Bind/Vue.static_first",
+     "D5/S9/Bind/Vue.static_first"),
+    ("<LeanBadge :gid=\"'D5/S9/Bind/Vue.short_first'\" v-bind:gid=\"'@'\" />", "D5/S9/Bind/Vue.short_first",
+     "D5/S9/Bind/Vue.short_first"),
+    ('<theorem-card v-bind:gid="`D5/S9/Bind/Vue.long_only`" status="argued">s</theorem-card>',
+     "D5/S9/Bind/Vue.long_only", "D5/S9/Bind/Vue.long_only"),
+    ('<LeanBadge gid="D5/S9/Bind/Vue.before_expr" :gid="x" />', "D5/S9/Bind/Vue.before_expr",
+     "D5/S9/Bind/Vue.before_expr"),
+    ("<LeanBadge gid=\"D5/S9/Bind/Vue.later\" v-bind:gid=\"'@'\" :gid.camel=\"'@'\" v-model:gid=\"m\" />",
+     "D5/S9/Bind/Vue.later", "D5/S9/Bind/Vue.later"),
+    # not gid: another prop, an argument that is not gid, an attribute that is no directive (Vue's are lower case)
+    ("<LeanBadge v-bind:kind=\"'theorem'\" :gid:x=\"'@'\" V-BIND:gid=\"'@'\" gid=\"D5/S9/Bind/Vue.other\" />",
+     "D5/S9/Bind/Vue.other", "D5/S9/Bind/Vue.other"),
+    ("<LeanBadge gid=\"@\" v-bind=\"{ gid: 'D5/S9/Bind/Vue.spread' }\" />", None, None),
+    ("<LeanBadge v-bind=\"{ gid: 'D5/S9/Bind/Vue.spread_first' }\" gid=\"@\" />", None, None),
+    ("<lean-badge gid=\"@\" :=\"{ gid: 'D5/S9/Bind/Vue.short_spread' }\" />", None, None),
+    ("<LeanBadge gid=\"@\" v-bind:.prop=\"{ gid: 'D5/S9/Bind/Vue.prop_spread' }\" />", None, None),
+    ("<LeanBadge :gid.camel=\"'D5/S9/Bind/Vue.modifier'\" gid=\"@\" />", "D5/S9/Bind/Vue.modifier", None),
+    ('<LeanBadge v-model:gid="x" gid="@" />', None, None),
+]
+GID_BINDINGS = [(text.replace("@", FAKE_THM), rendered, checked) for text, rendered, checked in GID_BINDINGS]
+# A slide per tag, and how the messages of the checks on it begin, slide by slide (the gid of a tag reported for a
+# modifier or v-model is none: it needs one)
+GID_BINDING_DECK = "".join(f"\n---\n\n{text}\n" for text, _, _ in GID_BINDINGS)
+GID_BINDING_ISSUES = [
+    *(f"{checked} is not in trureturing.lock.json" for _, _, checked in GID_BINDINGS[:7]),
+    "<LeanBadge v-bind=…>: an object bound", "<LeanBadge v-bind=…>: an object bound",
+    "<lean-badge :=…>: an object bound", "<LeanBadge v-bind:.prop=…>: an object bound",
+    "<LeanBadge :gid.camel=\"'D5/S9/Bind/Vue.modifier'\">: write gid", "<LeanBadge> needs gid=",
+    '<LeanBadge v-model:gid="x">: write gid', "<LeanBadge> needs gid=",
+]
+
 
 class TagScanTest(unittest.TestCase):
     """Finding: a '<' that starts no complete tag hid the next LeanBadge / TheoremCard from the checks. citations()
@@ -838,6 +880,52 @@ class TagScanTest(unittest.TestCase):
         for text in ("a <b + 1", '<LeanBadgeX gid="x"', '<lean-badge_x gid="x"', '<LeanBadge.x gid="x"',
                      '<TheoremCard\u3000gid="x"', "<LeanBadge\u0085"):
             self.assertEqual(slides.citations(text), ([], []), text)
+
+    def test_gid_is_read_as_vue_passes_it(self):
+        """Findings: the first of gid, :gid and v-bind:gid is the gid (Vue keeps the first); a v-bind object, a
+        modifier or v-model on gid is reported."""
+        for text, rendered, checked in GID_BINDINGS:
+            found, problems = slides.citations(text)
+            self.assertEqual(len(found), 1, text)
+            if checked is None:
+                self.assertEqual(len(problems), 1, (text, problems))
+            else:
+                self.assertEqual((found[0].gid, problems), (checked, []), text)
+                self.assertEqual(checked, rendered)
+        for text, want in (('<LeanBadge v-bind="{ gid: \'x\' }" gid="a" />', '<LeanBadge v-bind=…>: an object bound'),
+                           ('<LeanBadge :.prop="o" />', '<LeanBadge :.prop=…>: an object bound'),
+                           ("<LeanBadge :gid.prop=\"'x'\" gid=\"a\" />", '<LeanBadge :gid.prop="\'x\'">: write gid'),
+                           ('<LeanBadge v-model:gid="m" />', '<LeanBadge v-model:gid="m">: write gid'),
+                           ('<LeanBadge v-bind:gid="m" />', '<LeanBadge v-bind:gid="m">: write gid as a literal')):
+            self.assertTrue(slides.citations(text)[1][0].startswith(want), (text, slides.citations(text)))
+
+    def test_scan_is_linear(self):
+        """The tag scan (citations() and slides-lib.mjs citations()) stays linear in the slide's size, also on
+        thousands of tags, tags left open and many attributes: each input takes about 0.1 s, the bound is generous."""
+        tags = "".join(f"<LeanBadge v-bind:gid=\"'D5/S9/G/M.g{i}'\" gid=\"x\" v-click kind=definition />\n"
+                       for i in range(3000))
+        inputs = [tags, "<LeanBadge" + " a=1 :gid='x'" * 20000, '<LeanBadge gid="' * 5000,
+                  "<b c='<LeanBadge v-bind:gid=1 " * 5000, "<LeanBadge v-bind " * 5000,
+                  '<b c="' + "<LeanBadge a=1 " * 5000 + '">', "<LeanBadge" + " v-bind:gid.a.b=1 :=x" * 20000 + " />",
+                  "\n".join(f"<lean-badge :gid=\"'a{i}'\" v-bind=\"o\" />" for i in range(10000))]
+        for text in inputs:
+            t = time.monotonic()
+            slides.citations(text)
+            self.assertLess(time.monotonic() - t, 2.0)
+        self.assertEqual(len(slides.citations(tags)[0]), 3000)
+        if not HAVE_NODE:
+            return
+        script = ("import { readFileSync } from 'node:fs';"
+                  "const { citations } = await import(process.argv[1]);"
+                  "const times = JSON.parse(readFileSync(0, 'utf8')).map((text) => {"
+                  "  const t = performance.now(); citations(text); return (performance.now() - t) / 1000; });"
+                  "process.stdout.write(JSON.stringify(times));")
+        r = subprocess.run([NODE, "--input-type=module", "-e", script,
+                            (ROOT / "tools" / "node" / "slides-lib.mjs").as_uri()],
+                           input=json.dumps(inputs), capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for seconds in json.loads(r.stdout):
+            self.assertLess(seconds, 2.0)
 
 
 # Code as Slidev's Markdown (markdown-exit set up as Slidev sets it up) reads it: (name, Markdown, indices of the
@@ -992,8 +1080,9 @@ class FenceScanTest(unittest.TestCase):
 # Slides as Slidev renders them: @slidev/parser splits the deck, and the markdown-exit instance Slidev builds for
 # a deck of the theme (captured through the markdownSetup hook, footnote_tail off so that every footnote's
 # blocks stay in place) parses each slide. With `render`, the slide is also rendered and Vue compiles the HTML (the
-# template of the slide's component): `rendered` lists the LeanBadge / TheoremCard components in it with their
-# static gid ('' without one), null when Vue cannot compile it (Slidev's build fails).
+# template of the slide's component): `rendered` lists the LeanBadge / TheoremCard components in it with the gid
+# Vue's code passes them ('' without one, null where it is no string literal or an object is merged in), null when
+# Vue cannot compile the slide (Slidev's build fails).
 SLIDEV_MARKDOWN = """
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -1014,19 +1103,37 @@ const options = await resolveOptions({ entry: join(dir, 'slides.md') }, 'build')
 const md = await new Promise((resolve) => { ViteSlidevPlugin(options, { markdown: { markdownSetup: resolve } }); });
 md.core.ruler.disable('footnote_tail');
 const env = () => ({ id: '/@slidev/slides/__slidev_1.md' });
+// the string a prop's value is (a static attribute, or a bound expression that evaluates to a string), else null
+const string = (e) => {
+  if (e?.type !== 4) return null;
+  if (e.isStatic) return e.content;
+  let v;
+  try { v = new Function(`return (${e.content});`)(); } catch { return null; }
+  return typeof v === 'string' ? v : null;
+};
+// the gid prop Vue's code passes to a component (its codegen: duplicates resolved, modifiers applied): '' without
+// one, null when it is no string literal or the props are merged with an object
+const gidProp = (node) => {
+  const props = node.codegenNode?.props;
+  if (!props) return '';
+  if (props.type !== 15) return null; // mergeProps(…) or normalizeProps(…), not a plain object
+  const p = props.properties.find((q) => q.key.type === 4 && q.key.isStatic && q.key.content === 'gid');
+  return p ? string(p.value) : '';
+};
 const rendered = async (content) => {
   let html;
   try { html = await md.renderAsync(content, env()); } catch { return null; } // e.g. a fence in an unknown language
   const { descriptor, errors } = parseSfc(`<template>${html}</template>`);
-  if (errors.length || compileTemplate({ source: descriptor.template.content, filename: 'x.vue', id: 'x' }).errors.length)
-    return null;
+  if (errors.length) return null;
+  const compiled = compileTemplate({ source: descriptor.template.content, filename: 'x.vue', id: 'x' });
+  if (compiled.errors.length) return null;
   const out = [];
   const walk = (node) => {
     if (node.type === 1 && node.tagType === 1 && COMPONENTS.has(component(node.tag)))
-      out.push([component(node.tag), node.props.find((p) => p.type === 6 && p.name === 'gid')?.value?.content ?? '']);
-    for (const child of node.children ?? []) walk(child);
+      out.push([component(node.tag), gidProp(node)]);
+    for (const child of [...(node.children ?? []), ...(node.branches ?? [])]) walk(child);
   };
-  walk(descriptor.template.ast);
+  walk(compiled.ast);
   return out;
 };
 const one = async (content, render) => {
@@ -1098,12 +1205,20 @@ TAG_PIECES = [
     '<LeanBadge\u3000gid="@"/>', '<LeanBadge v-click gid="@" />', '<lean-badge kind=definition gid="@"/>',
     '<LeanBadge gid="@" v-bind:[k]="v" />',
 ]
+# Pieces that bind gid (GID_BINDINGS): Vue passes the first of gid, :gid and v-bind:gid
+BIND_PIECES = [
+    "<LeanBadge v-bind:gid=\"'@'\" gid=\"@\" />", "<LeanBadge gid=\"@\" :gid=\"'@'\" />",
+    "<LeanBadge :gid=\"'@'\" v-bind:gid=\"`@`\" />", "<lean-badge v-bind:gid='\"@\"' status=argued />",
+    "<LeanBadge gid=\"@\" v-bind=\"{ gid: '@' }\" />", "<LeanBadge :=\"{ gid: '@' }\" gid=\"@\" />",
+    "<LeanBadge :gid.camel=\"'@'\" gid=\"@\" />", "<LeanBadge gid=\"@\" :gid.prop=\"'@'\" />",
+    '<TheoremCard v-model:gid="m" gid="@">s</TheoremCard>', '<LeanBadge gid="@" :gid="m" />',
+]
 TAG_LINES = [("", "")] * 6 + [("> ", ""), ("- ", ""), ("1. ", ""), ("  ", ""), ("    ", ""), ("```\n", "\n```"),
                               ("<div>", "</div>"), ("<div>\n", "\n</div>"), ("<v-click>\n", "\n</v-click>"),
                               ("| a |\n|---|\n| ", " |")]
 
 
-def tag_corpus(n: int = 1500, seed: int = 5) -> list[str]:
+def tag_corpus(n: int = 1500, seed: int = 5, pieces: list[str] = TAG_PIECES) -> list[str]:
     """Random slides: lines of random pieces (some in a container, an HTML block, a table or code), some blank."""
     rng = random.Random(seed)
     out = []
@@ -1112,7 +1227,7 @@ def tag_corpus(n: int = 1500, seed: int = 5) -> list[str]:
         for _ in range(rng.randint(1, 6)):
             start, end = rng.choice(TAG_LINES)
             lines.append("" if rng.random() < 0.2 else start + rng.choice(["", " "]).join(
-                rng.choice(TAG_PIECES) for _ in range(rng.randint(1, 5))) + end)
+                rng.choice(pieces) for _ in range(rng.randint(1, 5))) + end)
         parts = "\n".join(lines).split("@")
         out.append("".join(p + (f"D5/S9/G/M.g{i}" if i < len(parts) - 1 else "") for i, p in enumerate(parts)))
     return out
@@ -1122,14 +1237,18 @@ def tag_corpus(n: int = 1500, seed: int = 5) -> list[str]:
                      and (ROOT / "node_modules" / "@vue" / "compiler-sfc").is_dir(),
                      "node and node_modules (@slidev/cli, @slidev/parser, @vue/compiler-sfc) needed")
 class NodeTagScanTest(unittest.TestCase):
-    """Finding: a '<' that starts no complete tag hid the next tag from the checks. On the cases and on seeded random
-    slides, citations() and slides-lib.mjs citations() agree, and every LeanBadge / TheoremCard that Vue compiles from
-    a slide as Slidev renders it is a tag they check, or the slide reports a component tag that is not complete."""
+    """Findings: a '<' that starts no complete tag hid the next tag from the checks; the checks read another gid than
+    the one Vue passes. On the cases and on seeded random slides, citations() and slides-lib.mjs citations() agree,
+    and the LeanBadge / TheoremCard components that Vue compiles from a slide as Slidev renders it are, in order, tags
+    they check with the gid Vue passes, or the slide reports a problem (a component tag that is not complete, a gid it
+    cannot read)."""
 
     def test_every_rendered_tag_is_checked(self):
         cases = [*LONE_LT.values(), INCOMPLETE_TAG, '<div>\n<lean-badge gid="x" v-bind:[k]="v"/>\n</div>']
         items = [[text.replace('gid="x"', f'gid="D5/S9/G/Case.c{i}"'), False, True] for i, text in enumerate(cases)]
+        items += [[text, False, True] for text, _, _ in GID_BINDINGS]
         items += [[text, False, True] for text in tag_corpus()]
+        items += [[text, False, True] for text in tag_corpus(500, 6, TAG_PIECES + BIND_PIECES)]
         out = slidev_markdown(self, items)
         rendered = reported = 0
         for (text, _, _), [got] in zip(items, out):
@@ -1137,14 +1256,18 @@ class NodeTagScanTest(unittest.TestCase):
             if got["rendered"] is None:  # Slidev's build fails
                 continue
             found, problems = slides.citations(text)
-            unchecked = [r for r in got["rendered"] if (r[0], r[1]) not in {(c.tag, c.gid) for c in found}]
+            checked = iter([(c.tag, c.gid) for c in found])  # in order: each tag is checked after the one before
+            unchecked = [r for r in got["rendered"] if r[1] is None or (r[0], r[1]) not in checked]
             self.assertTrue(not unchecked or problems, (text, unchecked))
             rendered += len(got["rendered"])
             reported += bool(unchecked)
-        # each case renders its tag; the last two only as unchecked tags the slide reports
-        self.assertEqual([len(got["rendered"]) for [got] in out[:len(cases)]], [1] * len(cases))
-        self.assertGreater(rendered, 300)
-        self.assertGreater(reported, 5)
+        # each case renders its tag (the first ones only as unchecked tags the slide reports), with the gid
+        # GID_BINDINGS gives
+        n = len(cases) + len(GID_BINDINGS)
+        self.assertEqual([len(got["rendered"]) for [got] in out[:n]], [1] * n)
+        self.assertEqual([got["rendered"][0][1] for [got] in out[len(cases):n]], [r for _, r, _ in GID_BINDINGS])
+        self.assertGreater(rendered, 600)
+        self.assertGreater(reported, 50)
 
 
 class CodeBlockCitationTest(ScratchDeckCase):
@@ -1185,6 +1308,18 @@ class CodeBlockCitationTest(ScratchDeckCase):
         self.assertEqual(sum("<LeanBadge …> is not a complete tag" in m for m in msgs), 2, msgs)
         self.assertEqual(len(msgs), 2 * len(LONE_LT_GIDS), msgs)
         self.assertEqual({g for _, _, g in slides.cited_gids(self.book)}, set(LONE_LT_GIDS[:-1]))
+
+    def test_gid_as_vue_passes_it(self):
+        """Findings: the deck checks the gid Vue renders (the first of gid, :gid and v-bind:gid) and reports a v-bind
+        object, a modifier or v-model on gid; the GID the lock has (FAKE_THM) is never what renders."""
+        self.write("zh", self.head("zh") + GID_BINDING_DECK)
+        self.write("en", self.head("en") + GID_BINDING_DECK)
+        msgs = self.issues()
+        self.assertEqual(len(msgs), 2 * len(GID_BINDING_ISSUES), msgs)
+        for m, want in zip(msgs, GID_BINDING_ISSUES * 2):
+            self.assertTrue(m.startswith(want), (m, want))
+        self.assertEqual({g for _, _, g in slides.cited_gids(self.book)},
+                         {checked for _, _, checked in GID_BINDINGS if checked} | {FAKE_THM})
 
 
 # A slide with tags between two code blocks (and inside them, which is not checked).
@@ -1310,6 +1445,22 @@ class NodeScriptsTest(unittest.TestCase):
                 mock.patch.object(slides, "theme_ref", lambda deck_dir: theme):
             py = [i.message for i in slides.check(config.load_book(self.tmp / "books" / "bk"))]
         self.assertEqual(len(py), 2 * len(LONE_LT_GIDS), py)
+
+    def test_check_gid_as_vue_passes_it(self):
+        """Findings: slides-check.mjs, like check(), checks the gid Vue renders (the first of gid, :gid and
+        v-bind:gid) and reports a v-bind object, a modifier or v-model on gid."""
+        deck = self.book(["zh", "en"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        theme = "../../../../theme/slides"
+        (deck / "slides.md").write_text(deck_head(theme, "zh") + GID_BINDING_DECK, encoding="utf-8")
+        (deck / "slides.en.md").write_text(deck_head(theme, "en") + GID_BINDING_DECK, encoding="utf-8")
+        r = self.node("slides-check.mjs")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        msgs = r.stderr.split("\n- ")[1:]
+        self.assertEqual(len(msgs), 2 * len(GID_BINDING_ISSUES), r.stderr)
+        for want in GID_BINDING_ISSUES:  # problems of the tags come before the checks of their GIDs
+            self.assertEqual(sum(f": {want}" in m for m in msgs), 2 * GID_BINDING_ISSUES.count(want), (want, msgs))
+        self.assertNotIn(FAKE_THM, r.stderr)
 
     def test_new_deck_in_an_english_first_book(self):
         self.book(["en", "zh"])
