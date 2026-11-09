@@ -1,0 +1,37 @@
+# 书的元数据。语言版本目录与 editions 一一对应（第一个为权威版本，其余逐条对齐）。
+[book]
+version = "0.1.0"
+authors = ["The Omega Institute"]
+license = "CC-BY-4.0"
+editions = ["zh", "en"]
+# 封面与站点卡片上的赛博朋克代号，形如 CODE//NAME。
+code = "FIB//LUCAS"
+# 出版日期（YYYY-MM-DD），进入 PDF/EPUB 元数据；留空则用构建当天（产物不能跨日复现）。
+date = "2026-11-09"
+
+[book.title]
+zh = "斐波那契与卢卡斯：一本可验证的入门小书"
+en = "Fibonacci and Lucas: A Verified Primer"
+
+[book.subtitle]
+zh = "从递推关系到黄金比，每条定理都经 Lean 内核验证"
+en = "From a recurrence to the golden ratio, every theorem kernel-verified in Lean"
+
+[book.description]
+zh = ""
+en = ""
+
+[outputs]
+html = true
+# PDF 版本：screen = 深色霓虹屏幕版；print = 白底印刷版。
+pdf = ["screen", "print"]
+# EPUB 3（Apple Books 兼容，MathML 数学）。
+epub = true
+
+[pdf]
+# Typst 纸张名：a4、a5、us-letter、iso-b5 …
+paper = "a4"
+
+[epub]
+# 是否把 Chakra Petch / JetBrains Mono 嵌入 EPUB（中文正文始终使用阅读器自带字体）。
+embed_fonts = false

@@ -30,6 +30,46 @@ $$
 [@thm-deficit-three-valued] 对任意大的输入都成立：它把一个算术算法（逐位进位）和一个精确界联系起来，可以作为后续推理的前提反复使用。在 Lean 中，它的名字是 [`deficit_three_valued`](lean:D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)。
 :::
 
+## 两张面孔 {#sec-two-faces}
+
+::: {.definition #def-beta-contraction title="共轭面读数 $\beta'$" lean="D5/S1/Deficit/DeficitInteger.betaContraction"}
+（待写）
+:::
+
+::: {.lemma #lem-two-faces title="两面之差" lean="D5/S1/Deficit/DoubleFaceLength.betaReal_sub_betaContraction"}
+（待写）
+:::
+
+::: {.lemma #lem-window title="共轭面的窗口" lean="D5/S1/Words/Expansions/BasePhiNegativeBridge.betaContraction_mem_window"}
+（待写）
+:::
+
+::: proof
+（待写）
+:::
+
+## 亏量何时取哪个值 {#sec-phases}
+
+::: {.theorem #thm-beatty-deficit title="亏量的 Beatty 形式" lean="D5/S1/Deficit/ChargedCarryPath.deficit_eq_beattyDeficit"}
+（待写）
+:::
+
+::: {.theorem #thm-golden-phase title="相位判据" lean="D5/S1/Deficit/GoldenPhaseDeficit.golden_phase_deficit"}
+（待写）
+:::
+
+::: {.example #ex-small-deficits title="小数值表"}
+（待写）
+:::
+
+::: {.proposition #prop-phase-areas title="三种取值的面积" lean="D5/S1/Deficit/GoldenPhaseDistribution.limiting_deficit_distribution"}
+（待写）
+:::
+
+::: {.remark #rem-areas-not-frequencies title="面积还不是频率"}
+（待写）
+:::
+
 ## 动手看一看
 
 下面的交互可视化与视频都由本书仓库构建：画面上的数值只是页面上的计算，帮助理解；结论成立与否以 Lean 为准。

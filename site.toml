@@ -25,4 +25,4 @@ branch = "dev"
 
 [books]
 # 书库首页的排列顺序；未列出的书按目录名排在后面。
-order = ["example-monograph"]
+order = ["example-monograph", "example-primer"]

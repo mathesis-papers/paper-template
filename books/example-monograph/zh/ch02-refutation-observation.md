@@ -20,6 +20,46 @@ $n = 1121626023352383$ 是否是使公式失效的最小 $n$？使公式失效�
 
 [@thm-target-recovery] 只断言恢复函数存在，不提供算法，也不给出代价界。
 
+## 有限证书 {#sec-certificates}
+
+::: {.theorem #thm-detlefs-refuted title="一个整数推翻一条刻画" lean="D5/S0/Certificates/DetlefsRoughResidueCharacterizationRefutation.result"}
+（待写）
+:::
+
+::: proof
+（待写）
+:::
+
+::: {.conjecture #conj-a008365-corrected title="修正后的刻画"}
+（待写）
+:::
+
+::: {.theorem #thm-finite-counterexample title="否定即找到反例" lean="D5/S0/Computability/FiniteCounterexampleCertificate.finite_readout_counterexample_certificate"}
+（待写）
+:::
+
+::: {.theorem #thm-farkas title="Farkas 证书" lean="D5/S0/Certificates/RationalFarkas.infeasible_of_certificate"}
+（待写）
+:::
+
+::: {.remark #rem-certificates title="证书不只是反例"}
+（待写）
+:::
+
+## 看不见的部分 {#sec-blind-spots}
+
+::: {.theorem #thm-pigeonhole-fiber title="读数少于对象" lean="D5/S0/Diagonal/PigeonholeFiber.finite_reading_has_fiber"}
+（待写）
+:::
+
+::: {.theorem #thm-modulus-blind title="余数看不见亏量" lean="D5/S1/Deficit/FixedModulusNoncongruence.deficit_not_determined_by_fixed_modulus"}
+（待写）
+:::
+
+::: {.example #ex-mod-two title="模 2 的一对反例"}
+（待写）
+:::
+
 ## 演示文稿
 
 ::: {.slides src="overview"}

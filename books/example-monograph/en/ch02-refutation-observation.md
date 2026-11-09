@@ -20,6 +20,46 @@ Let the state space $X$ be nonempty, with a process readout $p: X \to P$ and a t
 
 [@thm-target-recovery] asserts only that a recovery function exists; it gives no algorithm and no cost bound.
 
+## Finite certificates {#sec-certificates}
+
+::: {.theorem #thm-detlefs-refuted title="One integer refutes a characterization" lean="D5/S0/Certificates/DetlefsRoughResidueCharacterizationRefutation.result"}
+(To be written.)
+:::
+
+::: proof
+(To be written.)
+:::
+
+::: {.conjecture #conj-a008365-corrected title="The corrected characterization"}
+(To be written.)
+:::
+
+::: {.theorem #thm-finite-counterexample title="Refuting is finding a counterexample" lean="D5/S0/Computability/FiniteCounterexampleCertificate.finite_readout_counterexample_certificate"}
+(To be written.)
+:::
+
+::: {.theorem #thm-farkas title="Farkas certificates" lean="D5/S0/Certificates/RationalFarkas.infeasible_of_certificate"}
+(To be written.)
+:::
+
+::: {.remark #rem-certificates title="Certificates are more than counterexamples"}
+(To be written.)
+:::
+
+## What stays invisible {#sec-blind-spots}
+
+::: {.theorem #thm-pigeonhole-fiber title="Fewer readings than objects" lean="D5/S0/Diagonal/PigeonholeFiber.finite_reading_has_fiber"}
+(To be written.)
+:::
+
+::: {.theorem #thm-modulus-blind title="Residues cannot see the deficit" lean="D5/S1/Deficit/FixedModulusNoncongruence.deficit_not_determined_by_fixed_modulus"}
+(To be written.)
+:::
+
+::: {.example #ex-mod-two title="A pair of witnesses modulo 2"}
+(To be written.)
+:::
+
 ## Slides
 
 ::: {.slides src="overview"}
