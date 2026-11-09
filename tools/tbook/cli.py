@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 
 from . import __version__, config, paths
@@ -82,6 +84,26 @@ def cmd_build(args) -> int:
     return 1 if result.failures else 0
 
 
+def _slides_backdrop(check: bool) -> int:
+    """Check (or render again, when stale) the slide theme's print backdrop, which is rendered from
+    theme/generated/tokens.css in Chromium (tools/node/slides-backdrop.mjs). 0 when it is up to date or
+    there is nothing to do."""
+    script = paths.ROOT / "tools" / "node" / "slides-backdrop.mjs"
+    if not script.exists() or not (paths.THEME / "slides" / "styles" / "backdrop.css").exists():
+        return 0
+    node = shutil.which("node")
+    if not node:
+        print("note: node not found, so the slides' print backdrop (theme/slides/styles/backdrop.jpg) was not "
+              "checked; run node tools/node/slides-backdrop.mjs where Node is installed")
+        return 0
+    r = subprocess.run([node, str(script), *(["--check"] if check else [])], cwd=paths.ROOT, capture_output=True,
+                       text=True)
+    out = (r.stdout + r.stderr).strip()
+    if out and (r.returncode or not out.endswith("is up to date")):
+        print(out)
+    return r.returncode
+
+
 def cmd_theme(args) -> int:
     from . import theme
 
@@ -89,9 +111,13 @@ def cmd_theme(args) -> int:
         stale = theme.stale_outputs()
         for p in stale:
             print(f"stale: {paths.rel(p)}")
-        return 1 if stale else 0
+        backdrop = _slides_backdrop(check=True)
+        return 1 if stale or backdrop else 0
     for p in theme.write():
         print(f"wrote {paths.rel(p)}")
+    if _slides_backdrop(check=False):
+        print("warning: the slides' print backdrop was not rendered again (see above); slide PDFs would draw "
+              "an outdated backdrop until it is")
     return 0
 
 

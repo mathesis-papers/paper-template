@@ -35,6 +35,8 @@
 - PDF/EPUB：`other.md#x` 只在 `other.md` 内解析，该章没有的片段显示为文字并警告，不再落到别章的同名 id 上；块引用与列表项里的标题也得到全书唯一的 id，照常可达。链接到原始 HTML 的 id（`<a id="x"></a>`）不再使 PDF 构建失败（Typst 不输出原始 HTML，现在该处有同名标签）；标题末尾的空锚点（`## 小结 <a id="x"></a>`）移到标题之后，不再使 PDF 与 EPUB 失败；`data-id="…"` 不再算作 id。
 - 扫描器在大章节上保持线性：`$` 配对、脚注编号与 HTML 块的读取不再随未配对的 `$`、脚注或容器数量平方增长（含数千个 `$5` 价格的表格从数秒降到零点几秒）。
 - 幻灯片：`slides-check` 与 `./tbook check` 只跳过真正位于代码块中的标签，两个代码块之间、GFM 表格之后与 HTML 块里的 `LeanBadge`/`TheoremCard` 不再漏检；代码块按 Slidev 53 所用解析器的块规则识别（含表格与全角空格等 Unicode 空白），缩进代码块与 `<<<` 导入行中的标签显示为代码，不再检查；标签按 Slidev 的规则只在完整的开始标签处读取，正文或公式中的 `<`（`$a <b + 1$`）不再吞掉其后的 `LeanBadge`，不完整的引用标签报错；书的第一语言、语言集合或站点地址变化后，`./tbook build slides` 重新构建，不再复用过期的产物。
+- 幻灯片 PDF 翻页不再卡顿：每页整页的半透明背景层（极光、扫描线、暗角）在 PDF 中是软蒙版与渐变，阅读器每页要合成约两秒；导出时它们换成一张预先渲染的背景图 `theme/slides/styles/backdrop.jpg`（各页共用、只嵌入一次），示例演示文稿在 Chrome 的 PDF 引擎中渲染 10 页从约 27 秒降到约 1.2 秒，文件也更小，文字仍是矢量。背景层移入 `theme/slides/styles/backdrop.css`；图由 `node tools/node/slides-backdrop.mjs` 渲染，`./tbook theme`（改配色后）会自动调用，`./tbook theme --check` 与 `slides-check` 核对它与 CSS、配色同步，`./tbook build slides` 检查打印视图与导出的 PDF 用了它。
+- 幻灯片四角的折角框各自朝外（⌜ ⌝ ⌞ ⌟）：此前泛指的类名 `.br` 与右下角的 `.br` 同名，四个角都画成了右下角的形状；泛指的类名改为 `.bracket`。
 - 模板升级：在以合并提交并入的分支上删除的托管文件，此后保持删除，不再被每次升级重新安装（`git log --full-history`）；squash 合并不保留这样的删除，见 `docs/UPGRADING.md` §2。
 - `release.yml`：以日期开头的版本（如同一天第二次发布的 `v2026.11.08-2`）是正式发布，不再标为 pre-release；只有严格的语义化版本预发布（`v3.0.0-rc.1`）才是。
 

@@ -21,7 +21,9 @@
 //   - no root-relative or file: links outside code blocks (the site is served under /<repo>/), no
 //     index.html in the deck;
 //   - no class name or attribute on an HTML element that UnoCSS (bundled with Slidev) would turn into
-//     a utility that overrides the theme.
+//     a utility that overrides the theme;
+//   - the theme's print backdrop (theme/slides/styles/backdrop.jpg, which the PDF export shows instead of
+//     the backdrop layers) matches backdrop.css and theme/generated/tokens.css (slides-backdrop.mjs).
 // Exit status 1 when any check fails; 0 (nothing to check) when no book has a deck.
 //
 // Adapted from chrono-company-slides scripts/check.mjs (Apache-2.0).
@@ -31,6 +33,7 @@ import {
   DECK_RE, GID_RE, PRIMARY_FILE, ROOT, argParser, bcp47, booksWithDecks, citations, deckLangs, deckNames, editionFile,
   loadLock, primaryLang, readEdition, stripCode, themeRef, toPosix,
 } from './slides-lib.mjs';
+import { backdropState } from './slides-backdrop.mjs';
 
 const cli = argParser(process.argv.slice(2));
 const bookSlugs = cli.all('--book');
@@ -43,6 +46,9 @@ const ABS_LINK = [
   /\]\((\/(?!\/)[^)\s]*|file:[^)\s]*)\)/g,
   /url\(\s*["']?(\/(?!\/)[^"')]*)/gi,
 ];
+
+const backdrop = backdropState();
+if (!backdrop.fresh) fail(backdrop.message);
 
 const books = booksWithDecks(bookSlugs);
 const lock = loadLock();

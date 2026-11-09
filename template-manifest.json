@@ -60,7 +60,7 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "0b97e43449a8245f78d8d2b32013c4124aac546ac3e3610a77b98aa5d193627b",
+      "sha256": "1585f4ff89d6e2fbf3a81e0eb832fd97fb3d9a02df90c6e3af8ce58ae04e3a35",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "01ea8d91666d75471e640fae990dcbf6c0c117e047f4ce5fd4fbead3c0cf4bee",
+      "sha256": "481a3cdebecd031f188c5867c26c3cd8c87363fec68b6b658aa19ecc6faca619",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -112,7 +112,7 @@
       "mode": "100644"
     },
     "skills/book-slides/SKILL.md": {
-      "sha256": "541a7690d3dcfc4012dd9ed417af41fe11f24d1578091839e3676d5e9da9abd6",
+      "sha256": "6e4925b24697bed319b25c320e20288ea64f4f83b5bf66a312db2f952a200ceb",
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
@@ -340,7 +340,7 @@
       "mode": "100644"
     },
     "theme/slides/README.md": {
-      "sha256": "b6819d2cc6e1e6e0950e93216f0fa959a2274177c87384df1bd2868a1613bcbc",
+      "sha256": "da9c24af7d1bd4f50e1b48390625c4b3752fd972a4eb1b67f3a4a545956f54bc",
       "mode": "100644"
     },
     "theme/slides/components/LeanBadge.vue": {
@@ -376,11 +376,11 @@
       "mode": "100644"
     },
     "theme/slides/layouts/cover.vue": {
-      "sha256": "f7c97353db33cb946060ba31b825da4191dd7b7ae95c3e50d78827cea4a5960b",
+      "sha256": "612245925ea78233f8f8446a490082898b661c22570c9f2e33700857381d97ca",
       "mode": "100644"
     },
     "theme/slides/layouts/default.vue": {
-      "sha256": "5b5d5f3b18c46258df468b4a3b42bed9be39ccbb88466b30ac8c0a83ca8a2634",
+      "sha256": "876b9b7d42794eca83caeaf89f23ad1de58839267f22503a25094b2a99298a7e",
       "mode": "100644"
     },
     "theme/slides/layouts/section.vue": {
@@ -407,12 +407,24 @@
       "sha256": "6b2084ec4343fd2aba22c637b3ab365cb5100dd91ff7cf2dea18997ea4010d6d",
       "mode": "100644"
     },
+    "theme/slides/styles/backdrop.css": {
+      "sha256": "3530b09e4a92b35b5945baad84a395b5540b9637731f685e80ca226a034890a0",
+      "mode": "100644"
+    },
+    "theme/slides/styles/backdrop.jpg": {
+      "sha256": "6a7bd101de5b1a596b2fd674377be2cbec4eb7b11b8ad90ebecd6532e4cd9f8f",
+      "mode": "100644"
+    },
+    "theme/slides/styles/backdrop.json": {
+      "sha256": "b46661a32b97674a32d7c751f0386babd67550871d7ccae16da42e0f8e639ebb",
+      "mode": "100644"
+    },
     "theme/slides/styles/deck.css": {
-      "sha256": "b504e4305ed64a0d23e0f2793f7bcaa202ca6090899cbf0ddd88de1982659a43",
+      "sha256": "a9b2f14aebf9225bf965ba52b0fa09cc867df583f762484241bd775ab8aad7e8",
       "mode": "100644"
     },
     "theme/slides/styles/index.ts": {
-      "sha256": "a24ead65bb31d9958f733931dfd0b83e2d5cac9233eb60eea6ff766151dddd16",
+      "sha256": "ac0546db4a5b6f3f6608ded221b01606b7feedadfb07cb40ce14babc6957f769",
       "mode": "100644"
     },
     "theme/slides/uno.config.ts": {
@@ -479,12 +491,16 @@
       "sha256": "2e2f1201525c4e68918c51fc3e7c84937858f7d589dd67df460f53e4d573d572",
       "mode": "100644"
     },
+    "tools/node/slides-backdrop.mjs": {
+      "sha256": "2b079bca33b27fff97f72866d0b85dadc651180e54ec1d1893799e3a6fac6b23",
+      "mode": "100644"
+    },
     "tools/node/slides-build.mjs": {
-      "sha256": "36b8da26c46ee138f8c3bd7824720ae1d836941e469bbc3bcaf145472d0272ca",
+      "sha256": "4c1e82aafbb48ab75d9ff1e7310c5de61dc2fb3afacfe096628de253abfc53d4",
       "mode": "100644"
     },
     "tools/node/slides-check.mjs": {
-      "sha256": "82b28163dab5d7ad68ac73a9794f9950bf12c53d46910df4a94ddb3147b99266",
+      "sha256": "1924fd0df2253836df7af1c6f158969f6e20bdbb5f7fe2a2d3b594a02419b212",
       "mode": "100644"
     },
     "tools/node/slides-lib.mjs": {
@@ -540,7 +556,7 @@
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
-      "sha256": "a547f87eee7692c152c9d7ecb0d501b80f57ea4dad3161a329878a81c123f348",
+      "sha256": "35a373d2a5fa2e8dc98c7c601d02e461e8d9ba8a91075fcbb2b08f88d8ba6e6a",
       "mode": "100644"
     },
     "tools/tbook/config.py": {
@@ -680,7 +696,7 @@
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {
-      "sha256": "664b253740383ae719770c9ca0f12e73f23575065fe22efc19fb70b7b0b89d8d",
+      "sha256": "f85d2334a8e1d0997993972bff3aff984c467ee4e02f526d68c6cc219abff246",
       "mode": "100644"
     },
     "tools/tests/test_template.py": {

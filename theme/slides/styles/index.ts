@@ -17,6 +17,7 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
 import '../../generated/tokens.css'
 import './deck.css'
+import './backdrop.css'
 import katexMain from 'katex/dist/fonts/KaTeX_Main-Regular.woff2?url'
 import katexMainBold from 'katex/dist/fonts/KaTeX_Main-Bold.woff2?url'
 

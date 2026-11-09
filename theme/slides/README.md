@@ -59,6 +59,15 @@ GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除�
 
 `test_slides` 用 `@slidev/parser` 切分随机生成的演示文稿，再用 Slidev 构建出的解析器与两种实现逐行比对，并比对两种实现找到的标签；另把随机生成的幻灯片用 Slidev 的 Markdown 渲染、由 Vue 编译，确认编译出的 `LeanBadge`、`TheoremCard` 依次都受检查，检查读到的 GID 正是 Vue 传给组件的 `gid`；做不到的，所在的幻灯片会报告问题（不完整的标签，或无法核对的 `gid`）。
 
+## 背景与 PDF 导出（`styles/backdrop.css`）
+
+每页的背景（底色、极光、扫描线、四角折角框、暗角）在 `styles/backdrop.css`。在屏幕上它们是几层 CSS；导出 PDF 时（Slidev 的打印视图给 `<html>` 加上 `print` 类）换成一张图 `styles/backdrop.jpg`：这几层整页的半透明渐变写进 PDF 后成为软蒙版与渐变，阅读器每翻一页都要重新合成（约两秒一页），一张图则几乎即时画出，文字与其余图形仍是矢量。图由 `node tools/node/slides-backdrop.mjs` 在 Chromium 中按 `backdrop.css` 与 `theme/generated/tokens.css` 渲染（1920×1080），所用输入的指纹记在 `styles/backdrop.json`：
+
+- 改了 `backdrop.css` 或配色（`./tbook theme`）后，运行 `node tools/node/slides-backdrop.mjs`（`./tbook theme` 会自动调用）并提交 `backdrop.jpg` 与 `backdrop.json`；
+- `./tbook theme --check` 与 `node tools/node/slides-check.mjs` 发现图与输入不符时报错；`./tbook build slides` 构建前会自动重新渲染，并检查打印视图与导出的 PDF 确实用了这张图。
+
+某一页要换背景时，用带类名的规则（如 `.slide.my-bg { background: … }`）覆盖：打印规则用 `:where()`，不会压过它。
+
 ## 样式类（`styles/deck.css`）
 
 `.body`（正文区，`.center` 垂直居中）、`.kicker`、`.display`、`h2.t`（`em` 高亮；`em.warn`、`em.ok`、`em.magenta`）、`.lead`、`.card`（`.hot`、`.ok`、`.warn`、`.violet`）、`.tile`（`.now` 表示“当前”）、`.flow > .step`（`.ok`）、`.readout`（`dt`/`dd`，`dd.cy`、`dd.hot`）、`.g2`/`.g3`/`.g4`/`.g6`/`.split`/`.row`、`ul.plain`、`table.t`、`.eq`、`.mono`、`.muted`、`.dim`、`.sm`、`.xs`、`.hl-cyan`/`.hl-ok`/`.hl-warn`/`.hl-violet`/`.hl-amber`/`.hl-magenta`、`.mt-s`/`.mt`/`.mt-l`。其中与 UnoCSS 工具类同名的主题类（`mt`、`mb-0`、`grow`）已列入 `uno.config.ts` 的 `blocklist`，可以放心使用。不要自创与 UnoCSS 工具类同名的类（如 `c-*`、`p-4`）：`node tools/node/slides-check.mjs` 会报出不在 `blocklist` 中的冲突；确需新增主题类时，同时把它加入 `blocklist`。

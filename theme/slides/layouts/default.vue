@@ -20,7 +20,7 @@ const deck = computed<Record<string, string>>(() => ($slidev.configs as any).dec
 
 <template>
   <div class="slide" :class="[props.class, { bare: props.bare }]">
-    <div class="tr-fx" aria-hidden="true"><i class="br tl" /><i class="br tr" /><i class="br bl" /><i class="br br" /></div>
+    <div class="tr-fx" aria-hidden="true"><i class="bracket tl" /><i class="bracket tr" /><i class="bracket bl" /><i class="bracket br" /></div>
     <header v-if="!props.bare" class="hdr">
       <span class="hdr-l"><b>{{ deck.code }}</b><span class="hdr-sep">//</span><span>{{ deck.title }}</span></span>
       <span v-if="props.section" class="hdr-r">{{ props.section }}</span>

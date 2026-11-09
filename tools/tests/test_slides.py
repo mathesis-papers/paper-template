@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -1494,6 +1495,84 @@ class NodeScriptsTest(unittest.TestCase):
         self.assertIn("入门", zh)
         r = self.node("slides-check.mjs")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+@unittest.skipUnless(NODE, "node needed")
+class PrintBackdropTest(unittest.TestCase):
+    """Finding: slide PDFs paged slowly (about two seconds a page) because every page drew the backdrop as
+    full-page translucent gradients, which PDF readers composite with soft masks. The print view shows one
+    image instead (theme/slides/styles/backdrop.css, backdrop.jpg); its fingerprint keeps it in step with
+    the CSS and the tokens it is rendered from."""
+
+    SCRIPT = ROOT / "tools" / "node" / "slides-backdrop.mjs"
+
+    def node(self, root: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([NODE, *args], cwd=root, env=dict(os.environ, TBOOK_ROOT=str(root)),
+                              capture_output=True, text=True)
+
+    def fingerprint(self, css: str, tokens: str) -> str:
+        code = (f"import {{ backdropFingerprint }} from {json.dumps(self.SCRIPT.as_uri())};"
+                "const [css, tokens] = JSON.parse(process.argv[1]);"
+                "process.stdout.write(backdropFingerprint(css, tokens));")
+        r = subprocess.run([NODE, "--input-type=module", "-e", code, json.dumps([css, tokens])],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_committed_backdrop_is_up_to_date(self):
+        r = self.node(ROOT, str(self.SCRIPT), "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        meta = json.loads((ROOT / "theme" / "slides" / "styles" / "backdrop.json").read_text(encoding="utf-8"))
+        self.assertEqual((meta["width"], meta["height"]), (1920, 1080))
+        css = (ROOT / "theme" / "slides" / "styles" / "backdrop.css").read_text(encoding="utf-8")
+        self.assertIn(':where(html.print) .slide { background-image: url("./backdrop.jpg"); }', css)
+        self.assertIn(":where(html.print) .tr-fx { display: none; }", css)
+        index = (ROOT / "theme" / "slides" / "styles" / "index.ts").read_text(encoding="utf-8")
+        self.assertLess(index.index("./deck.css"), index.index("./backdrop.css"))  # its .slide rule wins
+
+    def test_fingerprint_follows_what_the_image_shows(self):
+        css = (ROOT / "theme" / "slides" / "styles" / "backdrop.css").read_text(encoding="utf-8")
+        tokens = (ROOT / "theme" / "generated" / "tokens.css").read_text(encoding="utf-8")
+        base = self.fingerprint(css, tokens)
+        self.assertEqual(base, json.loads((ROOT / "theme" / "slides" / "styles" / "backdrop.json")
+                                          .read_text(encoding="utf-8"))["fingerprint"])
+
+        def token(name: str, value: str) -> str:
+            out, n = re.subn(rf"({re.escape(name)}\s*:\s*)[^;]*;", rf"\g<1>{value};", tokens, count=1)
+            self.assertEqual(n, 1, name)
+            return out
+        # what the backdrop uses: the void, the aurora, scanlines, vignette and the cyan of the brackets
+        for name in ("--tr-void", "--tr-fx-aurora", "--tr-fx-scanlines", "--tr-fx-vignette", "--tr-cyan"):
+            self.assertNotEqual(self.fingerprint(css, token(name, "#123456")), base, name)
+        self.assertNotEqual(self.fingerprint(css.replace("width: 46px", "width: 40px"), tokens), base)
+        # what it does not: another colour, and the print rules (they only use the image)
+        self.assertEqual(self.fingerprint(css, token("--tr-sem-link", "#123456")), base)
+        self.assertEqual(self.fingerprint(css.replace('url("./backdrop.jpg")', 'url("./other.jpg")'), tokens), base)
+
+    def test_stale_backdrop_is_reported(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tbook-backdrop-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name in ("templates", "tools", "node_modules", "tbook"):
+            (tmp / name).symlink_to(ROOT / name)
+        (tmp / "theme").mkdir()
+        for child in (ROOT / "theme").iterdir():
+            if child.name != "generated":
+                (tmp / "theme" / child.name).symlink_to(child)
+        shutil.copytree(ROOT / "theme" / "generated", tmp / "theme" / "generated")
+        tokens = tmp / "theme" / "generated" / "tokens.css"
+        tokens.write_text(re.sub(r"(--tr-void\s*:\s*)[^;]*;", r"\g<1>#102030;", tokens.read_text(encoding="utf-8"),
+                                 count=1), encoding="utf-8")
+        (tmp / "site.toml").write_text('[site]\ntitle = "t"\nlanguages = ["zh", "en"]\n', encoding="utf-8")
+        r = self.node(tmp, str(self.SCRIPT), "--check")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("theme/slides/styles/backdrop.jpg does not match", r.stderr)
+        r = self.node(tmp, str(ROOT / "tools" / "node" / "slides-check.mjs"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("run node tools/node/slides-backdrop.mjs", r.stderr)
+        r = subprocess.run([sys.executable, "-m", "tbook", "theme", "--check"], cwd=tmp, capture_output=True, text=True,
+                           env=dict(os.environ, TBOOK_ROOT=str(tmp), PYTHONPATH=str(ROOT / "tools")))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("backdrop.jpg does not match", r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

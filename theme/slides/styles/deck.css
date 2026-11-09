@@ -32,9 +32,6 @@
   height: 1080px;
   overflow: hidden;
   isolation: isolate;
-  background-color: var(--tr-void);
-  background-image: var(--tr-fx-aurora);
-  background-size: 100% 100%;
   color: var(--tr-ink);
   font-family: var(--sans);
   font-size: 28px;
@@ -61,15 +58,7 @@
 :where(.slide) sup { vertical-align: super; }
 :where(.slide) svg { display: inline; vertical-align: baseline; }
 
-/* ---------- atmosphere: scanlines, vignette, corner brackets ---------- */
-.tr-fx { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.tr-fx::before { content: ""; position: absolute; inset: 0; background: var(--tr-fx-scanlines); opacity: .9; }
-.tr-fx::after { content: ""; position: absolute; inset: 0; background: var(--tr-fx-vignette); }
-.tr-fx .br { position: absolute; width: 46px; height: 46px; border: 0 solid color-mix(in srgb, var(--tr-cyan) 70%, transparent); }
-.tr-fx .tl { top: 28px; left: 28px; border-width: 3px 0 0 3px; }
-.tr-fx .tr { top: 28px; right: 28px; border-width: 3px 3px 0 0; }
-.tr-fx .bl { bottom: 28px; left: 28px; border-width: 0 0 3px 3px; }
-.tr-fx .br.br { bottom: 28px; right: 28px; border-width: 0 3px 3px 0; }
+/* The backdrop (void, aurora, scanlines, corner brackets, vignette) is in backdrop.css. */
 .slide > :not(.tr-fx) { position: relative; z-index: 1; }
 .slide > .body, .slide > .hdr, .slide > .ftr, .slide > .src { position: absolute; }
 

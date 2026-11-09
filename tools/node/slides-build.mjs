@@ -12,7 +12,10 @@
 //      overflow, content running into the source line or the footer, content leaving the canvas,
 //      fonts not loaded, text falling back to a system font (a glyph the bundled fonts lack),
 //      runtime errors. --shots <dir> also saves a PNG of every slide.
-//   3. slidev export → <out>/<deck>-<lang>.pdf and verify its page count equals the slide count.
+//   3. slidev export → <out>/<deck>-<lang>.pdf and verify its page count equals the slide count and that
+//      it draws the theme's print backdrop (one image, theme/slides/styles/backdrop.jpg) instead of the
+//      backdrop layers, which PDF readers render slowly. A backdrop.jpg that no longer matches
+//      backdrop.css or the tokens is rendered again first (slides-backdrop.mjs; commit the result).
 // <out> defaults to build/slides/<slug>/ (docs/ARCHITECTURE.md §5); it also receives manifest.json,
 // which tools/tbook/slides.py reads to publish the decks. Chromium: $PW_CHROMIUM_PATH when set,
 // otherwise Playwright's own download. Exit status 1 when any check fails.
@@ -26,6 +29,7 @@ import {
   ROOT, argParser, basePath, booksWithDecks, buildPdfName, deckBase, deckLangs, deckNames,
   i18n, pdfName, primaryLang, readEdition, sitePathOf, slidev, toPosix,
 } from './slides-lib.mjs';
+import { backdropState, renderBackdrop } from './slides-backdrop.mjs';
 
 const TOLERANCE = 12; // px of body overflow tolerated; crossing the source line or the footer never is
 const FONTS = ['Chakra Petch', 'Noto Sans SC', 'JetBrains Mono']; // must be loaded by the last slide
@@ -164,6 +168,22 @@ async function checkEdition(browser, ed, dir, base) {
         }
       }
       for (const [family, text] of system) failures.push(`${ed.rel} slide ${n}: text falls back to the system font ${family} (e.g. “${text}”); use characters the theme fonts cover`);
+      if (n === 1) {
+        // the print view (PDF export) shows backdrop.jpg instead of the backdrop layers (backdrop.css)
+        const print = await slide.evaluate((s) => {
+          const html = document.documentElement;
+          const had = html.classList.contains('print');
+          html.classList.add('print');
+          const image = getComputedStyle(s).backgroundImage;
+          const fx = s.querySelector(':scope > .tr-fx');
+          const out = { image, fx: fx ? getComputedStyle(fx).display : 'none' };
+          if (!had) html.classList.remove('print');
+          return out;
+        });
+        if (!/backdrop[^/)]*\.jpg/.test(print.image) || print.fx !== 'none') {
+          failures.push(`${ed.rel}: the print view does not show the print backdrop (background ${print.image}, .tr-fx display ${print.fx}); the PDF would draw the backdrop layers, which readers render slowly`);
+        }
+      }
       if (n === ed.count && r.missing.length) failures.push(`${ed.rel}: fonts not loaded: ${r.missing.join(', ')}`);
       if (shotDir) await slide.screenshot({ path: join(shotDir, `${String(n).padStart(2, '0')}.png`) });
     }
@@ -179,9 +199,26 @@ async function exportPdf(ed, path) {
   const args = [toPosix(relative(ROOT, ed.file)), '--output', path, '--format', 'pdf', '--wait-until', 'networkidle', '--wait', '800', '--timeout', '120000'];
   if (process.env.PW_CHROMIUM_PATH) args.push('--executable-path', process.env.PW_CHROMIUM_PATH);
   slidev('export', ...args);
-  const { PDFDocument } = await import('pdf-lib');
-  const pages = (await PDFDocument.load(readFileSync(path))).getPageCount();
+  const { PDFDocument, PDFDict, PDFName } = await import('pdf-lib');
+  const doc = await PDFDocument.load(readFileSync(path));
+  const pages = doc.getPageCount();
   if (pages !== ed.count) failures.push(`${ed.rel}: PDF has ${pages} pages, the deck ${ed.count} slides`);
+  // the print backdrop: an image of the canvas size on the page (backdrop.css), not the layers
+  const key = (d, k) => d.get(PDFName.of(k))?.toString();
+  const drawsBackdrop = (page) => {
+    const xobjects = page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    return !!xobjects && [...xobjects.entries()].some(([, ref]) => {
+      const d = doc.context.lookup(ref)?.dict;
+      return d && key(d, 'Subtype') === '/Image' && key(d, 'Width') === '1920' && key(d, 'Height') === '1080';
+    });
+  };
+  const without = doc.getPages().map((p, i) => (drawsBackdrop(p) ? 0 : i + 1)).filter(Boolean);
+  if (without.length === pages) {
+    failures.push(`${ed.rel}: the PDF does not draw the print backdrop (theme/slides/styles/backdrop.jpg); its pages `
+      + 'draw the backdrop layers, which PDF readers render slowly (see theme/slides/styles/backdrop.css)');
+  } else if (without.length) {
+    console.log(`${ed.rel}: note: PDF pages ${without.join(', ')} have a background of their own instead of the print backdrop`);
+  }
   return pages;
 }
 
@@ -196,6 +233,12 @@ function cleanDeckDir(dir) {
 // --------------------------------------------------------------------------- main
 let browser = null;
 try {
+  if (books.length && !backdropState().fresh) {
+    browser ??= await launch();
+    for (const p of await renderBackdrop(browser)) {
+      console.log(`slides-build: ${toPosix(relative(ROOT, p))} did not match backdrop.css and the tokens: rendered again; commit it`);
+    }
+  }
   for (const book of books) {
     const OUT = resolve(outArg ?? join(ROOT, 'build', 'slides', book.slug));
     const manifestPath = join(OUT, 'manifest.json');

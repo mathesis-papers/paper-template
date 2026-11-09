@@ -1,0 +1,31 @@
+/* trureturing slides — the backdrop of every slide: void, aurora, scanlines, corner brackets, vignette.
+ *
+ * On screen these are CSS layers. In the PDF (Slidev's export opens the print view, which marks
+ * <html class="print">) they are one image, backdrop.jpg: as vectors, the full-page translucent
+ * gradients became soft masks and shadings that PDF readers composite again for every page, about two
+ * seconds a page; the image draws at once. tools/node/slides-backdrop.mjs renders backdrop.jpg from
+ * this file and theme/generated/tokens.css in Chromium and records their fingerprint in backdrop.json;
+ * slides-check reports a stale image, slides-build renders it again. Edit this file, then run
+ *   node tools/node/slides-backdrop.mjs
+ * and commit backdrop.jpg and backdrop.json. Layouts put <div class="tr-fx"> with the four corner
+ * brackets first in .slide (layouts/default.vue, layouts/cover.vue). */
+
+.slide {
+  background-color: var(--tr-void);
+  background-image: var(--tr-fx-aurora);
+  background-size: 100% 100%;
+}
+.tr-fx { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+.tr-fx::before { content: ""; position: absolute; inset: 0; background: var(--tr-fx-scanlines); opacity: .9; }
+.tr-fx::after { content: ""; position: absolute; inset: 0; background: var(--tr-fx-vignette); }
+/* corner brackets, each open towards the centre of the slide */
+.tr-fx .bracket { position: absolute; box-sizing: border-box; width: 46px; height: 46px; border: 0 solid color-mix(in srgb, var(--tr-cyan) 70%, transparent); }
+.tr-fx .bracket.tl { top: 28px; left: 28px; border-width: 3px 0 0 3px; }
+.tr-fx .bracket.tr { top: 28px; right: 28px; border-width: 3px 3px 0 0; }
+.tr-fx .bracket.bl { bottom: 28px; left: 28px; border-width: 0 0 3px 3px; }
+.tr-fx .bracket.br { bottom: 28px; right: 28px; border-width: 0 3px 3px 0; }
+
+/* print view (PDF export): the rendered image instead of the layers. :where() keeps the specificity
+   of .slide, so a deck's own .slide.<class> background still wins. */
+:where(html.print) .slide { background-image: url("./backdrop.jpg"); }
+:where(html.print) .tr-fx { display: none; }
