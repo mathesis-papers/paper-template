@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
+升级时迁移 `tools/migrations/v0.2.0.py` 自动处理书库自有的内容：给每个 `books/*/films/*/film.json` 补上缺少的 `outputs.narrated_720p` 与 `outputs.cover`（默认文件名），删除不再使用的 `release_tag`、`published_tag`；已列出的 1080p 与纯配乐输出保持不变。它还在升级摘要中提示：视频如何改用 720p 默认、书库保留示例书时用 `[books] hide = ["example-*"]` 隐藏它们、调用 `ci.yml` 的书库工作流须授予 `pages: read`。
+
 ### 新增
 
 - 示例书扩充为四章加一个附录：收缩面与相位判据（附图与小数值表）、有限证书与反驳（Detlefs、反例搜索、Farkas）、细化与目标风险、遗忘与熵、黄金词与回归得分、$\lambda_-$ 的几乎可加性、齐肯多夫表示与进位（附图）；33 条定理类结论都引用所钉提交上已冻结的 Lean 声明，另有 2 个开放问题与 1 个猜想；Detlefs 刻画补上漏掉的剩余类后得到的修正刻画写成注记（两个方向都有纸面证明，尚无 Lean 证明），不算开放问题。定理 2.1 改为只陈述 Lean 证明的内容（该取整公式并非对所有 $n \ge 1$ 成立），见证值移到证明中。
@@ -15,8 +19,8 @@
 
 ### 变更
 
-- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：视频默认只发布 720p 旁白版，每分钟约 8 MB；列出全部输出时每分钟约 84 MB（见下一条），视频多的书库留意站点大小。
-- 视频默认只构建 720p 旁白版（**需要手动操作**，见下文）：`film.json` 的 `outputs` 列出什么就构建、托管、链接什么。必需 `narrated_720p`（播放器播放的 720p 旁白版）与 `cover`；`narrated`（1080p 旁白版）、`music_only`（1080p 纯配乐）、`music_only_720p` 只在列出时构建；`outputs` 中的其他键与写成 `null` 的值由 `./tbook check` 报错。`resolution` 是发布的视频尺寸：默认 `1280x720@<fps>`，列出 1080p 视频时为 `1920x1080@<fps>`，与 `outputs` 不符时报错。`./tbook film new` 与示例视频只列 `narrated_720p` 与 `cover`。流水线只编码所需（`theme/film/plan.py`）：Chromium 仍按 1920×1080 截取每帧，各渲染进程在同一遍中把帧缩放编码为 720p（hqdn3d、lanczos，x264 CRF 19、preset slow，画质与原来两遍 900 kb/s 的 720p 相当、码率略低），只在列出 1080p 视频时另编码 1080p 母版，纯配乐混音只在列出纯配乐视频时生成；`mux` 只拼接并混入音频（AAC 48 kHz，faststart）。删除 `small` 步骤与 `theme/film/small.sh`：720p 不再由 1080p 母版重新编码。`film.sh <dir> all [<输出>…]` 与 `FILM_OUTPUTS` 指定要做的输出，默认是 `film.json` 所列，构建明确传入它们；渲染缺少所列文件时构建失败，不存入缓存。50 秒的示例视频渲染从约 155 秒降到约 80 秒，站点上它的文件（视频与封面）从约 71 MB 降到约 6.5 MB；列出 1080p 视频时约 140 秒，1080p 文件与原来逐字节相同，720p 旁白版无论是否列出 1080p 都相同。章节播放器的下载链接、视频页、落地页与 `films.json` 只指向所列文件；下载标签“纯配乐”改为“纯配乐 1080p”，新增“纯配乐 720p”。下游书库：原先省略了 `narrated_720p`（曾可省略、取默认名）的 `film.json` 须补上它（`./tbook check` 给出默认文件名）；列出全部五个输出的视频照旧构建全部五个；要改用新默认，删去 `narrated`、`music_only`、`music_only_720p`，把 `resolution` 改为 `1280x720@30`。
+- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告；升级迁移会删除它们。GitHub Pages 站点上限 1 GB：视频默认只发布 720p 旁白版，每分钟约 8 MB；列出全部输出时每分钟约 84 MB（见下一条），视频多的书库留意站点大小。
+- 视频默认只构建 720p 旁白版（**需要手动操作**，见下文）：`film.json` 的 `outputs` 列出什么就构建、托管、链接什么。必需 `narrated_720p`（播放器播放的 720p 旁白版）与 `cover`；`narrated`（1080p 旁白版）、`music_only`（1080p 纯配乐）、`music_only_720p` 只在列出时构建；`outputs` 中的其他键与写成 `null` 的值由 `./tbook check` 报错。`resolution` 是发布的视频尺寸：默认 `1280x720@<fps>`，列出 1080p 视频时为 `1920x1080@<fps>`，与 `outputs` 不符时报错。`./tbook film new` 与示例视频只列 `narrated_720p` 与 `cover`。流水线只编码所需（`theme/film/plan.py`）：Chromium 仍按 1920×1080 截取每帧，各渲染进程在同一遍中把帧缩放编码为 720p（hqdn3d、lanczos，x264 CRF 19、preset slow，画质与原来两遍 900 kb/s 的 720p 相当、码率略低），只在列出 1080p 视频时另编码 1080p 母版，纯配乐混音只在列出纯配乐视频时生成；`mux` 只拼接并混入音频（AAC 48 kHz，faststart）。删除 `small` 步骤与 `theme/film/small.sh`：720p 不再由 1080p 母版重新编码。`film.sh <dir> all [<输出>…]` 与 `FILM_OUTPUTS` 指定要做的输出，默认是 `film.json` 所列，构建明确传入它们；渲染缺少所列文件时构建失败，不存入缓存。50 秒的示例视频渲染从约 155 秒降到约 80 秒，站点上它的文件（视频与封面）从约 71 MB 降到约 6.5 MB；列出 1080p 视频时约 140 秒，1080p 文件与原来逐字节相同，720p 旁白版无论是否列出 1080p 都相同。章节播放器的下载链接、视频页、落地页与 `films.json` 只指向所列文件；下载标签“纯配乐”改为“纯配乐 1080p”，新增“纯配乐 720p”。下游书库：原先省略了 `narrated_720p`（曾可省略、取默认名）的 `film.json` 由升级迁移补上（手工维护时 `./tbook check` 给出默认文件名）；列出全部五个输出的视频照旧构建全部五个；要改用新默认，删去 `narrated`、`music_only`、`music_only_720p`，把 `resolution` 改为 `1280x720@30`。
 - 以 `workflow_call` 调用 `ci.yml` 的书库工作流须授予 `pages: read`（**需要手动操作**）：`build` 与 `media` 作业用 `actions/configure-pages` 取得 Pages 地址，使 CI 的缓存键与 `pages.yml` 一致。
 - `.github/actions/setup` 的 `fonts: 'true'` 也安装 Playwright `--with-deps` 会装的字体（`fonts-liberation`、`fonts-ipafont-gothic`、`fonts-wqy-zenhei`、`fonts-freefont-ttf` 等）：PDF 与 EPUB 的键包含系统字体族，构建它们的作业（`ci.yml` 的 build、`pages.yml`、发版）因此看到同一套字体，键一致。
 - `./tbook serve` 支持 HTTP 字节范围请求（`Range`，206），本地预览的视频在 Safari/iOS 中也能播放；`./tbook doctor` 按 `$FFMPEG` 查找 ffmpeg，与视频构建一致。
