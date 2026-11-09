@@ -1,7 +1,7 @@
 {
   "schema": "trureturing-books.template-manifest.v1",
   "template": "trureturing-books-template",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "files": {
     ".claude/skills": {
       "sha256": "c1aefaccb300698f4b7ae764e1fa857f93c0609ba47b078e4806d926f289c23b",
@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "4cb3ef5c4330841a43299ef48e66f0f825cea5f1bb34a17f8e378ea7972e01bf",
+      "sha256": "4d3e405fd2a71e475e1243d5879290ef84f2657a891791c939d58f79cfef7bd2",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -491,6 +491,10 @@
       "sha256": "9439707404d7d65eb816f8ad9e1b5646fea1abe2f2375027de22481401e099bf",
       "mode": "100644"
     },
+    "tools/migrations/v0.2.0.py": {
+      "sha256": "fa304aa57f08445a5a4e5b33e8fd461034224a89b2846234ca1ff930845de08c",
+      "mode": "100644"
+    },
     "tools/node/katex-render.mjs": {
       "sha256": "2e2f1201525c4e68918c51fc3e7c84937858f7d589dd67df460f53e4d573d572",
       "mode": "100644"
@@ -697,6 +701,10 @@
     },
     "tools/tests/test_markdown.py": {
       "sha256": "3636353ea8f35f9364db0ce6a5700a0e0cbaf1d7463b1fcf1ee505d717eb8864",
+      "mode": "100644"
+    },
+    "tools/tests/test_migration_v0_2_0.py": {
+      "sha256": "b9c3f2f1ad5489024d293f4f967698054a87bc6d3b960ece687d7c7b870c7abc",
       "mode": "100644"
     },
     "tools/tests/test_newbook.py": {
