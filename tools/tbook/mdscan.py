@@ -18,7 +18,8 @@ It understands just enough of Pandoc Markdown for the book conventions:
 * cross references ``[@id]``, links and images (:data:`LINK_RE`), link reference
   definitions (:data:`REFDEF_RE`, also in block quotes and list items) and Lean links
   ``[text](lean:GID)`` in every one-line form (:func:`lean_link_gids`), and those it cannot read
-  because they run across lines (:func:`stray_lean_links`);
+  because they run across lines (:func:`stray_lean_links`; a ``<lean:GID>`` destination of one is
+  no autolink, :func:`hide_lean_destinations`);
 * titles as inline Markdown: :func:`unescape_markdown` gives their plain text.
 """
 
@@ -60,10 +61,11 @@ for _ in range(3):
     LINK_TEXT = r"(?:`[^`]*`|\\.|[^\[\]\\]|\[" + LINK_TEXT + r"\])*+"
 # A link title as CommonMark writes it: "…", '…' or (…), with backslash escapes.
 LINK_TITLE = r"""(?:"(?:[^"\\]|\\.)*+"|'(?:[^'\\]|\\.)*+'|\((?:[^()\\]|\\.)*+\))"""
-# An inline link or image; ``url`` is the destination as written: ``<…>`` (may contain spaces) or a
-# plain one (balanced parentheses allowed); ``title`` keeps the spaces before it.
+# An inline link or image; ``url`` is the destination as written: ``<…>`` (may contain spaces), a
+# plain one (balanced parentheses allowed) or empty (``[x]()``, a link to the page itself, as in
+# CommonMark and Pandoc); ``title`` keeps the spaces before it.
 LINK_RE = re.compile(r"(?P<bang>!?)\[(?P<text>" + LINK_TEXT + r")\]\([ \t]*"
-                     r"(?P<url><[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))++)"
+                     r"(?P<url><[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))*+)"
                      r"(?P<title>[ \t]+" + LINK_TITLE + r")?[ \t]*\)")
 # A CommonMark autolink to a declaration, ``<lean:GID>`` (mdBook links it; Pandoc's Markdown does not).
 LEAN_AUTOLINK_RE = re.compile(r"<lean:(?P<gid>[^\s<>]*)>")
@@ -71,10 +73,11 @@ LEAN_AUTOLINK_RE = re.compile(r"<lean:(?P<gid>[^\s<>]*)>")
 # left margin or inside block quotes and list items (``lead`` keeps their markers); after the
 # destination only an optional title ("…", '…' or (…), with backslash escapes; it may continue on
 # the next line). ``[注]: 见 [图](a.svg)`` or ``[1]: Knuth, TAOCP.`` is a paragraph, not a
-# definition, and so is a footnote ``[^x]:``.
-REFDEF_RE = re.compile(
-    r"""^(?P<lead>""" + CONTAINER + r"""\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*)(?P<url><[^<>\n]*>|\S+)"""
-    r"""(?P<rest>(?:[ \t]+(?:"(?:[^"\\]|\\.)*+"?|'(?:[^'\\]|\\.)*+'?|\((?:[^()\\]|\\.)*+\)?))?[ \t]*)$""")
+# definition, and so is a footnote ``[^x]:``. REFDEF_DEST is what follows the label: the destination
+# and the optional title, to the end of the line.
+REFDEF_DEST = (r"""(?P<url><[^<>\n]*>|\S+)"""
+               r"""(?P<rest>(?:[ \t]+(?:"(?:[^"\\]|\\.)*+"?|'(?:[^'\\]|\\.)*+'?|\((?:[^()\\]|\\.)*+\)?))?[ \t]*)$""")
+REFDEF_RE = re.compile(r"""^(?P<lead>""" + CONTAINER + r"""\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*)""" + REFDEF_DEST)
 ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
 
 
@@ -711,7 +714,8 @@ def lean_link_gids(line: str) -> list[str]:
     ``[text](lean:GID)`` and ``[text](<lean:GID>)`` (also images, any title, links in link text)
     and autolinks ``<lean:GID>`` outside code spans and comments, or the destination of a reference
     definition ``[label]: lean:GID`` (also in a block quote or list item). Links written across
-    lines are not read: :func:`stray_lean_links` finds them."""
+    lines are not read: :func:`stray_lean_links` finds them. Read a text node's lines through
+    :func:`text_views`, where the ``<lean:GID>`` destination of such a link is no autolink."""
     rd = refdef(line)
     urls = [unangle(rd.group("url"))] if rd else [url for _, url in _inline_lean_urls(line)]
     return [url[len("lean:"):] for url in urls if url.startswith("lean:")]
@@ -722,14 +726,18 @@ def _node_carry(node: Text) -> list[tuple[bool, bool]]:
 
 
 def text_views(node: Text) -> list[str]:
-    """The lines of ``node`` as the per-line scanners must read them (:func:`close_comments`)."""
-    return [close_comments(line, carry) for line, carry in zip(node.lines, _node_carry(node))]
+    """The lines of ``node`` as the per-line scanners must read them (:func:`close_comments`,
+    :func:`hide_lean_destinations`)."""
+    return [close_comments(line, carry) for line, carry in zip(hide_lean_destinations(node.lines), _node_carry(node))]
 
 
 def map_text(node: Text, fn: Callable[[str], str]) -> list[str]:
     """``fn`` applied to each line of ``node``, inline comments that span lines kept out of its reach
-    (:func:`map_closed`)."""
-    return [map_closed(fn, line, carry) for line, carry in zip(node.lines, _node_carry(node))]
+    (:func:`map_closed`), and so are the ``<lean:…>`` destinations of links written across lines
+    (:func:`hide_lean_destinations`; they come back as written)."""
+    lines = hide_lean_destinations(node.lines)
+    out = [map_closed(fn, line, carry) for line, carry in zip(lines, _node_carry(node))]
+    return out if lines is node.lines else [line.replace(_HIDDEN_LT, "<") for line in out]
 
 
 @dataclass
@@ -740,12 +748,13 @@ class StrayLean:
     start: int  # what to replace: offsets into the lines joined with "\n"
     end: int
     replacement: str
+    dest: int = -1  # offset of the destination (``<lean:…>`` or ``lean:…``)
 
 
 # Spaces or tabs with at most one line end, after which the block-quote markers of the next line.
 _WS1 = r"[ \t]*+(?:\n[ \t>]*+)?"
 _STRAY_LINK_RE = re.compile(
-    r"\]\(" + _WS1 + r"(?:<lean:[^<>\n]*>|lean:(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))*+)"
+    r"\]\(" + _WS1 + r"(?P<dest><lean:[^<>\n]*>|lean:(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))*+)"
     r"(?:(?:[ \t]++(?:\n[ \t>]*+)?|\n[ \t>]*+)" + LINK_TITLE + r")?" + _WS1 + r"\)")
 _STRAY_DEF_RE = re.compile(
     r"^" + CONTAINER + r"\[(?!\^)(?:[^\[\]\\\n]|\\.|\n(?![ \t>]*\n))+\]:(?P<gap>" + _WS1
@@ -785,10 +794,12 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
 
     A link whose text, destination or title runs across lines (``[a\\nb](lean:GID)``), a reference
     definition whose label runs across lines or whose destination is on the next line
-    (``[x]:\\n  lean:GID``), and an ``href``/``src`` attribute of raw HTML. Code spans and HTML
-    comments (also those that run across lines) and every link the line scanner reads are skipped.
-    Each :class:`StrayLean` says what to write instead so no target shows a ``lean:`` destination: a
-    link becomes its text, a definition gets the destination ``#`` (as an unresolved one does), an
+    (``[x]:\\n  lean:GID``), and an ``href``/``src`` attribute of raw HTML. The destination may be
+    written ``<lean:GID>``: CommonMark reads it as the link's destination, not as an autolink (the
+    line scanners do not either, :func:`hide_lean_destinations`). Code spans and HTML comments (also
+    those that run across lines) and every link the line scanner reads are skipped. Each
+    :class:`StrayLean` says what to write instead so no target shows a ``lean:`` destination: a link
+    becomes its text, a definition gets the destination ``#`` (as an unresolved one does), an
     attribute gets ``#``.
     """
     original = "\n".join(lines)
@@ -805,9 +816,8 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
             break
         if refdef(line):
             spans.append((offset, offset + len(line)))
-        else:
-            for pattern in (LINK_RE, LEAN_AUTOLINK_RE):
-                spans += [(offset + m.start(), offset + m.end()) for m in find_outside_code(pattern, line)]
+        else:  # not the autolinks: the patterns below find one only where it is a destination
+            spans += [(offset + m.start(), offset + m.end()) for m in find_outside_code(LINK_RE, line)]
         offset += len(line) + 1
     for a, b in spans:
         chars[a:b] = _MASK * (b - a)
@@ -818,14 +828,39 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
         if opener is None:
             continue  # no "[" opens it: plain text, not a link
         start = opener - 1 if opener and text[opener - 1] == "!" else opener
-        out.append(StrayLean(text.count("\n", 0, text.index("lean:", m.start())), start, m.end(),
-                             original[opener + 1:m.start()]))
+        out.append(StrayLean(text.count("\n", 0, m.start("dest")), start, m.end(),
+                             original[opener + 1:m.start()], m.start("dest")))
     for m in _STRAY_DEF_RE.finditer(text):
         # " #" right after the label: a "#" opening the next line would be an (empty) ATX heading.
-        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("gap"), m.end("dest"), " #"))
+        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("gap"), m.end("dest"), " #",
+                             m.start("dest")))
     for m in _STRAY_HTML_RE.finditer(text):
-        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("dest"), m.end("dest"), "#"))
+        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("dest"), m.end("dest"), "#",
+                             m.start("dest")))
     return sorted(out, key=lambda s: s.start)
+
+
+# Stands for the "<" of a ``<lean:…>`` destination while the line scanners read a line (a private-use
+# character, so never in a book; :func:`hide_lean_destinations` leaves text that has one alone).
+_HIDDEN_LT = "\ue000"
+
+
+def hide_lean_destinations(lines: list[str]) -> list[str]:
+    """``lines`` (consecutive text lines) with the ``<`` of each ``<lean:…>`` that is the destination of
+    a link or definition written across lines (:func:`stray_lean_links`) replaced by U+E000, so that
+    the line scanners do not read it as an autolink; ``lines`` itself when there is none. The line
+    scanners see ``b](<lean:GID>)`` or ``<lean:GID>`` alone on its line, while CommonMark reads it as
+    the destination of the link or definition begun on an earlier line."""
+    text = "\n".join(lines)
+    if "<lean:" not in text or _HIDDEN_LT in text:
+        return lines
+    marks = [s.dest for s in stray_lean_links(lines) if text.startswith("<lean:", s.dest)]
+    if not marks:
+        return lines
+    chars = list(text)
+    for k in marks:
+        chars[k] = _HIDDEN_LT
+    return "".join(chars).split("\n")
 
 
 def without_stray_lean(lines: list[str]) -> tuple[list[str], list[StrayLean]]:

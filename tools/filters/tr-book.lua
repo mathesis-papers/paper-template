@@ -9,7 +9,7 @@ SUMMARY.md become `# Part {.tr-part}` headings. This filter:
 * every format — turns internal links `#id` whose target does not exist into plain text
   (with a warning on stderr), so a dangling anchor never breaks Typst compilation
   or EPUB validation; so are links and images to `lean:` (a backstop: the stager never
-  writes one);
+  writes one) and those with an empty destination (Typst refuses an empty URL);
 * typst — replaces chapter and part headings with calls of `tr-chapter` / `tr-part`
   (theme/typst/book.typ draws the openers and keeps a real `heading` for the outline
   and running headers); replaces images Typst cannot load (remote URLs, missing files)
@@ -77,10 +77,15 @@ end
 local function fix_links(doc, ids)
   return doc:walk({
     -- tools/tbook/render.py never writes a lean: destination; should one get through, it is text
-    -- (no PDF reader can open it, and epubcheck rejects the scheme).
+    -- (no PDF reader can open it, and epubcheck rejects the scheme). So is an empty destination
+    -- (`[x]()`, `![x]()`, `[x]: <>`): Typst refuses an empty URL, epubcheck an empty image source.
     Image = function(img)
       if img.src:sub(1, 5) == "lean:" then
         warn("lean: image " .. img.src .. " rendered as its description")
+        return pandoc.Span(img.caption, pandoc.Attr("", { "tr-dangling" }))
+      end
+      if img.src == "" then
+        warn("image with an empty source (" .. stringify(img.caption) .. ") rendered as its description")
         return pandoc.Span(img.caption, pandoc.Attr("", { "tr-dangling" }))
       end
       return nil
@@ -89,6 +94,10 @@ local function fix_links(doc, ids)
       local t = link.target
       if t:sub(1, 5) == "lean:" then
         warn("lean: link " .. t .. " (" .. stringify(link.content) .. ") rendered as text")
+        return pandoc.Span(link.content, pandoc.Attr("", { "tr-dangling" }))
+      end
+      if t == "" then
+        warn("link with an empty destination (" .. stringify(link.content) .. ") rendered as text")
         return pandoc.Span(link.content, pandoc.Attr("", { "tr-dangling" }))
       end
       if t:sub(1, 1) == "#" then
