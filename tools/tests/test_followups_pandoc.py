@@ -443,6 +443,13 @@ FOOTNOTE_HEADINGS = [
     ("an HTML block goes on in its container",
      "# 甲\n\n> <div>\n> [^b]\n> </div>\n\n> <pre>\n>\n> [^b]\n> </pre>\n\n- <pre>\n  x\n\n  [^b]\n  </pre>\n\n"
      "> <div>\n> > [^b]\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n", ["甲", "注释1"]),
+    # Indentation of an HTML block's first line is no container (only list items opened above it
+    # are), a list item may begin with nothing after its marker, and an empty one cannot
+    # interrupt a paragraph.
+    ("indentation of an HTML block's first line",
+     "# 甲\n\n>  <div>\n> x[^b]\n> </div>\n\n- 项\n\n   <div>\n  y[^b]\n  </div>\n\n <div class=\"note\">\n正文[^b]\n"
+     " </div>\n\n  <span>\n1. z[^b]\n\n- \n  <div>\n后文[^c]\n\n段\n1. \n  <img src=\"x.png\">\n又[^d]\n\n"
+     "## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n", ["甲", "注释3"]),
     # "[ ]" is no link label (a label has a character other than whitespace), "[^c]" no attribute
     # name, "#标签" no heading (so <b> under it is inline HTML in its paragraph); a setext
     # heading ends its paragraph, so a lone tag under it starts an HTML block.
@@ -457,6 +464,13 @@ FOOTNOTE_HEADINGS = [
 # mdBook reads "[^a](…)" in a heading as a link (text "^a"); Pandoc's own slug differs, so these
 # are not part of test_fallback_is_pandocs_own_slug.
 MDBOOK_ONLY_HEADINGS = [
+    # A thematic break is no lazy line and ends a paragraph, so a lone tag under it starts an HTML
+    # block; "===" under a block quote's paragraph goes on with it (an underline is in the quote;
+    # Pandoc reads a heading there).
+    ("thematic breaks and lazy underlines",
+     "# 甲\n\n- <div>注</div>\n---\n<img src=\"x.png\">\n图注[^b]\n\n> <div>注</div>\n***\n<img src=\"x.png\">\n"
+     "图注[^b]\n\n> 段\n===\n<img src=\"x.png\">\n正文[^c]\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n",
+     ["甲", "注释2"]),
     ("a reference followed by a destination is a link", "# 甲\n\n## 注释[^a](1972)\n\n## 又[^a]\n\n[^a]: A。\n",
      ["甲", "注释a", "又1"]),
 ]
@@ -488,6 +502,10 @@ class FootnoteHeadingIdsTest(unittest.TestCase):
         self.assertEqual(tp.footnote_numbers(footnote_case("references in definitions count where they are written")),
                          {"c": 1, "a": 2, "b": 3, "d": 4, "e": 5})
         self.assertEqual(tp.footnote_numbers(footnote_case("label case")), {"a": 1, "A": 2})
+        self.assertEqual(tp.footnote_numbers(footnote_case("indentation of an HTML block's first line")),
+                         {"c": 1, "d": 2, "a": 3})
+        breaks = next(md for n, md, _ in MDBOOK_ONLY_HEADINGS if n == "thematic breaks and lazy underlines")
+        self.assertEqual(tp.footnote_numbers(breaks), {"c": 1, "a": 2})
         self.assertEqual(tp.footnote_numbers("# 甲\n\n正文[^nope]。\n"), {})
 
     def test_heading_slugs(self):
@@ -897,9 +915,11 @@ class EditionsReadTheBookTest(unittest.TestCase):
         "ch02.md": "# 二 列表\n\n- 第一项\n- <div>第二项</div>\n后文[^a]。\n\n[^a]: 乙注。\n",
         "ch03.md": "# 三 未闭合\n\n> <pre>\n> 代码\n\n后文[^a]。\n\n[^a]: 丙注。\n",
         "ch04.md": ("# 四 求和\n\n求和：\n\n$$\n=\n$$\n\n正文[^c]。\n\n## 注释[^b]\n\n::: {.remark #rem-x}\n说明。\n:::\n\n"
-                    "## 小节 {#sec-own}\n\n[^b]: 丁注。\n[^c]: 戊注。\n"),
+                    "## 小节 {#sec-own}\n\n<a id=\"raw-x\"></a>锚点。\n\n> ## 引中标题\n>\n> 引文。\n\n- ### 列中标题\n\n"
+                    "  列表内容。\n\n[^b]: 丁注。\n[^c]: 戊注。\n"),
         "ch05.md": ("# 五 链接\n\n见[错](ch04.md#注释1)、[对](ch04.md#注释2)、[环境](ch04.md#rem-x)、[显式](ch04.md#sec-own)、"
-                    "[甲](ch01.md#注释1)，本章[无](#注释1)。\n\n正文[^a][ ]。\n\n[^a]: 己注。\n"),
+                    "[甲](ch01.md#注释1)，本章[无](#注释1)，[原始](ch04.md#raw-x)、[引中](ch04.md#引中标题)、"
+                    "[列中](ch04.md#列中标题)。\n\n正文[^a][ ]。\n\n[^a]: 己注。\n"),
     }
 
     @classmethod
@@ -956,6 +976,17 @@ class EditionsReadTheBookTest(unittest.TestCase):
         self.assertTrue(first and "甲注。" in self.xhtml["EPUB/text/" + first.group(1)], links)
         self.assertIn("#link(<注释2>)[对]", self.typst)
         self.assertNotIn("#link(<注释1>)[错]", self.typst)
+
+    def test_raw_html_ids_and_contained_headings_resolve(self):
+        """Findings: a link to an id in raw HTML failed the PDF (Typst drops raw HTML, so the label was
+        missing); links to headings in a block quote or list item dangled in PDF/EPUB."""
+        links = self.chapter("本章")
+        for text, frag in (("原始", "raw-x"), ("引中", "引中标题"), ("列中", "列中标题")):
+            with self.subTest(text):
+                m = re.search(rf'<a href="(ch\d+\.xhtml)#{frag}">{text}</a>', links)
+                self.assertTrue(m and f'id="{frag}"' in self.xhtml["EPUB/text/" + m.group(1)], links)
+                self.assertIn(f"#link(<{frag}>)[{text}]", self.typst)
+        self.assertIn('#metadata("tr-anchor") <raw-x>', self.typst)
 
 
 class ScanTimeTest(unittest.TestCase):

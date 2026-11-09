@@ -617,6 +617,47 @@ class DefinitionStartTests(unittest.TestCase):
         self.assertLess(time.perf_counter() - start, 2.0)
 
 
+class DefinitionAfterTitleLineTests(unittest.TestCase):
+    """Findings: a definition after one whose title stands on the next line, and a definition on a line of an
+    HTML block (Pandoc reads Markdown there), were read as text: their ``lean:`` GIDs were not checked, the HTML
+    linked ``lean:…`` and ``[1]: Knuth`` vanished from the PDF. A ``[a`b]:`` line whose autolink was rewritten
+    crashed check and the build."""
+
+    TEXT = (f"# 第一章\n\n见 [一][t1]、[二][t2]、[三][t3]、[四][t4]。\n\n"
+            f"[p]: https://example.com/paper.pdf\n  \"原始论文\"\n[t1]: lean:{GID_OK}\n\n"  # 5-7
+            f"[q]:\nhttps://example.com/q\n'标题'\n[t2]: lean:{GID_DEF}\n\n"  # 9-12
+            f"> [r]: https://example.com/r\n> (多行\n> 标题)\n> [t3]: lean:{GID_OK}\n\n"  # 14-17
+            f"<div class=\"note\">\n[t4]: lean:{GID_OK}\n[1]: Knuth, TAOCP.\n</div>\n\n"  # 19-22
+            f"[a`b]: <lean:{GID_OK}>，``c``\n\n"  # 24
+            f"[s]: https://example.com/s\n\"标题\" 之后有字\n[u]: lean:{GID_MISSING}\n")  # 26-28
+    CITED = [(7, GID_OK), (12, GID_DEF), (17, GID_OK), (20, GID_OK), (24, GID_OK)]
+
+    def test_roles(self):
+        S, D = mdscan.DEF_START, mdscan.DEF_DEST
+        self.assertEqual(mdscan.definition_roles(['[p]: u', '  "标题"', '[t]: v']), [S, "", S])
+        self.assertEqual(mdscan.definition_roles(['[p]:', 'u', "'标题'", '[t]: v']), [S, D, "", S])
+        self.assertEqual(mdscan.definition_roles(['> [p]: u', '> (多行', '> 标题)', '> [t]: v']), [S, "", "", S])
+        # a title with words after it is none: the definition ends before it, and a paragraph begins
+        self.assertEqual(mdscan.definition_roles(['[p]: u', '"标题" 字', '[t]: v']), [S, S, ""])
+        scan = mdscan.scan_blocks(['<div>', '[t]: v', '[1]: Knuth', '</div>'])
+        self.assertEqual(mdscan.definition_roles(scan.lines, scan.cont), [S] * 4)
+
+    def test_model_and_render(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            m = model.load_edition(repo.edition)
+            self.assertEqual(m.chapters[1].lean_links, self.CITED)
+            repo.model = m
+            for target in ("mdbook", "pandoc"):
+                out, _ = repo.render("ch01.md", target=target)
+                self.assertNotIn("lean:", out.replace(f"lean:{GID_MISSING}", ""), target)
+                self.assertIn(f"\n[t1]: {SOURCE_OK}\n", out, target)
+                self.assertIn(f"\n[t2]: {SOURCE_DEF}\n", out, target)
+                self.assertIn(f"\n> [t3]: {SOURCE_OK}\n", out, target)
+                self.assertIn(f"\n[t4]: {SOURCE_OK}\n", out, target)
+                self.assertIn(f"\\[a`b]: [{mdscan.escape_markdown(GID_OK)}]({SOURCE_OK})，``c``", out, target)
+            self.assertIn("\n\\[1]: Knuth, TAOCP.\n", out)  # Pandoc's last: text, as in mdBook
+
 class DefinitionLikeParagraphTests(unittest.TestCase):
     """``[1]: <lean:GID> 文字`` is no definition (words follow the destination, or ``，`` right after the
     ``>``: a plain destination cannot start with ``<``) but a paragraph with an autolink: it was a false

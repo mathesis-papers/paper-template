@@ -1312,9 +1312,11 @@ _ATTR_RE = re.compile(rf"{_S}+([a-zA-Z_:@][a-zA-Z0-9:._-]*)"  # one attribute of
 # without modifiers, v-model:gid) the first in the tag wins; citations() reads gid and a string literal in :gid or
 # v-bind:gid and reports the others (also .prop and .attr, which set no prop) when they come first. A v-bind without
 # an argument (v-bind="{…}", :="…", v-bind.prop=…) merges an object whose gid wins over the attributes before it:
-# always reported.
+# always reported. A v-on without one (v-on="{…}", @="…", v-on.x=…) starts a new group of props that Vue merges
+# over the earlier ones (mergeProps), so the first gid source after it wins instead.
 _GID_ATTR_RE = re.compile(r"gid|(?::|v-bind:|v-model:)gid(?:\..*)?")
 _SPREAD_RE = re.compile(r"(?::|v-bind:?)(?:\..*)?")
+_ON_SPREAD_RE = re.compile(r"(?:@|v-on:?)(?:\..*)?")
 _ABS_LINK_RES = (
     re.compile(r"\b(?:href|src|poster|data)\s*=\s*[\"'](/(?!/)[^\"']*|file:[^\"']*)[\"']", re.I),
     re.compile(r"\]\((/(?!/)[^)\s]*|file:[^)\s]*)\)"),
@@ -1358,14 +1360,17 @@ def citations(content: str) -> tuple[list[Citation], list[str]]:
             continue
         attrs: dict[str, Any] = {}
         first = None  # the attribute Vue takes gid from (_GID_ATTR_RE): name, value
+        group = False  # a v-on object began a new group of props since: its first gid source wins
         for a in _ATTR_RE.finditer(m.group(2)):
             name = a.group(1)
             attrs[name] = next((v for v in a.group(2, 3, 4) if v is not None), True)
             if _SPREAD_RE.fullmatch(name):
                 problems.append(f"<{m.group(1)} {name}=…>: an object bound with v-bind can set gid, which cannot be "
                                 "checked; bind each prop on its own")
-            elif first is None and _GID_ATTR_RE.fullmatch(name):
-                first = name, attrs[name]
+            elif _ON_SPREAD_RE.fullmatch(name):
+                group = True
+            elif (first is None or group) and _GID_ATTR_RE.fullmatch(name):
+                first, group = (name, attrs[name]), False
         gid = first[1] if first and first[0] == "gid" else ""
         if first and first[0] != "gid":
             name, expr = first[0], "true" if first[1] is True else first[1]  # as JavaScript's String() writes it

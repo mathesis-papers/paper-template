@@ -30,7 +30,7 @@ from tbook import check, config, mathrender, mdscan, model
 from tbook import pandoc as tp
 from test_followups_pandoc import MDBOOK, fixture_site, math_hidden_lines, stage_chapters, write_book
 from test_markdown import GID_OK, Repo, write
-from test_pandoc import HAVE_KATEX, have_pandoc
+from test_pandoc import HAVE_KATEX, PINNED_PANDOC, have_pandoc, have_pinned_pandoc
 
 
 def parse_hidden(text: str) -> list[bool]:
@@ -813,7 +813,7 @@ class RenderersAgreeTest(unittest.TestCase):
                     mdscan.parse_blocks(md, issues)
                     self.assertEqual(issues, [])
 
-    @unittest.skipUnless(have_pandoc(), "pandoc needed")
+    @unittest.skipUnless(have_pinned_pandoc(), f"Pandoc {PINNED_PANDOC} needed (requirements.txt)")
     def test_pandoc(self):
         for name, md in AGREED.items():
             with self.subTest(name):

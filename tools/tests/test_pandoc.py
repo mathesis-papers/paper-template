@@ -159,6 +159,26 @@ def have_pandoc() -> bool:
         return False
 
 
+# The Pandoc that requirements.txt pins (pypandoc_binary 1.17 bundles Pandoc 3.9). Tests that compare the
+# scanners with Pandoc's own reading of a case were recorded with it; another Pandoc may read some cases otherwise
+# (Pandoc 3.1 reads a definition two blank lines after its term as a paragraph).
+PINNED_PANDOC = "3.9"
+
+
+def pandoc_version() -> str:
+    """The version of the Pandoc that tbook.pandoc.pandoc_path() finds ("" without one)."""
+    try:
+        out = subprocess.run([tp.pandoc_path(), "--version"], capture_output=True, text=True, check=True).stdout
+    except (tp.PandocError, OSError, subprocess.CalledProcessError):
+        return ""
+    m = re.match(r"pandoc(?:\.exe)? (\S+)", out)
+    return m.group(1) if m else ""
+
+
+def have_pinned_pandoc() -> bool:
+    return pandoc_version() == PINNED_PANDOC
+
+
 def have_typst() -> bool:
     try:
         import typst  # noqa: F401

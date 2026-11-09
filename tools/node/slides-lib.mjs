@@ -1133,9 +1133,11 @@ const ATTR_RE = /\s+([a-zA-Z_:@][a-zA-Z0-9:._-]*)(?:\s*=\s*(?:([^"'=<>`\x00-\x20
 // without modifiers, v-model:gid) the first in the tag wins; citations() reads gid and a string literal in :gid or
 // v-bind:gid and reports the others (also .prop and .attr, which set no prop) when they come first. A v-bind without
 // an argument (v-bind="{…}", :="…", v-bind.prop=…) merges an object whose gid wins over the attributes before it:
-// always reported.
+// always reported. A v-on without one (v-on="{…}", @="…", v-on.x=…) starts a new group of props that Vue merges
+// over the earlier ones (mergeProps), so the first gid source after it wins instead.
 const GID_ATTR_RE = /^(?:gid|(?::|v-bind:|v-model:)gid(?:\..*)?)$/;
 const SPREAD_RE = /^(?::|v-bind:?)(?:\..*)?$/;
+const ON_SPREAD_RE = /^(?:@|v-on:?)(?:\..*)?$/;
 
 // The component name a template tag resolves to, as Vue resolves it (capitalize(camelize(tag))): lean-badge and
 // leanBadge are LeanBadge.
@@ -1165,13 +1167,19 @@ export function citations(content) {
     if (!COMPONENTS.has(tag)) continue;
     const attrs = {};
     let first = null; // the attribute Vue takes gid from (GID_ATTR_RE): [name, value]
+    let group = false; // a v-on object began a new group of props since: its first gid source wins
     for (const a of m[2].matchAll(ATTR_RE)) {
       const name = a[1];
       attrs[name] = a[2] ?? a[3] ?? a[4] ?? true;
       if (SPREAD_RE.test(name)) {
         problems.push(`<${m[1]} ${name}=…>: an object bound with v-bind can set gid, which cannot be checked; bind each `
           + 'prop on its own');
-      } else if (!first && GID_ATTR_RE.test(name)) first = [name, attrs[name]];
+      } else if (ON_SPREAD_RE.test(name)) {
+        group = true;
+      } else if ((!first || group) && GID_ATTR_RE.test(name)) {
+        first = [name, attrs[name]];
+        group = false;
+      }
     }
     let gid = first?.[0] === 'gid' ? first[1] : '';
     if (first && first[0] !== 'gid') {

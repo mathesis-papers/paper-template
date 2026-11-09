@@ -822,6 +822,11 @@ GID_BINDINGS = [
     # not gid: another prop, an argument that is not gid, an attribute that is no directive (Vue's are lower case)
     ("<LeanBadge v-bind:kind=\"'theorem'\" :gid:x=\"'@'\" V-BIND:gid=\"'@'\" gid=\"D5/S9/Bind/Vue.other\" />",
      "D5/S9/Bind/Vue.other", "D5/S9/Bind/Vue.other"),
+    # a v-on object starts a group of props that Vue merges over the earlier ones: its first gid wins
+    ("<LeanBadge gid=\"@\" v-on=\"{}\" :gid=\"'D5/S9/Bind/Vue.on_group'\" v-bind:gid=\"'@'\" />",
+     "D5/S9/Bind/Vue.on_group", "D5/S9/Bind/Vue.on_group"),
+    ("<LeanBadge gid=\"D5/S9/Bind/Vue.on_kept\" :gid=\"'@'\" v-on.x=\"{}\" />",
+     "D5/S9/Bind/Vue.on_kept", "D5/S9/Bind/Vue.on_kept"),
     ("<LeanBadge gid=\"@\" v-bind=\"{ gid: 'D5/S9/Bind/Vue.spread' }\" />", None, None),
     ("<LeanBadge v-bind=\"{ gid: 'D5/S9/Bind/Vue.spread_first' }\" gid=\"@\" />", None, None),
     ("<lean-badge gid=\"@\" :=\"{ gid: 'D5/S9/Bind/Vue.short_spread' }\" />", None, None),
@@ -834,7 +839,7 @@ GID_BINDINGS = [(text.replace("@", FAKE_THM), rendered, checked) for text, rende
 # modifier or v-model is none: it needs one)
 GID_BINDING_DECK = "".join(f"\n---\n\n{text}\n" for text, _, _ in GID_BINDINGS)
 GID_BINDING_ISSUES = [
-    *(f"{checked} is not in trureturing.lock.json" for _, _, checked in GID_BINDINGS[:7]),
+    *(f"{checked} is not in trureturing.lock.json" for _, _, checked in GID_BINDINGS[:9]),
     "<LeanBadge v-bind=…>: an object bound", "<LeanBadge v-bind=…>: an object bound",
     "<lean-badge :=…>: an object bound", "<LeanBadge v-bind:.prop=…>: an object bound",
     "<LeanBadge :gid.camel=\"'D5/S9/Bind/Vue.modifier'\">: write gid", "<LeanBadge> needs gid=",
@@ -898,6 +903,9 @@ class TagScanTest(unittest.TestCase):
                            ('<LeanBadge v-model:gid="m" />', '<LeanBadge v-model:gid="m">: write gid'),
                            ('<LeanBadge v-bind:gid="m" />', '<LeanBadge v-bind:gid="m">: write gid as a literal')):
             self.assertTrue(slides.citations(text)[1][0].startswith(want), (text, slides.citations(text)))
+        # a v-on with an argument binds one listener and starts no group (Vue: { onClick: f, gid: "a" })
+        found, problems = slides.citations('<LeanBadge gid="a" @click="f" v-on:x="g" :gid="\'b\'" />')
+        self.assertEqual(([c.gid for c in found], problems), (["a"], []))
 
     def test_scan_is_linear(self):
         """The tag scan (citations() and slides-lib.mjs citations()) stays linear in the slide's size, also on
@@ -1112,13 +1120,22 @@ const string = (e) => {
   return typeof v === 'string' ? v : null;
 };
 // the gid prop Vue's code passes to a component (its codegen: duplicates resolved, modifiers applied): '' without
-// one, null when it is no string literal or the props are merged with an object
+// one, null when it is no string literal or the props are merged with an object bound by v-bind. mergeProps(…)
+// merges groups of props, a later one over the earlier ones; toHandlers(…) (a v-on object) holds listeners only.
+const helper = (e) => (e?.type === 14 && typeof e.callee === 'symbol' ? e.callee.description : undefined);
 const gidProp = (node) => {
   const props = node.codegenNode?.props;
   if (!props) return '';
-  if (props.type !== 15) return null; // mergeProps(…) or normalizeProps(…), not a plain object
-  const p = props.properties.find((q) => q.key.type === 4 && q.key.isStatic && q.key.content === 'gid');
-  return p ? string(p.value) : '';
+  const groups = props.type === 15 ? [props] : helper(props) === 'mergeProps' ? props.arguments : null;
+  if (!groups) return null; // normalizeProps(…)
+  let gid = '';
+  for (const g of groups) {
+    if (helper(g) === 'toHandlers') continue;
+    if (g.type !== 15) return null;
+    const p = g.properties.find((q) => q.key.type === 4 && q.key.isStatic && q.key.content === 'gid');
+    if (p) gid = string(p.value);
+  }
+  return gid;
 };
 const rendered = async (content) => {
   let html;
@@ -1212,6 +1229,7 @@ BIND_PIECES = [
     "<LeanBadge gid=\"@\" v-bind=\"{ gid: '@' }\" />", "<LeanBadge :=\"{ gid: '@' }\" gid=\"@\" />",
     "<LeanBadge :gid.camel=\"'@'\" gid=\"@\" />", "<LeanBadge gid=\"@\" :gid.prop=\"'@'\" />",
     '<TheoremCard v-model:gid="m" gid="@">s</TheoremCard>', '<LeanBadge gid="@" :gid="m" />',
+    "<LeanBadge gid=\"@\" v-on=\"{}\" :gid=\"'@'\" />", "<LeanBadge :gid=\"'@'\" v-on:=\"{}\" gid=\"@\" />",
 ]
 TAG_LINES = [("", "")] * 6 + [("> ", ""), ("- ", ""), ("1. ", ""), ("  ", ""), ("    ", ""), ("```\n", "\n```"),
                               ("<div>", "</div>"), ("<div>\n", "\n</div>"), ("<v-click>\n", "\n</v-click>"),

@@ -288,7 +288,8 @@ class BlockScan:
     # (line, message): where mdBook and Pandoc read the text differently (``parse_blocks`` warns).
     notes: list[tuple[int, str]] = field(default_factory=list)
     # Per line: a text line that goes on with the paragraph of the line before (lazily, or inside a
-    # formula; not a table row). A link reference definition cannot begin there (:func:`definition_roles`).
+    # formula; not a table row, nor a line of an HTML block, in which Pandoc reads Markdown). A link
+    # reference definition cannot begin there (:func:`definition_roles`).
     cont: list[bool] = field(default_factory=list)
 
     @property
@@ -344,6 +345,7 @@ def scan_blocks(lines: list[str]) -> BlockScan:
     kinds = [TEXT] * n
     blocks: dict[int, int] = {}
     cont = [False] * n  # a text line going on with the paragraph of the line before it
+    html = [False] * n  # a line going on with an HTML block (Pandoc reads Markdown, and definitions, in it)
     notes: list[tuple[int, str]] = []
     # open containers: -1 a block quote, otherwise the columns of its content after its container's
     # (a definition body's as _Def)
@@ -512,6 +514,7 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                 break
             if leaf == "p":
                 cont[i] = not table  # lazily, when containers ended; a table row is a paragraph of its own
+                html[i] = para < 0
             else:
                 del stack[keep:]
                 leaf, para, depth, table = "p", i, len(stack), False
@@ -545,7 +548,7 @@ def scan_blocks(lines: list[str]) -> BlockScan:
         if opened is not None:
             unclosed.append((i + opened[0], opened[1]))
         i = j
-    cont = [c and k == TEXT for c, k in zip(cont, kinds)]
+    cont = [c and k == TEXT and not h for c, k, h in zip(cont, kinds, html)]
     return BlockScan(list(lines), kinds, blocks, carry, unclosed, notes, cont)
 
 
@@ -1088,13 +1091,20 @@ def definition_roles(lines: list[str], cont: list[bool] | None = None) -> list[s
         cont = scan_blocks(lines).cont
     out: list[str] = []
     state, quotes = "", 0  # "def": one may begin; "label": a destination may follow; ")", '"', "'": a title goes on
+    untitled = -1  # the line before ended a definition without a title (its block quotes): one may follow
     for line, goes_on in zip(lines, cont):
         if not goes_on:
-            state = "def"
+            state, untitled = "def", -1
         role, rest = "", None
         if state in _TITLE_END_RE:
             if _TITLE_END_RE[state].match(line):
                 state = "def"
+            out.append(role)
+            continue
+        title = _next_title(line, untitled) if untitled >= 0 else None
+        untitled = -1
+        if title is not None:  # the definition's title, on the line after its destination
+            state = title
             out.append(role)
             continue
         if state == "def":
@@ -1120,8 +1130,30 @@ def definition_roles(lines: list[str], cont: list[bool] | None = None) -> list[s
             title = rest.strip(" \t")
             close = {'"': '"', "'": "'", "(": ")"}.get(title[:1], "")
             state = close if close and not _TITLE_RE[close].fullmatch(title) else "def"
+            if not title:
+                untitled = quotes if role == DEF_DEST else m.group("lead").count(">")
         out.append(role)
     return out
+
+
+def _next_title(line: str, quotes: int) -> str | None:
+    """For the line after a definition without a title (``quotes``: its block quotes), the state of
+    :func:`definition_roles` after it when the line holds that title: "def" for a whole title,
+    its closing quote or parenthesis for one that goes on; None when the line is not a title."""
+    pos = 0
+    for _ in range(quotes):
+        q = _NEXT_QUOTE_RE.match(line, pos)
+        if not q:
+            return None
+        pos = q.end()
+    title = line[pos:].strip(" \t")
+    close = {'"': '"', "'": "'", "(": ")"}.get(title[:1], "")
+    if not close:
+        return None
+    whole = _TITLE_RE[close].match(title)
+    if whole:
+        return "def" if whole.end() == len(title) else None
+    return close
 
 
 def text_roles(node: Text) -> list[str]:

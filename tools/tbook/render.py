@@ -51,6 +51,7 @@ REFDEF_RE = mdscan.REFDEF_RE
 # CommonMark (mdBook) reads it as a paragraph, but Pandoc's Markdown takes a URL of several words
 # (``[1]: Knuth, TAOCP.`` or ``- [注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is
 # escaped so every target shows it.
+_CONTAINER_RE = re.compile(mdscan.CONTAINER)
 _REFDEF_LIKE_RE = re.compile(r"^(?P<indent>" + mdscan.CONTAINER + r")\[(?!\^)" + mdscan.LINK_TEXT + r"\]:[ \t]*\S")
 # ``[label]:`` with nothing after the colon. CommonMark reads a definition only when the next line of the
 # paragraph holds its destination (and optional title, mdscan.DEF_DEST); otherwise the line is text, while
@@ -358,8 +359,8 @@ def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext, role: str = md
     if out != line and role == mdscan.DEF_START and mdscan.refdef(out):
         # ``[3]: <lean:GID>，文字`` is text with an autolink; written ``[3]: [GID](url)，文字`` it would be a
         # definition (a plain destination may start with "[", not with "<"): the label stays text.
-        like = _REFDEF_LIKE_RE.match(out)
-        out = f"{like.group('indent')}\\{out[like.end('indent'):]}"
+        at = _CONTAINER_RE.match(out).end()  # where the label's "[" is, as in mdscan.REFDEF_RE
+        out = f"{out[:at]}\\{out[at:]}"
     return out
 
 

@@ -359,6 +359,8 @@ _HTML_BLOCKS = [
 ]
 # Block-quote and list-item markers before a line's own text (an HTML block may sit in either).
 _QUOTE_RE = re.compile(r" {0,3}>")
+# A thematic break (after the containers' markers): it ends a paragraph, and is no lazy line.
+_BREAK_RE = re.compile(r"([-*_])(?:[ \t]*\1){2,}[ \t]*")
 _SPACES_RE = re.compile(r" *")
 _LIST_ITEM_RE = re.compile(r"(?:[-*+]|\d{1,9}[.)])(?= |$)")
 # A complete open or closing HTML tag, with CommonMark's attribute names: raw HTML, in which mdBook
@@ -526,6 +528,24 @@ def find_headings(md: str) -> list[Heading]:
     return out
 
 
+def contained_headings(md: str) -> list[Heading]:
+    """ATX headings whose line opens a block quote or list item (``> ## 引文标题``, ``- ### 项``):
+    :func:`find_headings` leaves them to Pandoc, which gives them its automatic id."""
+    lines = md.split("\n")
+    mask = _code_mask(lines)
+    out = []
+    for i, raw in enumerate(lines):
+        first = raw.lstrip(" \t")[:1]
+        if mask[i] or not (first in (">", "-", "*", "+") or first.isdigit()):
+            continue
+        line = raw.expandtabs(4)
+        stack, pos = _containers(line)
+        h = parse_heading(line[pos:]) if stack else None
+        if h:
+            out.append(Heading(i, h[0], h[1], h[2]))
+    return out
+
+
 def chapter_slug(path: str) -> str:
     stem = path[:-3] if path.endswith(".md") else path
     return "ch-" + (SAFE_ID_RE.sub("-", stem).strip("-").lower() or "chapter")
@@ -581,14 +601,16 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
 
     An HTML block also ends with the block quote or list item it is in (it has no lazy lines): at a
     line without that ``>``, or not blank and indented less than that list item's content. The
-    containers are those whose markers stand on the block's first line; a first line indented
-    1-3 columns past them counts as the content of a list item opened on an earlier line, so the
-    block ends at a line indented less (at the top level mdBook would go on)."""
+    containers are those whose markers stand on the block's first line, and the list items opened
+    on earlier lines that the first line is indented into (``- 项`` then a blank line and ``  <div>``);
+    other indentation of the first line is no container."""
     hidden = scan.hidden
     raw = [False] * len(lines)
     end: re.Pattern | None = None  # what ends the open HTML block (None: a blank line)
     inside: list[int] = []  # the containers of the open HTML block (_containers)
     open_ = para = False  # an HTML block goes on; the line before goes on with a paragraph
+    para_quotes = 0  # the block quotes of the paragraph's first line
+    items: list[tuple[int, int]] = []  # open list items: (block quotes around, content column after them)
     for i, line in enumerate(lines):
         if hidden[i] or mdscan.DIV_OPEN_RE.match(line) or mdscan.DIV_CLOSE_RE.match(line):
             raw[i] = not hidden[i]
@@ -606,7 +628,14 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
         stack, pos = _containers(line)
         body = line[pos:]
         text = body.lstrip(" ")
+        quotes, after = _quote_prefix(line)
+        rest = line[after:]
+        marks = _containers(rest)[0]
         if not text:
+            if para and marks and quotes <= para_quotes:
+                continue  # an empty list item cannot interrupt a paragraph: the line goes on with it
+            if line.strip(" "):  # only markers: they end deeper list items and open their own
+                items = _open_items(items, quotes, rest, marks, False)
             para = False
             continue
         if len(body) - len(text) < 4:
@@ -619,11 +648,52 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
             else:
                 if not para and _TAG_RE.fullmatch(text.rstrip()):  # type 7
                     raw[i], end, open_ = True, None, True
-            if raw[i]:
-                inside = stack + ([len(body) - len(text)] if body != text else [])
-        # A heading ends the paragraph: an ATX heading, or the underline of a setext heading.
-        para = not raw[i] and not ATX_RE.match(text) and not (para and SETEXT_RE.match(text))
+        items = _open_items(items, quotes, rest, marks, para and not raw[i] and not marks)
+        if raw[i]:
+            inside = stack
+            if all(c < 0 for c in stack):  # in the list items it is indented into
+                indent = len(rest) - len(rest.lstrip(" "))
+                cols = [c for q, c in items if q == quotes and c <= indent]
+                inside = stack + [b - a for a, b in zip([0] + cols, cols)]
+        # A heading ends the paragraph (an ATX heading, or the underline of a setext heading, which
+        # is in the paragraph's block quotes), and so does a thematic break.
+        was = para
+        para = (not raw[i] and not ATX_RE.match(text) and not _BREAK_RE.fullmatch(text)
+                and not (para and quotes == para_quotes and SETEXT_RE.match(text)))
+        if para and not was:
+            para_quotes = quotes
     return raw
+
+
+def _open_items(items: list[tuple[int, int]], quotes: int, rest: str, marks: list[int],
+                lazy: bool) -> list[tuple[int, int]]:
+    """The list items open after a non-blank line (:func:`_raw_html_lines`): ``items`` as
+    (block quotes around, content column after them); the line has ``quotes`` block quotes, then
+    ``rest``, whose markers open ``marks`` (:func:`_containers`). Unless the line is a ``lazy``
+    continuation of a paragraph, it ends the items in deeper block quotes and those whose content
+    it is not indented to; then it opens its own (not those in a block quote after them)."""
+    if not lazy:
+        indent = len(rest) - len(rest.lstrip(" "))
+        items = [(q, col) for q, col in items if q < quotes or (q == quotes and col <= indent)]
+    col = 0
+    for width in marks:
+        if width < 0:
+            break
+        col += width
+        items = items + [(quotes, col)]
+    return items
+
+
+def _quote_prefix(line: str) -> tuple[int, int]:
+    """The block quotes whose markers start ``line`` (tabs expanded), as :func:`_containers` reads
+    them, and where the text after them starts."""
+    quotes = pos = 0
+    while True:
+        m = _QUOTE_RE.match(line, pos)
+        if not m:
+            return quotes, pos
+        quotes += 1
+        pos = m.end() + line.startswith(" ", m.end())
 
 
 def _math_spans(lines: list[str]) -> list[list[tuple[int, int]]]:
@@ -957,6 +1027,13 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
         for frag, new in reach + reach_pandoc:
             if frag and frag not in own:
                 anchors.setdefault(frag, new)
+        for h in contained_headings(md):  # Pandoc's automatic id, which book.md keeps
+            if h.attrs and h.attrs.id:
+                continue
+            mdbook, gfm = _slug_pair(h.text, _mdbook_text(h), math, notes)
+            for frag in (mdbook, gfm):
+                if frag and gfm and frag not in own:
+                    anchors.setdefault(frag, gfm)
         for frag in _HTML_ID_RE.findall(md):
             anchors.setdefault(frag, frag)
     return out

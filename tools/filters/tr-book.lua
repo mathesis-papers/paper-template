@@ -35,6 +35,12 @@ local function typst_str(s)
   return '"' .. s .. '"'
 end
 
+-- A Typst label after an element: <id>, or #label("…") for an id that the <…> syntax cannot write.
+local function typst_label(id)
+  if id:match("^[%w_%-:%.]+$") then return " <" .. id .. ">" end
+  return " #label(" .. typst_str(id) .. ")"
+end
+
 local function typst_content(inlines)
   local out = pandoc.write(pandoc.Pandoc({ pandoc.Plain(inlines) }), "typst")
   out = out:gsub("%s+$", "")
@@ -53,8 +59,20 @@ end
 
 -- ------------------------------------------------------------------ identifiers
 
+-- The id="…" / id='…' attributes of raw HTML (not data-id="…"), in order.
+local function raw_html_ids(text)
+  local out = {}
+  for _, pat in ipairs({ '%sid%s*=%s*"([^"]+)"', "%sid%s*=%s*'([^']+)'" }) do
+    for id in text:gmatch(pat) do out[#out + 1] = id end
+  end
+  return out
+end
+
+-- The ids a fragment link may reach: those of the document's elements, and those of raw HTML
+-- (<a id="x"></a>), which only HTML/EPUB keep; for Typst, typst_raw_anchors gives the latter a label.
+-- Returns all ids, and the ids that only raw HTML has.
 local function collect_ids(doc)
-  local ids = {}
+  local ids, raw_only = {}, {}
   local function add(el)
     if el.identifier and el.identifier ~= "" then ids[el.identifier] = true end
   end
@@ -62,16 +80,15 @@ local function collect_ids(doc)
     Header = add, Div = add, Span = add, Figure = add, Table = add, CodeBlock = add,
     Code = add, Image = add, Link = add,
   })
-  -- Raw HTML/Typst anchors written by other components (id="…" / <label>).
-  doc:walk({
-    RawBlock = function(raw)
-      for id in raw.text:gmatch('id="([^"]+)"') do ids[id] = true end
-    end,
-    RawInline = function(raw)
-      for id in raw.text:gmatch('id="([^"]+)"') do ids[id] = true end
-    end,
-  })
-  return ids
+  local function raw(el)
+    if el.format ~= "html" then return end
+    for _, id in ipairs(raw_html_ids(el.text)) do
+      if not ids[id] then raw_only[id] = true end
+    end
+  end
+  doc:walk({ RawBlock = raw, RawInline = raw })
+  for id in pairs(raw_only) do ids[id] = true end
+  return ids, raw_only
 end
 
 local function fix_links(doc, ids)
@@ -182,6 +199,34 @@ local function media_block(div)
   return out
 end
 
+-- Typst drops raw HTML: after the first raw element that carries an id only raw HTML has, a
+-- metadata element with that label, so that `#link(<id>)` lands there (a label must exist once).
+local function typst_raw_anchors(doc, raw_only)
+  local function anchors(el)
+    if el.format ~= "html" then return "" end
+    local out = {}
+    for _, id in ipairs(raw_html_ids(el.text)) do
+      if raw_only[id] then
+        raw_only[id] = nil
+        out[#out + 1] = '#metadata("tr-anchor")' .. typst_label(id)
+      end
+    end
+    return table.concat(out, " ")
+  end
+  return doc:walk({
+    RawInline = function(el)
+      local a = anchors(el)
+      if a == "" then return nil end
+      return { el, pandoc.RawInline("typst", a) }
+    end,
+    RawBlock = function(el)
+      local a = anchors(el)
+      if a == "" then return nil end
+      return { el, pandoc.RawBlock("typst", a) }
+    end,
+  })
+end
+
 -- ------------------------------------------------------------------ HTML / EPUB
 
 local function html_escape(s)
@@ -202,10 +247,11 @@ end
 -- ------------------------------------------------------------------ filter
 
 function Pandoc(doc)
-  local ids = collect_ids(doc)
+  local ids, raw_only = collect_ids(doc)
   doc = fix_links(doc, ids)
 
   if is_typst() then
+    doc = typst_raw_anchors(doc, raw_only)
     -- Ledger tables: top-level blocks between a `.tr-ledger` heading and the next chapter.
     local in_ledger = false
     for i, blk in ipairs(doc.blocks) do
