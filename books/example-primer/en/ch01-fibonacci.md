@@ -143,12 +143,12 @@ The hypothesis $a \ge 3$ cannot be weakened to $a \ge 2$. For $a = 2$, $F_2 = 1$
 "$\Leftarrow$" is Mathlib's `Nat.fib_dvd`: if $a \mid b$ then $F_a \mid F_b$. "$\Rightarrow$" uses Mathlib's `Nat.fib_gcd`, which says $\gcd(F_a, F_b) = F_{\gcd(a, b)}$. If $F_a \mid F_b$, then $\gcd(F_a, F_b) = F_a$, so $F_{\gcd(a,b)} = F_a$. If $\gcd(a, b) < a$, we would have $F_{\gcd(a,b)} \le F_{a-1} < F_a$, a contradiction; hence $\gcd(a, b) = a$, that is, $a \mid b$. The strict inequality $F_{a-1} < F_a$ needs $a - 1 \ge 2$, and this is exactly where the hypothesis $a \ge 3$ is used: $F_1 = F_2$. The full proof is checked by the Lean kernel.
 :::
 
-Finally, remainders. For a natural number $x$ and a positive integer $m$, write $x \bmod m$ for the remainder of $x$ on division by $m$. Computing $F_n \bmod 16$ term by term for $n = 0, 1, \dots, 23$:
+Finally, remainders. For a natural number $x$ and a positive integer $m$, write $x \bmod m$ for the remainder of $x$ on division by $m$. Computing $F_n \bmod 16$ term by term for $n = 0, 1, \dots, 23$ (every entry of the table is a remainder modulo $16$):
 
 | $n$ | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| $F_n \bmod 16$ | 0 | 1 | 1 | 2 | 3 | 5 | 8 | 13 | 5 | 2 | 7 | 9 |
-| $F_{n+12} \bmod 16$ | 0 | 9 | 9 | 2 | 11 | 13 | 8 | 5 | 13 | 2 | 15 | 1 |
+| $F_n$ | 0 | 1 | 1 | 2 | 3 | 5 | 8 | 13 | 5 | 2 | 7 | 9 |
+| $F_{n+12}$ | 0 | 9 | 9 | 2 | 11 | 13 | 8 | 5 | 13 | 2 | 15 | 1 |
 
 The last row holds the remainders for $n = 12$ to $23$. Continuing, $F_{24} = 46368$ and $F_{25} = 75025$ leave remainders $0$ and $1$, the same as $F_0$ and $F_1$. Since each remainder is determined by the two before it, the same $24$ numbers repeat from then on.
 

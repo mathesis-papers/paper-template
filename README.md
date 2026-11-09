@@ -121,7 +121,12 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 
 ## 示例
 
-`books/example-monograph/`《黄金整数与可观测性》演示了全部写法：Zeckendorf 进位亏量只取三个值、Greathouse 取整公式的反驳、目标恢复判据，以及书内可视化、视频与演示文稿。模板附带的示例书都以 `example-` 开头；书库用 `site.toml` 的 `[books] hide = ["example-*"]` 隐藏它们（见快速开始第 3 步）。
+模板附带两本示例书：
+
+- `books/example-monograph/`《黄金整数与可观测性》：四章加一个附录，演示全部写法（各种定理环境、多个 Lean 引用、开放问题与猜想、交叉引用、表格、图、脚注、定义列表、引文）以及书内可视化、视频与演示文稿。内容从 Zeckendorf 进位亏量只取三个值出发，经有限证书与反驳、细化与记忆、黄金词，到齐肯多夫表示与进位的附录。
+- `books/example-primer/`《斐波那契与卢卡斯：一本可验证的入门小书》：两章的入门小书，没有媒体，演示一本书最少需要什么。
+
+模板附带的示例书都以 `example-` 开头；书库用 `site.toml` 的 `[books] hide = ["example-*"]` 隐藏它们（见快速开始第 3 步）。
 
 ## 许可
 

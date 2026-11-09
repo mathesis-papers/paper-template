@@ -16,8 +16,8 @@ description: 在书库中新建一本书、新增章节或新增一个语言版�
 1. 在 GitHub 上用 “Use this template” 创建仓库，克隆到本地。
 2. `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && npm ci`；`./tbook doctor` 逐项检查工具链并给出修复命令。
 3. 编辑 `site.toml`：站点标题、`languages`（默认 `["zh", "en"]`）、`[books].order`。`repo` 与 `base_url` 一般留空（自动推断）。
-4. 隐藏模板附带的示例书（`books/example-*`，如 `books/example-monograph/`），不要删除：
-   1. 在 `site.toml` 的 `[books]` 中设 `hide = ["example-*"]`，并从 `[books].order` 中去掉 `"example-monograph"`；
+4. 隐藏模板附带的示例书（`books/example-*`：`books/example-monograph/` 与 `books/example-primer/`），不要删除：
+   1. 在 `site.toml` 的 `[books]` 中设 `hide = ["example-*"]`，并从 `[books].order` 中去掉 `"example-monograph"` 与 `"example-primer"`；
    2. `./tbook check`：0 错误，并有一行 `check: hidden by site.toml [books].hide, not checked: example-…`；`./tbook books` 不再列出示例书；
    3. `./tbook pin --refresh` 把只被示例书引用的声明从锁文件中清掉。
 

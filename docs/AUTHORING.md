@@ -1,6 +1,6 @@
 # 写作手册 · Authoring guide
 
-本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法（书库隐藏了示例书时它仍在原处，见 §1）。
+本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法，`books/example-primer/` 是一本最简单的书（书库隐藏了示例书时它们仍在原处，见 §1）。
 
 ## 1. 一本书的组成
 

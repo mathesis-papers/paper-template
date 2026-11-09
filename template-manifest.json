@@ -64,11 +64,11 @@
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "4497fc7d91b62c8ed084dab12541162ed6f01d9323ee9b76a96d8d77bd2ca457",
+      "sha256": "f3dc596dc2199c53376a20fa65cec705f992a41d64c31fc4dd70b85897dbd801",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "5d24a781ba314702aededac771880724b3a2dae790ebfbae941327ccdaeb5407",
+      "sha256": "c307d5d2fe530a91ba329b2f3e37791e6d0f98197b3929e21d0734fd556c2f87",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -104,7 +104,7 @@
       "mode": "100644"
     },
     "skills/book-new/SKILL.md": {
-      "sha256": "00062da5ac39a7ce7ddef34a444b27d4c7cc0ff45c2c03794aa46fda5492311e",
+      "sha256": "510cdfae3c00cd9a40b8dacb9e3f73026c2a0ef0546ac03d18f9c77ed0813115",
       "mode": "100644"
     },
     "skills/book-release/SKILL.md": {
