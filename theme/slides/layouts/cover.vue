@@ -41,7 +41,7 @@ const arc = (r: number, from: number, to: number) => {
 
 <template>
   <div class="slide cover" :class="props.class">
-    <div class="tr-fx" aria-hidden="true"><i class="br tl" /><i class="br tr" /><i class="br bl" /><i class="br br" /></div>
+    <div class="tr-fx" aria-hidden="true"><i class="bracket tl" /><i class="bracket tr" /><i class="bracket bl" /><i class="bracket br" /></div>
     <div class="cover-grid" aria-hidden="true" />
     <svg class="cover-hud" viewBox="-310 -310 620 620" aria-hidden="true">
       <circle class="hud-ring" r="296" />

@@ -39,7 +39,7 @@ npx slidev books/<book>/slides/<deck>/slides.md                  # 本地预览�
    ./tbook build slides --book <book>       # 构建、逐页版面检查、导出 PDF（需要 Chromium）
    ```
 
-   输出在 `build/slides/<book>/<deck>/<lang>/` 与 `build/slides/<book>/<deck>-<lang>.pdf`。快速迭代时可设 `TBOOK_SLIDES_NO_PDF=1` 跳过 PDF；此时不发布 PDF，章节卡片、幻灯片目录与演示页都不给 PDF 链接，发布前去掉它重新构建。
+   输出在 `build/slides/<book>/<deck>/<lang>/` 与 `build/slides/<book>/<deck>-<lang>.pdf`。PDF 的每页背景是一张图（`theme/slides/styles/backdrop.jpg`，见 `theme/slides/README.md`“背景与 PDF 导出”），翻页因此不卡；它与 `backdrop.css`、配色不符时构建会重新渲染，提交更新后的 `backdrop.jpg` 与 `backdrop.json`。某一页换了背景，就在它的 frontmatter 写 `class: tr-own-bg <类名>`，否则构建报错。快速迭代时可设 `TBOOK_SLIDES_NO_PDF=1` 跳过 PDF；此时不发布 PDF，章节卡片、幻灯片目录与演示页都不给 PDF 链接，发布前去掉它重新构建。
 6. 嵌入章节——**所有语言版本都要加**，`src` 相同，只翻译说明：
 
    ```markdown

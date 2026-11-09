@@ -12,7 +12,10 @@
 //      overflow, content running into the source line or the footer, content leaving the canvas,
 //      fonts not loaded, text falling back to a system font (a glyph the bundled fonts lack),
 //      runtime errors. --shots <dir> also saves a PNG of every slide.
-//   3. slidev export → <out>/<deck>-<lang>.pdf and verify its page count equals the slide count.
+//   3. slidev export → <out>/<deck>-<lang>.pdf and verify its page count equals the slide count and that
+//      it draws the theme's print backdrop (one image, theme/slides/styles/backdrop.jpg) instead of the
+//      backdrop layers, which PDF readers render slowly. A backdrop.jpg that no longer matches
+//      backdrop.css or the tokens is rendered again first (slides-backdrop.mjs; commit the result).
 // <out> defaults to build/slides/<slug>/ (docs/ARCHITECTURE.md §5); it also receives manifest.json,
 // which tools/tbook/slides.py reads to publish the decks. Chromium: $PW_CHROMIUM_PATH when set,
 // otherwise Playwright's own download. Exit status 1 when any check fails.
@@ -26,6 +29,7 @@ import {
   ROOT, argParser, basePath, booksWithDecks, buildPdfName, deckBase, deckLangs, deckNames,
   i18n, pdfName, primaryLang, readEdition, sitePathOf, slidev, toPosix,
 } from './slides-lib.mjs';
+import { backdropState, renderBackdrop } from './slides-backdrop.mjs';
 
 const TOLERANCE = 12; // px of body overflow tolerated; crossing the source line or the footer never is
 const FONTS = ['Chakra Petch', 'Noto Sans SC', 'JetBrains Mono']; // must be loaded by the last slide
@@ -88,7 +92,10 @@ async function launch() {
   }
 }
 
+// Checks the slides of an edition in Chromium; returns the numbers of the slides with a background of their
+// own (class tr-own-bg), whose PDF pages keep the backdrop layers.
 async function checkEdition(browser, ed, dir, base) {
+  const ownBackgrounds = new Set();
   const { port, close } = await serve(dir, base);
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   // Presenting asks for a screen wake lock, which headless Chromium refuses: not an error.
@@ -164,6 +171,40 @@ async function checkEdition(browser, ed, dir, base) {
         }
       }
       for (const [family, text] of system) failures.push(`${ed.rel} slide ${n}: text falls back to the system font ${family} (e.g. “${text}”); use characters the theme fonts cover`);
+      // The print view (PDF export) shows backdrop.jpg instead of the backdrop layers (backdrop.css) on every
+      // slide with the theme's background; a slide with a background of its own (class tr-own-bg) keeps them.
+      const bg = await slide.evaluate((s) => {
+        const keys = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat',
+          'backgroundBlendMode', 'backgroundClip', 'backgroundOrigin'];
+        const probe = document.createElement('div'); // the theme's background, unaffected by any deck rule on .slide
+        probe.style.cssText = 'position:absolute;width:0;height:0;background-color:var(--tr-void);'
+          + 'background-image:var(--tr-fx-aurora);background-size:100% 100%';
+        s.parentElement.appendChild(probe);
+        const theme = getComputedStyle(probe);
+        const own = getComputedStyle(s);
+        const differs = keys.filter((k) => own[k] !== theme[k]).map((k) => `${k} ${own[k].slice(0, 80)}`);
+        probe.remove();
+        const html = document.documentElement;
+        const had = html.classList.contains('print');
+        html.classList.add('print');
+        const image = getComputedStyle(s).backgroundImage;
+        const fx = s.querySelector(':scope > .tr-fx');
+        const fxDisplay = fx ? getComputedStyle(fx).display : 'none';
+        if (!had) html.classList.remove('print');
+        return { differs, ownBg: s.classList.contains('tr-own-bg'), image, fx: !!fx, fxDisplay };
+      });
+      if (bg.ownBg) {
+        ownBackgrounds.add(n);
+        if (bg.fx && bg.fxDisplay === 'none') failures.push(`${ed.rel} slide ${n}: class tr-own-bg, yet the print view hides the backdrop layers`);
+        if (!bg.differs.length) console.log(`${ed.rel} slide ${n}: note: class tr-own-bg on the theme's own background; its PDF page draws the backdrop layers, which readers render slowly`);
+      } else if (bg.differs.length) {
+        failures.push(`${ed.rel} slide ${n}: the slide has a background of its own (${bg.differs.join('; ')}), but not the class `
+          + 'tr-own-bg: the PDF would draw the print backdrop (theme/slides/styles/backdrop.jpg) over it and leave out the '
+          + 'scanlines, corner brackets and vignette; add tr-own-bg to the slide\'s class (theme/slides/README.md)');
+      } else if (!/backdrop[^/)]*\.jpg/.test(bg.image) || bg.fxDisplay !== 'none') {
+        failures.push(`${ed.rel} slide ${n}: the print view does not show the print backdrop (background ${bg.image.slice(0, 80)}, `
+          + `.tr-fx display ${bg.fxDisplay}); the PDF would draw the backdrop layers, which readers render slowly`);
+      }
       if (n === ed.count && r.missing.length) failures.push(`${ed.rel}: fonts not loaded: ${r.missing.join(', ')}`);
       if (shotDir) await slide.screenshot({ path: join(shotDir, `${String(n).padStart(2, '0')}.png`) });
     }
@@ -171,17 +212,37 @@ async function checkEdition(browser, ed, dir, base) {
     await page.close();
     close();
   }
+  return ownBackgrounds;
 }
 
 // --------------------------------------------------------------------------- export
-async function exportPdf(ed, path) {
+// ownBackgrounds: slide numbers whose pages keep the backdrop layers (checkEdition), null when not checked.
+async function exportPdf(ed, path, ownBackgrounds = null) {
   rmSync(path, { force: true });
   const args = [toPosix(relative(ROOT, ed.file)), '--output', path, '--format', 'pdf', '--wait-until', 'networkidle', '--wait', '800', '--timeout', '120000'];
   if (process.env.PW_CHROMIUM_PATH) args.push('--executable-path', process.env.PW_CHROMIUM_PATH);
   slidev('export', ...args);
-  const { PDFDocument } = await import('pdf-lib');
-  const pages = (await PDFDocument.load(readFileSync(path))).getPageCount();
+  const { PDFDocument, PDFDict, PDFName } = await import('pdf-lib');
+  const doc = await PDFDocument.load(readFileSync(path));
+  const pages = doc.getPageCount();
   if (pages !== ed.count) failures.push(`${ed.rel}: PDF has ${pages} pages, the deck ${ed.count} slides`);
+  // the print backdrop: an image of the canvas size on the page (backdrop.css), not the layers
+  const key = (d, k) => d.get(PDFName.of(k))?.toString();
+  const drawsBackdrop = (page) => {
+    const xobjects = page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    return !!xobjects && [...xobjects.entries()].some(([, ref]) => {
+      const d = doc.context.lookup(ref)?.dict;
+      return d && key(d, 'Subtype') === '/Image' && key(d, 'Width') === '1920' && key(d, 'Height') === '1080';
+    });
+  };
+  const without = doc.getPages().map((p, i) => (drawsBackdrop(p) ? 0 : i + 1)).filter(Boolean);
+  const unexpected = ownBackgrounds ? without.filter((n) => !ownBackgrounds.has(n)) : without.length === pages ? without : [];
+  if (unexpected.length) {
+    failures.push(`${ed.rel}: PDF page${unexpected.length > 1 ? 's' : ''} ${unexpected.join(', ')} ${unexpected.length > 1 ? 'do' : 'does'} not draw the print backdrop `
+      + '(theme/slides/styles/backdrop.jpg) but the backdrop layers, which PDF readers render slowly (theme/slides/styles/backdrop.css)');
+  } else if (without.length && !ownBackgrounds) {
+    console.log(`${ed.rel}: note: PDF pages ${without.join(', ')} have a background of their own instead of the print backdrop`);
+  }
   return pages;
 }
 
@@ -196,6 +257,17 @@ function cleanDeckDir(dir) {
 // --------------------------------------------------------------------------- main
 let browser = null;
 try {
+  const backdrop = backdropState();
+  if (books.length && backdrop.problems.length) {
+    failures.push(backdrop.message);
+  } else if (books.length && !backdrop.fresh && (NO_CHECK && NO_PDF)) {
+    console.log(`slides-build: note: ${backdrop.message}`); // nothing here uses a browser to render it again
+  } else if (books.length && !backdrop.fresh) {
+    browser ??= await launch();
+    for (const p of await renderBackdrop(browser)) {
+      console.log(`slides-build: ${toPosix(relative(ROOT, p))} did not match backdrop.css and the tokens: rendered again; commit it`);
+    }
+  }
   for (const book of books) {
     const OUT = resolve(outArg ?? join(ROOT, 'build', 'slides', book.slug));
     const manifestPath = join(OUT, 'manifest.json');
@@ -237,15 +309,16 @@ try {
         }
         rmSync(join(dir, '_redirects'), { force: true }); // Netlify-only file
         let note = `${ed.count} slides → ${toPosix(relative(ROOT, dir))}/`;
+        let ownBackgrounds = null;
         if (!NO_CHECK) {
           browser ??= await launch();
-          await checkEdition(browser, ed, dir, base);
+          ownBackgrounds = await checkEdition(browser, ed, dir, base);
           note += ', checked';
         }
         const pdfPath = join(OUT, buildPdfName(deck, ed.lang));
         if (!NO_PDF) {
           try {
-            const pages = await exportPdf(ed, pdfPath);
+            const pages = await exportPdf(ed, pdfPath, ownBackgrounds);
             note += `; PDF ${pages} pages → ${toPosix(relative(ROOT, pdfPath))}`;
           } finally {
             cleanDeckDir(ed.dir);

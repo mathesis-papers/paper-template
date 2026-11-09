@@ -8,7 +8,7 @@
 2. **书是投影，不是真源。** 书的文字解释定理；定理的成立由 Lean 声明决定。未证结论只能写成 `conjecture` 或 `problem`。
 3. **一次编写，多端导出。** 同一份 Markdown 生成 HTML（mdBook）、PDF（Typst，屏幕版与印刷版）、EPUB 3（Apple Books）。编号、标签、徽章与 Lean 链接由 `tools/tbook/render.py` 统一计算，各端一致。
 4. **多语言，默认中文与英文。** 每本书有若干语言版本（edition），第一个为权威版本；`./tbook check` 要求各版本的章节文件、环境序列（种类、id、Lean 引用）逐条一致。
-5. **配色单一来源。** 赛博朋克配色只在 `theme/tokens.json` 定义，`./tbook theme` 派生出各端使用的 CSS / Typst / JS。绿色只留给 Lean 已验证，琥珀色只留给“现在/当前选择”，红色标开放问题。
+5. **配色单一来源。** 赛博朋克配色只在 `theme/tokens.json` 定义，`./tbook theme` 派生出各端使用的 CSS / Typst / JS（幻灯片的打印背景图由 Chromium 按派生的 CSS 渲染，见 §2 的 `slides/`）。绿色只留给 Lean 已验证，琥珀色只留给“现在/当前选择”，红色标开放问题。
 6. **模板可升级。** `template.toml` 列出模板托管的路径；下游只改自己的路径（`books/`、`site.toml`、`trureturing.lock.json`、`i18n/`、`PROJECT.md`、`README.md`）。`./tbook template update` 把托管路径同步到模板的新版本。
 
 ## 2. 目录
@@ -37,7 +37,9 @@ theme/
   epub/                   EPUB 样式
   site/                   书库首页与每本书落地页的样式/脚本
   viz/                    可视化共享运行时（theme.css、shell.js）
-  slides/                 Slidev 主题
+  slides/                 Slidev 主题；styles/backdrop.css 是每页的背景层（底色、极光、扫描线、四角折角框、暗角），
+                          导出 PDF 时换成 styles/backdrop.jpg 一张图（整页半透明渐变在 PDF 阅读器里每页要合成约两秒），
+                          由 tools/node/slides-backdrop.mjs 按 backdrop.css 与 tokens.css 渲染，指纹记在 backdrop.json
   film/                   视频共享引擎与流水线脚本
 templates/                新书、新可视化、新 deck、新视频的起始模板
 tools/tbook/              Python 包（构建、校验、发布）
@@ -135,7 +137,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
 6. Lean：每个被引用的 GID 都在锁文件中；形式结论引用的必须是 `theorem`；在锁定提交上重新读取冻结状态片，名称、种类、模块、`statement_id` 与锁文件一致（防止锁文件过期或被手改）；所钉提交可从 `site.toml` 的 trureturing 分支到达（本地 checkout 用 `git merge-base --is-ancestor`，否则用 GitHub compare API；无法判定时 GitHub Actions 中为错误，本地或 `--offline` 下为警告）；锁文件的 `branch` 与该分支相同，且该分支是分支名而不是 SHA 或 `refs/…`（错误）；未被引用的锁条目（警告；`--book` 时也计入其他书的引用）。
 7. 媒体：`tbook.viz/film/slides.check(book)` 与 `check_ref(book, src)`。
-8. 主题：`theme/generated/*` 与 `tokens.json` 同步。
+8. 主题：`theme/generated/*` 与 `tokens.json` 同步（`./tbook theme --check`）；幻灯片的打印背景图 `theme/slides/styles/backdrop.jpg` 与 `backdrop.css`、`tokens.css` 同步（`./tbook theme --check` 与 `slides-check` 核对指纹）。
 9. 缓存：`.cache/` 下的文件不得提交入库，`.cache` 本身（例如符号链接）也不得提交（错误；缓存只在本地可信；`git ls-files` 查询字面路径 `.cache`，不解析符号链接）。
 
 冻结状态片的读取顺序：`$TRURETURING_DIR` 或 `../trureturing` 的 git checkout（`git show <commit>:<path>`）→ `.cache/trureturing/<commit>/` → `https://raw.githubusercontent.com/<repo>/<commit>/<path>`。

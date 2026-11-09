@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -1494,6 +1495,197 @@ class NodeScriptsTest(unittest.TestCase):
         self.assertIn("入门", zh)
         r = self.node("slides-check.mjs")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+@unittest.skipUnless(NODE, "node needed")
+class PrintBackdropTest(unittest.TestCase):
+    """Finding: slide PDFs paged slowly (about two seconds a page) because every page drew the backdrop as
+    full-page translucent gradients, which PDF readers composite with soft masks. The print view shows one
+    image instead (theme/slides/styles/backdrop.css, backdrop.jpg); its fingerprint keeps it in step with
+    the CSS and the tokens it is rendered from."""
+
+    SCRIPT = ROOT / "tools" / "node" / "slides-backdrop.mjs"
+
+    def node(self, root: Path, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([NODE, *args], cwd=root, env=dict(os.environ, TBOOK_ROOT=str(root)),
+                              capture_output=True, text=True)
+
+    def fingerprint(self, css: str, tokens: str) -> str:
+        code = (f"import {{ backdropFingerprint }} from {json.dumps(self.SCRIPT.as_uri())};"
+                "const [css, tokens] = JSON.parse(process.argv[1]);"
+                "process.stdout.write(backdropFingerprint(css, tokens));")
+        r = subprocess.run([NODE, "--input-type=module", "-e", code, json.dumps([css, tokens])],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_committed_backdrop_is_up_to_date(self):
+        r = self.node(ROOT, str(self.SCRIPT), "--check")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        meta = json.loads((ROOT / "theme" / "slides" / "styles" / "backdrop.json").read_text(encoding="utf-8"))
+        self.assertEqual((meta["width"], meta["height"]), (1920, 1080))
+        css = (ROOT / "theme" / "slides" / "styles" / "backdrop.css").read_text(encoding="utf-8")
+        self.assertIn(':where(html.print) .slide:where(:not(.tr-own-bg)) { background-image: url("./backdrop.jpg"); }', css)
+        self.assertIn(":where(html.print) .slide:where(:not(.tr-own-bg)) > .tr-fx { display: none; }", css)
+        index = (ROOT / "theme" / "slides" / "styles" / "index.ts").read_text(encoding="utf-8")
+        self.assertLess(index.index("./deck.css"), index.index("./backdrop.css"))  # its .slide rule wins
+
+    def test_fingerprint_follows_what_the_image_shows(self):
+        css = (ROOT / "theme" / "slides" / "styles" / "backdrop.css").read_text(encoding="utf-8")
+        tokens = (ROOT / "theme" / "generated" / "tokens.css").read_text(encoding="utf-8")
+        base = self.fingerprint(css, tokens)
+        self.assertEqual(base, json.loads((ROOT / "theme" / "slides" / "styles" / "backdrop.json")
+                                          .read_text(encoding="utf-8"))["fingerprint"])
+
+        def token(name: str, value: str) -> str:
+            out, n = re.subn(rf"({re.escape(name)}\s*:\s*)[^;]*;", rf"\g<1>{value};", tokens, count=1)
+            self.assertEqual(n, 1, name)
+            return out
+        # what the backdrop uses: the void, the aurora, scanlines, vignette and the cyan of the brackets
+        for name in ("--tr-void", "--tr-fx-aurora", "--tr-fx-scanlines", "--tr-fx-vignette", "--tr-cyan"):
+            self.assertNotEqual(self.fingerprint(css, token(name, "#123456")), base, name)
+        self.assertNotEqual(self.fingerprint(css.replace("width: 46px", "width: 40px"), tokens), base)
+        # what it does not: another colour, and the print rules (they only use the image)
+        self.assertEqual(self.fingerprint(css, token("--tr-sem-link", "#123456")), base)
+        self.assertEqual(self.fingerprint(css.replace('url("./backdrop.jpg")', 'url("./other.jpg")'), tokens), base)
+        self.assertEqual(self.fingerprint(css.replace("corner brackets, each open", "brackets: each opens"), tokens), base)
+
+    def test_what_the_rendering_cannot_see_is_reported(self):
+        """Reviewer finding: a property backdrop.css takes from deck.css, or a url() it loads, is not in the image
+        (rendered from backdrop.css and tokens.css alone) while the fingerprint could not tell."""
+        tmp = Path(tempfile.mkdtemp(prefix="tbook-backdrop-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "tools").symlink_to(ROOT / "tools")
+        shutil.copytree(ROOT / "theme", tmp / "theme")
+        css = tmp / "theme" / "slides" / "styles" / "backdrop.css"
+        text = css.read_text(encoding="utf-8")
+        for change, want in ((".tr-fx::after { border-top: 1px solid var(--hair);", "uses --hair, which"),
+                             (".tr-fx::after { border-image: url(x.png);", "loads a url() outside its print rules")):
+            with self.subTest(want):
+                css.write_text(text.replace(".tr-fx::after {", change, 1), encoding="utf-8")
+                for args in (("--check",), ()):
+                    r = self.node(tmp, str(self.SCRIPT), *args)
+                    self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                    self.assertIn(want, r.stderr)
+        css.write_text(text, encoding="utf-8")
+        self.assertEqual(self.node(tmp, str(self.SCRIPT), "--check").returncode, 0)
+
+    def test_stale_backdrop_is_reported(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tbook-backdrop-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name in ("templates", "tools", "node_modules", "tbook"):
+            (tmp / name).symlink_to(ROOT / name)
+        (tmp / "theme").mkdir()
+        for child in (ROOT / "theme").iterdir():
+            if child.name != "generated":
+                (tmp / "theme" / child.name).symlink_to(child)
+        shutil.copytree(ROOT / "theme" / "generated", tmp / "theme" / "generated")
+        tokens = tmp / "theme" / "generated" / "tokens.css"
+        tokens.write_text(re.sub(r"(--tr-void\s*:\s*)[^;]*;", r"\g<1>#102030;", tokens.read_text(encoding="utf-8"),
+                                 count=1), encoding="utf-8")
+        (tmp / "site.toml").write_text('[site]\ntitle = "t"\nlanguages = ["zh", "en"]\n', encoding="utf-8")
+        r = self.node(tmp, str(self.SCRIPT), "--check")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("theme/slides/styles/backdrop.jpg does not match", r.stderr)
+        r = self.node(tmp, str(ROOT / "tools" / "node" / "slides-check.mjs"))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("run node tools/node/slides-backdrop.mjs", r.stderr)
+        r = subprocess.run([sys.executable, "-m", "tbook", "theme", "--check"], cwd=tmp, capture_output=True, text=True,
+                           env=dict(os.environ, TBOOK_ROOT=str(tmp), PYTHONPATH=str(ROOT / "tools")))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("backdrop.jpg does not match", r.stdout + r.stderr)
+
+
+def have_chromium() -> bool:
+    """Chromium for slides-build: $PW_CHROMIUM_PATH, or Playwright's own download."""
+    if os.environ.get("PW_CHROMIUM_PATH"):
+        return Path(os.environ["PW_CHROMIUM_PATH"]).is_file()
+    if not NODE or not (ROOT / "node_modules" / "playwright-chromium").is_dir():
+        return False
+    r = subprocess.run([NODE, "-e", "const p = require('playwright-chromium').chromium.executablePath();"
+                        "process.exit(require('fs').existsSync(p) ? 0 : 1)"], cwd=ROOT, capture_output=True)
+    return r.returncode == 0
+
+
+OWN_BG_DECK = """---
+theme: ../../../../theme/slides
+title: Backdrop
+htmlAttrs:
+  lang: zh-CN
+deck:
+  code: BG
+  title: Backdrop
+  version: 0.1.0
+---
+
+# 默认背景
+
+---
+class: tint
+---
+
+# 只改底色
+
+---
+class: tr-own-bg hero
+---
+
+# 自己的背景
+"""
+OWN_BG_STYLE = """.slide.tint { background-color: #401028; }
+.slide.hero { background-image: radial-gradient(circle at 30% 30%, rgba(255, 47, 208, .25), transparent 60%); }
+"""
+
+
+@unittest.skipUnless(NODE and (ROOT / "node_modules" / "@slidev" / "cli").is_dir() and have_chromium(),
+                     "node, node_modules (@slidev/cli) and Chromium needed")
+class OwnBackgroundBuildTest(unittest.TestCase):
+    """Findings: in the PDF a slide with a background of its own lost the scanlines, brackets and vignette, or the
+    print backdrop covered its colour, and no check said so; the print-view check looked at slide 1 only. A slide
+    with its own background has the class tr-own-bg and keeps the backdrop layers in the PDF; slides-build reports
+    one without it, and checks every PDF page against the slides."""
+
+    def test_own_backgrounds(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tbook-own-bg-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name in ("templates", "tools", "node_modules"):
+            (tmp / name).symlink_to(ROOT / name)
+        # a copy: the export's dev server serves no file whose real path is outside the root (the backdrop image)
+        shutil.copytree(ROOT / "theme", tmp / "theme")
+        (tmp / "site.toml").write_text('[site]\ntitle = "t"\nlanguages = ["zh", "en"]\n', encoding="utf-8")
+        deck = make_book(tmp / "books", "bk", ["zh"]).dir / "slides" / "bg"
+        deck.mkdir(parents=True)
+        (deck / "slides.md").write_text(OWN_BG_DECK, encoding="utf-8")
+        (deck / "style.css").write_text(OWN_BG_STYLE, encoding="utf-8")
+        out = tmp / "out"
+        env = dict(os.environ, TBOOK_ROOT=str(tmp))
+
+        def build(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run([NODE, str(ROOT / "tools" / "node" / "slides-build.mjs"), "--book", "bk", "--out", str(out),
+                                   *args], cwd=tmp, env=env, capture_output=True, text=True, timeout=600)
+
+        r = build()
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        failures = [line for line in r.stderr.splitlines() if line.startswith("- ")]
+        self.assertEqual(len(failures), 1, r.stderr)
+        self.assertIn("slide 2: the slide has a background of its own (backgroundColor rgb(64, 16, 40))", failures[0])
+        self.assertIn("add tr-own-bg", failures[0])
+        # the PDF was checked page by page: 1 and 2 draw the print backdrop, 3 (tr-own-bg) keeps the layers
+        self.assertTrue((out / "bg-zh.pdf").is_file())
+        self.assertNotIn("not draw the print backdrop", r.stderr)
+
+        (deck / "slides.md").write_text(OWN_BG_DECK.replace("class: tint", "class: tr-own-bg tint"), encoding="utf-8")
+        r = build()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # and the PDF check fails a page that should draw the print backdrop but does not
+        (tmp / "theme" / "slides" / "styles" / "backdrop.css").write_text(
+            (tmp / "theme" / "slides" / "styles" / "backdrop.css").read_text(encoding="utf-8")
+            .replace(':where(html.print) .slide:where(:not(.tr-own-bg)) { background-image: url("./backdrop.jpg"); }', ""),
+            encoding="utf-8")
+        r = build("--deck", "bg")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("slide 1: the print view does not show the print backdrop", r.stderr)
+        self.assertIn("PDF page 1 does not draw the print backdrop", r.stderr)
 
 
 if __name__ == "__main__":
