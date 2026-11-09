@@ -529,8 +529,9 @@ def find_headings(md: str) -> list[Heading]:
 
 
 def contained_headings(md: str) -> list[Heading]:
-    """ATX headings whose line opens a block quote or list item (``> ## 引文标题``, ``- ### 项``):
-    :func:`find_headings` leaves them to Pandoc, which gives them its automatic id."""
+    """ATX headings whose line opens a block quote or list item (``> ## 引文标题``, ``- ### 项``),
+    which :func:`find_headings` leaves out; :func:`restructure_chapter` writes their ids after the
+    markers (:func:`with_heading_id`)."""
     lines = md.split("\n")
     mask = _code_mask(lines)
     out = []
@@ -544,6 +545,19 @@ def contained_headings(md: str) -> list[Heading]:
         if h:
             out.append(Heading(i, h[0], h[1], h[2]))
     return out
+
+
+def with_heading_id(line: str, hid: str) -> str:
+    """``line``, a heading after block-quote or list markers (:func:`contained_headings`), with
+    the id ``hid`` unless it has one."""
+    line = line.expandtabs(4)
+    stack, pos = _containers(line)
+    h = parse_heading(line[pos:]) if stack else None
+    if not h or (h[2] and h[2].id):
+        return line
+    attrs = h[2] or mdscan.Attrs()
+    attrs.id = hid
+    return line[:pos] + format_heading(h[0], h[1], attrs)
 
 
 def chapter_slug(path: str) -> str:
@@ -610,7 +624,7 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
     inside: list[int] = []  # the containers of the open HTML block (_containers)
     open_ = para = False  # an HTML block goes on; the line before goes on with a paragraph
     para_quotes = 0  # the block quotes of the paragraph's first line
-    items: list[tuple[int, int]] = []  # open list items: (block quotes around, content column after them)
+    items: list[tuple[int, int, str]] = []  # open list items: (block quotes around, content column, marker)
     for i, line in enumerate(lines):
         if hidden[i] or mdscan.DIV_OPEN_RE.match(line) or mdscan.DIV_CLOSE_RE.match(line):
             raw[i] = not hidden[i]
@@ -630,12 +644,24 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
         text = body.lstrip(" ")
         quotes, after = _quote_prefix(line)
         rest = line[after:]
-        marks = _containers(rest)[0]
+        marks = _list_marks(rest)
         if not text:
+            if marks and _BREAK_RE.fullmatch(rest.strip(" ")):  # "- - -", "* * *": no list items
+                items = _open_items(items, quotes, rest, [], False)
+                para = False
+                continue
             if para and marks and quotes <= para_quotes:
-                continue  # an empty list item cannot interrupt a paragraph: the line goes on with it
-            if line.strip(" "):  # only markers: they end deeper list items and open their own
+                at, kind = marks[0][2], marks[0][1]
+                cut = [(c, k) for q, c, k in items if q == quotes and c > at]  # the items it would end
+                if not cut and quotes == para_quotes and SETEXT_RE.match(rest):
+                    para = False  # "-" under the paragraph: a setext heading's underline
+                    continue
+                if not cut or min(cut)[1] != kind:
+                    continue  # an empty item cannot begin a list in a paragraph: the line goes on with it
+            if marks:  # only markers: they end deeper list items and open their own
                 items = _open_items(items, quotes, rest, marks, False)
+            else:  # blank, maybe after block-quote markers: the block quotes past them end
+                items = [it for it in items if it[0] <= quotes]
             para = False
             continue
         if len(body) - len(text) < 4:
@@ -653,7 +679,7 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
             inside = stack
             if all(c < 0 for c in stack):  # in the list items it is indented into
                 indent = len(rest) - len(rest.lstrip(" "))
-                cols = [c for q, c in items if q == quotes and c <= indent]
+                cols = [c for q, c, _ in items if q == quotes and c <= indent]
                 inside = stack + [b - a for a, b in zip([0] + cols, cols)]
         # A heading ends the paragraph (an ATX heading, or the underline of a setext heading, which
         # is in the paragraph's block quotes), and so does a thematic break.
@@ -665,23 +691,37 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
     return raw
 
 
-def _open_items(items: list[tuple[int, int]], quotes: int, rest: str, marks: list[int],
-                lazy: bool) -> list[tuple[int, int]]:
+def _open_items(items: list[tuple[int, int, str]], quotes: int, rest: str,
+                marks: list[tuple[int, str, int]], lazy: bool) -> list[tuple[int, int, str]]:
     """The list items open after a non-blank line (:func:`_raw_html_lines`): ``items`` as
-    (block quotes around, content column after them); the line has ``quotes`` block quotes, then
-    ``rest``, whose markers open ``marks`` (:func:`_containers`). Unless the line is a ``lazy``
-    continuation of a paragraph, it ends the items in deeper block quotes and those whose content
-    it is not indented to; then it opens its own (not those in a block quote after them)."""
-    if not lazy:
+    (block quotes around, content column after them, marker); the line has ``quotes`` block
+    quotes, then ``rest``, whose markers open ``marks`` (:func:`_list_marks`). Unless the line is a
+    ``lazy`` continuation of a paragraph, it ends the items in deeper block quotes and those whose
+    content it is not indented to; then it opens its own."""
+    if lazy:
+        items = list(items)
+    else:
         indent = len(rest) - len(rest.lstrip(" "))
-        items = [(q, col) for q, col in items if q < quotes or (q == quotes and col <= indent)]
-    col = 0
-    for width in marks:
-        if width < 0:
-            break
-        col += width
-        items = items + [(quotes, col)]
+        items = [it for it in items if it[0] < quotes or (it[0] == quotes and it[1] <= indent)]
+    items.extend((quotes, col, kind) for col, kind, _ in marks)
     return items
+
+
+def _list_marks(rest: str) -> list[tuple[int, str, int]]:
+    """(content column, marker, marker column) of each list item whose marker starts ``rest`` (a
+    line after its block-quote markers), as :func:`_containers` reads them, up to a block quote.
+    The marker is the bullet, or the delimiter of an ordered one (``.`` or ``)``)."""
+    out: list[tuple[int, str, int]] = []
+    pos = 0
+    while True:
+        start = _SPACES_RE.match(rest, pos).end()
+        m = _LIST_ITEM_RE.match(rest, start) if start - pos < 4 else None
+        if not m:
+            return out
+        after = _SPACES_RE.match(rest, m.end()).end()
+        gap = after - m.end()
+        pos = m.end() + (1 if after == len(rest) or gap > 4 else gap)
+        out.append((pos, m.group()[-1], start))
 
 
 def _quote_prefix(line: str) -> tuple[int, int]:
@@ -984,7 +1024,8 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
     ``<chapter id>--<slug>``. ``anchors`` resolves a fragment within its chapter as the
     chapter's HTML page does (its own explicit ids first, then mdBook's automatic heading
     ids, then Pandoc's, then ids in raw HTML), so ``other.md#summary`` reaches the "Summary"
-    of ``other.md``, not the first in the book.
+    of ``other.md``, not the first in the book. Headings in block quotes and list items
+    (:func:`contained_headings`) get ids too, in document order with the others.
 
     ``render_math(items)`` returns the text the HTML edition shows for each ``(tex, display)``
     formula in a heading (:func:`tbook.mathrender.formula_texts`), or None when it cannot;
@@ -992,12 +1033,16 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
     stands in, and fragments copied from the HTML edition do not reach such headings. A
     footnote reference counts as mdBook's number for it in the chapter (:func:`footnote_numbers`).
     """
-    parsed = [(posixpath.normpath(path), md, find_headings(normalize_setext(md))) for path, md in chapters]
-    for _, _, heads in parsed:
+    parsed = []
+    for path, md in chapters:
+        flat = normalize_setext(md)
+        top = find_headings(flat)
+        parsed.append((posixpath.normpath(path), md, top, sorted(top + contained_headings(flat), key=lambda h: h.index)))
+    for _, _, _, heads in parsed:
         taken |= {h.attrs.id for h in heads if h.attrs and h.attrs.id}
-    math = _heading_math([h for _, _, heads in parsed for h in heads if not (h.attrs and h.attrs.id)], render_math)
+    math = _heading_math([h for *_, heads in parsed for h in heads if not (h.attrs and h.attrs.id)], render_math)
     out = HeadingIds()
-    for path, md, heads in parsed:
+    for path, md, top, heads in parsed:
         cid = chapter_ids[path]
         own = explicit_ids(md)
         notes = footnote_numbers(md)
@@ -1007,7 +1052,7 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
         pandoc_ids: set[str] = set()
         reach: list[tuple[str, str]] = []  # (mdBook fragment, id)
         reach_pandoc: list[tuple[str, str]] = []
-        title = next((h for h in heads if h.level == 1), None)
+        title = next((h for h in top if h.level == 1), None)
         for h in heads:
             if h.attrs and h.attrs.id:
                 continue
@@ -1027,13 +1072,6 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
         for frag, new in reach + reach_pandoc:
             if frag and frag not in own:
                 anchors.setdefault(frag, new)
-        for h in contained_headings(md):  # Pandoc's automatic id, which book.md keeps
-            if h.attrs and h.attrs.id:
-                continue
-            mdbook, gfm = _slug_pair(h.text, _mdbook_text(h), math, notes)
-            for frag in (mdbook, gfm):
-                if frag and gfm and frag not in own:
-                    anchors.setdefault(frag, gfm)
         for frag in _HTML_ID_RE.findall(md):
             anchors.setdefault(frag, frag)
     return out
@@ -1200,8 +1238,9 @@ def restructure_chapter(md: str, *, chapter_path: str, depth: int, chapter_id: s
         elif (note and out and out[-1].strip(" \t>") and not FOOTNOTE_DEF_RE.match(out[-1])
               and not re.search(r"[-*+]|\d[.)]", note.group("lead"))):
             out.append(" ".join(">" * note.group("lead").count(">")))
-        out.append(mdscan.map_closed(lambda s: linker.rewrite_line(s, chapter_path), line, scan.carry[i])
-                   if linker else line)
+        line = (mdscan.map_closed(lambda s: linker.rewrite_line(s, chapter_path), line, scan.carry[i])
+                if linker else line)
+        out.append(with_heading_id(line, heading_ids[i]) if heading_ids and i in heading_ids else line)
     if not title_done:
         attrs = mdscan.Attrs(id=chapter_id, classes=list(classes), kv=dict(kv))
         out = [format_heading(min(6, 1 + depth), title, attrs), ""] + out

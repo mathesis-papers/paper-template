@@ -450,6 +450,14 @@ FOOTNOTE_HEADINGS = [
      "# 甲\n\n>  <div>\n> x[^b]\n> </div>\n\n- 项\n\n   <div>\n  y[^b]\n  </div>\n\n <div class=\"note\">\n正文[^b]\n"
      " </div>\n\n  <span>\n1. z[^b]\n\n- \n  <div>\n后文[^c]\n\n段\n1. \n  <img src=\"x.png\">\n又[^d]\n\n"
      "## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n", ["甲", "注释3"]),
+    # A ">" line is a blank line in its block quote: the list items in the quote go on. "* * *" is a
+    # thematic break, and an empty item of a list that is open is a sibling, not paragraph text.
+    ("list items in a block quote go on over a '>' line",
+     "# 甲\n\n> 1. 第一步\n>\n>    <div class=\"note\">说明</div>\n> 后文[^b]。\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n",
+     ["甲", "注释2"]),
+    ("thematic breaks and sibling items",
+     "# 甲\n\n上文。\n* * *\n<img src=\"x.png\">\n图注[^b]\n\n- 项\n- \n  <div>\n后文[^c]\n\n## 注释[^a]\n\n"
+     "[^a]: A。\n[^b]: B。\n[^c]: C。\n", ["甲", "注释2"]),
     # "[ ]" is no link label (a label has a character other than whitespace), "[^c]" no attribute
     # name, "#标签" no heading (so <b> under it is inline HTML in its paragraph); a setext
     # heading ends its paragraph, so a lone tag under it starts an HTML block.
@@ -911,15 +919,17 @@ class EditionsReadTheBookTest(unittest.TestCase):
     the linked chapter lacks is text."""
 
     CHAPTERS = {
-        "ch01.md": "# 一 提示框\n\n> <div class=\"tip\">\n> 提示内容。\n> </div>\n正文继续[^a]。\n\n## 注释[^a]\n\n[^a]: 甲注。\n",
-        "ch02.md": "# 二 列表\n\n- 第一项\n- <div>第二项</div>\n后文[^a]。\n\n[^a]: 乙注。\n",
-        "ch03.md": "# 三 未闭合\n\n> <pre>\n> 代码\n\n后文[^a]。\n\n[^a]: 丙注。\n",
+        "ch01.md": ("# 一 提示框\n\n> <div class=\"tip\">\n> 提示内容。\n> </div>\n正文继续[^a]。\n\n## 注释[^a]\n\n"
+                    "> ## 小结\n>\n> 引文小结。\n\n见[一小结](#小结)。\n\n[^a]: 甲注。\n"),
+        "ch02.md": "# 二 列表\n\n- 第一项\n- <div>第二项</div>\n后文[^a]。\n\n## 小结\n\n见[二小结](#小结)。\n\n[^a]: 乙注。\n",
+        "ch03.md": "# 三 未闭合\n\n> <pre>\n> 代码\n\n后文[^a]。\n\n<pre>\n[1]: Knuth, TAOCP.\n</pre>\n\n[^a]: 丙注。\n",
         "ch04.md": ("# 四 求和\n\n求和：\n\n$$\n=\n$$\n\n正文[^c]。\n\n## 注释[^b]\n\n::: {.remark #rem-x}\n说明。\n:::\n\n"
                     "## 小节 {#sec-own}\n\n<a id=\"raw-x\"></a>锚点。\n\n> ## 引中标题\n>\n> 引文。\n\n- ### 列中标题\n\n"
                     "  列表内容。\n\n[^b]: 丁注。\n[^c]: 戊注。\n"),
         "ch05.md": ("# 五 链接\n\n见[错](ch04.md#注释1)、[对](ch04.md#注释2)、[环境](ch04.md#rem-x)、[显式](ch04.md#sec-own)、"
                     "[甲](ch01.md#注释1)，本章[无](#注释1)，[原始](ch04.md#raw-x)、[引中](ch04.md#引中标题)、"
-                    "[列中](ch04.md#列中标题)。\n\n正文[^a][ ]。\n\n[^a]: 己注。\n"),
+                    "[列中](ch04.md#列中标题)、[旧锚](#old-anchor)。\n\n正文[^a][ ]。\n\n## 结语 <a id=\"old-anchor\"></a>\n\n"
+                    "[^a]: 己注。\n"),
     }
 
     @classmethod
@@ -986,7 +996,32 @@ class EditionsReadTheBookTest(unittest.TestCase):
                 m = re.search(rf'<a href="(ch\d+\.xhtml)#{frag}">{text}</a>', links)
                 self.assertTrue(m and f'id="{frag}"' in self.xhtml["EPUB/text/" + m.group(1)], links)
                 self.assertIn(f"#link(<{frag}>)[{text}]", self.typst)
-        self.assertIn('#metadata("tr-anchor") <raw-x>', self.typst)
+        self.assertIn('#[#metadata("tr-anchor") <raw-x>]', self.typst)
+
+    def test_anchor_in_a_heading(self):
+        """Finding: an anchor at the end of a heading failed the PDF (the heading's label replaced it, the
+        outline repeated it) and the EPUB (an <a> in the table of contents' <a>). It follows the heading."""
+        links = self.chapter("本章")
+        self.assertRegex(links, r'<a href="ch\d+\.xhtml#old-anchor">旧锚</a>')
+        self.assertRegex(links, r'<h2[^>]*>结语</h2>\s*<a id="old-anchor"></a>')
+        self.assertIn("#link(<old-anchor>)[旧锚]", self.typst)
+        self.assertRegex(self.typst, r'== 结语\s*\n<[^>]+>\s*\n#\[#metadata\("tr-anchor"\) <old-anchor>\]')
+
+    def test_contained_headings_get_ids_of_their_own(self):
+        """Finding: ``> ## 小结`` took the plain slug, which another chapter's ``## 小结`` has: links landed
+        there, or the PDF failed on a label that occurs twice. Each heading gets an id of its own."""
+        for text, chapter in (("一小结", "引文小结"), ("二小结", "第二项")):
+            with self.subTest(text):
+                m = re.search(rf'<a href="(ch\d+\.xhtml)#([^"]+)">{text}</a>', self.chapter(chapter))
+                self.assertTrue(m, text)
+                target = self.xhtml["EPUB/text/" + m.group(1)]
+                self.assertIn(chapter, target)
+                # the id is on the heading, or on the section Pandoc opens for a top-level one
+                self.assertRegex(target, rf'id="{re.escape(m.group(2))}"[^>]*>\s*(?:<h\d[^>]*>)?小结</h\d>')
+
+    def test_verbatim_html_keeps_its_text(self):
+        """Finding: a ``[1]: …`` line in a <pre> block got a backslash, which Pandoc keeps in raw HTML."""
+        self.assertIn("<pre>\n[1]: Knuth, TAOCP.\n</pre>", self.chapter("代码"))
 
 
 class ScanTimeTest(unittest.TestCase):
@@ -1012,6 +1047,10 @@ class ScanTimeTest(unittest.TestCase):
         lines = ["> " * 3000 + "<div>"] + ["> " * 3000 + "- x"] * 100
         scan = mdscan.scan_blocks(lines)
         self.assertLess(self.timed(tp._raw_html_lines, lines, scan), 1.0)
+
+    def test_many_list_markers(self):
+        md = "\n".join("> " * i + "- " * 300 for i in range(100))
+        self.assertLess(self.timed(tp.footnote_numbers, md), 1.0)
 
     def test_setext_and_headings(self):
         self.assertLess(self.timed(tp.normalize_setext, "标题\n===\n\n$$\n=\n$$\n\n正文 `x` 与 $y$。\n\n" * 2000), 2.0)

@@ -199,8 +199,41 @@ local function media_block(div)
   return out
 end
 
+-- An empty anchor in a heading (`## 小结 <a id="old"></a>`) moves to right after the heading, as
+-- raw HTML of its own: Pandoc copies a heading's text into the EPUB's table of contents, where an
+-- <a> inside the entry's <a> fails epubcheck (and Typst would repeat its label).
+local function lift_heading_anchors(doc)
+  local function anchor(c, i)
+    local a, b = c[i], c[i + 1]
+    return a.t == "RawInline" and a.format == "html" and a.text:match("^<[aA]%s[^>]*>$")
+      and #raw_html_ids(a.text) > 0 and b and b.t == "RawInline" and b.format == "html"
+      and b.text:match("^</[aA]%s*>$")
+  end
+  return doc:walk({
+    Header = function(h)
+      local kept, lifted = pandoc.Inlines({}), {}
+      local i = 1
+      while i <= #h.content do
+        if anchor(h.content, i) then
+          lifted[#lifted + 1] = h.content[i].text .. h.content[i + 1].text
+          i = i + 2
+        else
+          kept:insert(h.content[i])
+          i = i + 1
+        end
+      end
+      if #lifted == 0 then return nil end
+      while #kept > 0 and (kept[#kept].t == "Space" or kept[#kept].t == "SoftBreak") do kept:remove(#kept) end
+      h.content = kept
+      return { h, pandoc.RawBlock("html", table.concat(lifted)) }
+    end,
+  })
+end
+
 -- Typst drops raw HTML: after the first raw element that carries an id only raw HTML has, a
 -- metadata element with that label, so that `#link(<id>)` lands there (a label must exist once).
+-- For an id in a heading the element goes right after the heading: the outline and the running
+-- headers repeat a heading's text, which would repeat the label.
 local function typst_raw_anchors(doc, raw_only)
   local function anchors(el)
     if el.format ~= "html" then return "" end
@@ -208,11 +241,25 @@ local function typst_raw_anchors(doc, raw_only)
     for _, id in ipairs(raw_html_ids(el.text)) do
       if raw_only[id] then
         raw_only[id] = nil
-        out[#out + 1] = '#metadata("tr-anchor")' .. typst_label(id)
+        -- In a content block of its own, so that no other label can attach to it or replace it.
+        out[#out + 1] = '#[#metadata("tr-anchor")' .. typst_label(id) .. ']'
       end
     end
     return table.concat(out, " ")
   end
+  doc = doc:walk({
+    Header = function(h)
+      local found = {}
+      h.content:walk({
+        RawInline = function(el)
+          local a = anchors(el)
+          if a ~= "" then found[#found + 1] = a end
+        end,
+      })
+      if #found == 0 then return nil end
+      return { h, pandoc.RawBlock("typst", table.concat(found, " ")) }
+    end,
+  })
   return doc:walk({
     RawInline = function(el)
       local a = anchors(el)
@@ -247,6 +294,7 @@ end
 -- ------------------------------------------------------------------ filter
 
 function Pandoc(doc)
+  doc = lift_heading_anchors(doc)
   local ids, raw_only = collect_ids(doc)
   doc = fix_links(doc, ids)
 

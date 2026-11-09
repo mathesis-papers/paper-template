@@ -233,6 +233,8 @@ _HTML_BLOCK_RE = re.compile(
     r"figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|"
     r"noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|"
     r"ul)(?=[\s/>]|$))", re.I)
+# HTML blocks whose text Pandoc keeps as it is (CommonMark's types 1-5); in the others it reads Markdown.
+_VERBATIM_HTML_RE = re.compile(r"<(?:(?:script|pre|style|textarea)(?=[\s>]|$)|\?|!)", re.I)
 # A formula never runs over a line of only spaces, tabs and '>' (tbook.mathrender.BLANK_LINE_RE).
 _MATH_BREAK_RE = re.compile(r"[ \t>]*$")
 # Besides code spans and HTML comments, no formula reaches into raw code-like elements, HTML tags
@@ -288,8 +290,8 @@ class BlockScan:
     # (line, message): where mdBook and Pandoc read the text differently (``parse_blocks`` warns).
     notes: list[tuple[int, str]] = field(default_factory=list)
     # Per line: a text line that goes on with the paragraph of the line before (lazily, or inside a
-    # formula; not a table row, nor a line of an HTML block, in which Pandoc reads Markdown). A link
-    # reference definition cannot begin there (:func:`definition_roles`).
+    # formula; not a table row, nor a line of an HTML block in which Pandoc reads Markdown, as in a
+    # <div>). A link reference definition cannot begin there (:func:`definition_roles`).
     cont: list[bool] = field(default_factory=list)
 
     @property
@@ -345,7 +347,8 @@ def scan_blocks(lines: list[str]) -> BlockScan:
     kinds = [TEXT] * n
     blocks: dict[int, int] = {}
     cont = [False] * n  # a text line going on with the paragraph of the line before it
-    html = [False] * n  # a line going on with an HTML block (Pandoc reads Markdown, and definitions, in it)
+    html = [False] * n  # a line going on with an HTML block in which Pandoc reads Markdown (and definitions)
+    verbatim = False  # the open HTML block keeps its text as it is (<pre>, <script>, <style>, <textarea>, <?, <!)
     notes: list[tuple[int, str]] = []
     # open containers: -1 a block quote, otherwise the columns of its content after its container's
     # (a definition body's as _Def)
@@ -511,10 +514,11 @@ def scan_blocks(lines: list[str]) -> BlockScan:
             if _HTML_BLOCK_RE.match(body):  # its lines follow as one block, like a paragraph's
                 del stack[keep:]
                 leaf, para, table = "p", -1, False
+                verbatim = bool(_VERBATIM_HTML_RE.match(body))
                 break
             if leaf == "p":
                 cont[i] = not table  # lazily, when containers ended; a table row is a paragraph of its own
-                html[i] = para < 0
+                html[i] = para < 0 and not verbatim
             else:
                 del stack[keep:]
                 leaf, para, depth, table = "p", i, len(stack), False
