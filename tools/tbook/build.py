@@ -64,9 +64,11 @@ def _timed(label: str, fn, result: BuildResult) -> None:
     print(f"✓ {label} ({time.time() - t0:.1f}s)" + (f" → {paths.rel(out)}" if isinstance(out, Path) else ""), flush=True)
 
 
-def _cached(unit: buildcache.Unit, build_fn, out: Path) -> Path:
-    """``build_fn()`` unless ``unit`` is cached (:func:`tbook.buildcache.run`); ``out`` either way."""
-    buildcache.run(unit, build_fn)
+def _cached(make_unit, build_fn, out: Path) -> Path:
+    """``build_fn()`` unless the unit ``make_unit()`` describes is cached (:func:`tbook.buildcache.run`);
+    ``out`` either way. The unit is made here, inside :func:`_timed`, so an error while reading its inputs
+    is reported as a failure of this step."""
+    buildcache.run(make_unit(), build_fn)
     return out
 
 
@@ -93,9 +95,9 @@ def build(targets: list[str], books: list[config.Book], langs: list[str] | None 
                 from . import html
 
                 out = html_dir(book.slug, ed.lang)
-                unit = buildcache.html_unit(site, book, ed.lang, out)
-                _timed(f"html {ed.key}", lambda u=unit, o=out: _cached(
-                    u, lambda: html.build_edition(site, book, ed, model, lock, o), o), result)
+                _timed(f"html {ed.key}", lambda o=out: _cached(
+                    lambda: buildcache.html_unit(site, book, ed.lang, o),
+                    lambda: html.build_edition(site, book, ed, model, lock, o), o), result)
             if "pdf" in want:
                 from . import pandoc
 
@@ -103,16 +105,16 @@ def build(targets: list[str], books: list[config.Book], langs: list[str] | None 
                     if pdf_variants and variant not in pdf_variants:
                         continue
                     out = dist_dir(book.slug) / book.artifact(ed.lang, "pdf", variant)
-                    unit = buildcache.pdf_unit(site, book, ed.lang, variant, out)
-                    _timed(f"pdf {ed.key} {variant}", lambda u=unit, v=variant, o=out: _cached(
-                        u, lambda: pandoc.build_pdf(site, book, ed, model, lock, v, o), o), result)
+                    _timed(f"pdf {ed.key} {variant}", lambda v=variant, o=out: _cached(
+                        lambda: buildcache.pdf_unit(site, book, ed.lang, v, o),
+                        lambda: pandoc.build_pdf(site, book, ed, model, lock, v, o), o), result)
             if "epub" in want and book.outputs_epub:
                 from . import pandoc
 
                 out = dist_dir(book.slug) / book.artifact(ed.lang, "epub")
-                unit = buildcache.epub_unit(site, book, ed.lang, out)
-                _timed(f"epub {ed.key}", lambda u=unit, o=out: _cached(
-                    u, lambda: pandoc.build_epub(site, book, ed, model, lock, o), o), result)
+                _timed(f"epub {ed.key}", lambda o=out: _cached(
+                    lambda: buildcache.epub_unit(site, book, ed.lang, o),
+                    lambda: pandoc.build_epub(site, book, ed, model, lock, o), o), result)
         if "slides" in want:
             from . import slides
 

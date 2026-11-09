@@ -170,11 +170,69 @@ build/slides/<slug>/<deck>/<lang>/  Slidev 输出；PDF 在 build/slides/<slug>/
 books/<slug>/films/<NNN>-<name>/out/  视频流水线产物（git 忽略）；入口 theme/film/film.sh <film dir> <step>
 build/lean-verify/                  ./tbook lean-project 生成的深度验证 Lake 工程
 _site/                              GitHub Pages 产物（见 §6）
+.cache/artifacts/<target>/<unit>/<key>/  构建缓存的本地存储（git 忽略，见 §5.1）：entry.json 与 files/<i>/
 ```
 
 HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook 侧栏的 “1.2.” 编号（默认关闭，因为标题已写“第一章 / Chapter 1”）；`site.toml` 的 `[site] branch = "main"` 决定“建议修改”链接指向的分支；链接指向 `books/<slug>/<lang>/<章节>.md`（mdBook 写出的 `src/` 前缀在构建后去掉），生成的验证账本页没有该链接。语言切换按 `_site/<slug>/<lang>/` 的布局链接到 `../<lang>/<同一页>`。
 
 环境变量：`MDBOOK`（mdBook 路径）、`PANDOC`、`PW_CHROMIUM_PATH`（已有的 Chromium）、`TBOOK_EPUBCHECK=1|warn|0`、`TBOOK_SLIDES_NO_PDF=1`（不导出、不发布幻灯片 PDF；`slides.publish` 会去掉章节卡片中指向未发布 PDF 的链接）、`TBOOK_SLIDES_NO_CHECK=1`、`SOURCE_DATE_EPOCH`（可复现的时间戳）、`TBOOK_REPO` / `TBOOK_BASE_URL`（覆盖仓库与站点地址）、`TRURETURING_DIR`（本地 trureturing 检出）、`TRURETURING_TOKEN`（读取私有 trureturing；GitHub API 也依次用 `GITHUB_TOKEN`、`GH_TOKEN`）、`TBOOK_LANG=zh|en`（模板升级摘要语言）。
+
+### 5.1 构建缓存
+
+耗时产物按**构建单元**缓存（`tools/tbook/buildcache.py`）：输入没有变化的单元不再构建，而是把存下的产物复制回构建写出的位置，路径相同，文件或目录的形状相同，站点组装与发布看不出区别。
+
+| target | 单元名 | 产物 |
+| --- | --- | --- |
+| `html` | `<slug>/<lang>` | `build/html/<slug>/<lang>/` |
+| `pdf` | `<slug>/<lang>/<variant>` | `build/dist/<slug>/` 下该语言版本、该变体的 PDF |
+| `epub` | `<slug>/<lang>` | `build/dist/<slug>/` 下该语言版本的 EPUB |
+| `slides` | `<slug>` | `build/slides/<slug>/`（全部 deck、语言与 PDF） |
+| `films` | `<slug>/<film id>` | `build/films/<slug>/<film id>/`（单元由 `film.units(site, book)` 给出） |
+
+**键**是单元全部输入（`Inputs`）的 SHA-256，再并入 target 与单元名。输入按“标签 + 摘要”逐项计入：
+
+- 文件：仓库是 git 工作树时，取所列目录下 git 会提交的文件（已跟踪的，以及未跟踪且未被忽略的），构建产物与被忽略的文件不计入；git 整体忽略的目录（如 `.cache/fonts/`）与仓库外的目录逐个文件计入。仓库外的文件记为 `<outside>/<目录名>/<相对路径>`，键与目录所在位置无关。不是 git 工作树时遍历目录，跳过 `build/`、`_site/`、`.cache/`、`node_modules/`、`out/`、`frames/`、`tts/` 等。
+- HTML、PDF、EPUB：`tools/tbook/`、`tools/filters/`、`tools/node/`、`theme/`（不含只供视频用的 `theme/film/`）、`i18n/`、`site.toml`、锁文件、`requirements.txt`、`package-lock.json`，整个书目录 `books/<slug>/`（各语言版本互相引用，改动任一语言都会重建这本书的全部单元），站点地址与仓库、Python 主次版本、Node 版本。HTML 另计 mdBook 版本；PDF 与 EPUB 另计 Pandoc 与 `typst` 模块版本、`.cache/fonts/` 的字体文件、Typst 找到的字体族（含系统字体）与 `$SOURCE_DATE_EPOCH`；EPUB 还计 `$TBOOK_EPUBCHECK`，未经检查存下的 EPUB 不会恢复到要求检查的构建中。`.cache/fonts-fontsource/` 由构建从 `@fontsource` 包派生，不计入。
+- 幻灯片：书的 `book.toml`、`slides/`、`assets/`，`theme/slides/`、`theme/generated/`、`theme/i18n/`、`i18n/`、`tools/node/`、`tools/tbook/slides.py`、锁文件、`site.toml`、`package-lock.json`，站点基路径与地址，`TBOOK_SLIDES_NO_PDF`、`TBOOK_SLIDES_NO_CHECK`，Node 与 Chromium 版本。
+
+`buildcache.VERSION` 也计入每个键，改动它即全部重建一次。
+
+**本地存储** `.cache/artifacts/<target>/<unit>/<key>/`：`entry.json`（schema `trureturing-books.build-cache.v1`：`target`、`unit`、`key`、`created`、`outputs[{path, kind}]`、`files{相对路径: {sha256, size}}`、`dirs[]`、`inputs[[标签, 摘要]]`）与 `files/<i>/`（第 i 个产物）。条目先写在同一目录的 `.tmp-*` 中，写完再改名，构建中断不会留下半个条目；两个进程同时存同一个键时保留先写成的。恢复也是先复制到产物旁的临时名再改名。每个单元保留最近存入或恢复的 2 个条目。
+
+**查找顺序**（`buildcache.run(unit, build)`）：
+
+1. 本地存储：逐个文件核对 `entry.json` 记下的摘要、目录与产物形状（没有多余文件，没有符号链接），记下的产物路径须与当前一致；不符即删除该条目并构建。
+2. `TBOOK_CACHE_REMOTE=1` 时，查仓库（`site.toml` 的 `repo`、`TBOOK_REPO` 或 `GITHUB_REPOSITORY`）最新 5 个已发布的 Release（草稿不算）所附的 `build-cache.json`，从新到旧取第一个有该键的条目：设置了 `GITHUB_TOKEN` 或 `GH_TOKEN` 时经 API 的资产地址下载（私有仓库也可用；跳转到存储地址时不带令牌），否则用公开下载地址；核对大小不超过声明值、SHA-256 与 `build-cache.json` 和 GitHub 报告的 `digest` 一致；只解出 `entry.json` 与 `files/` 下的普通文件和目录，链接、设备文件、`..`、绝对路径、重复成员一律拒绝（逐个写出，不依赖 Python 3.11.4 才有的解包过滤器）；再按第 1 步校验后放入本地存储并恢复。API 地址取 `$GITHUB_API_URL`（默认 `https://api.github.com`）。
+3. 都没有：构建，成功后存入；构建失败则什么也不存，构建声明的产物缺失是错误。
+
+缓存不会让本来能成功的构建失败：Release 不可达、限流、条目损坏、磁盘写满都只打印一行原因，然后照常构建（或只是不存）。每个进程只列一次 Release。
+
+**环境变量**：`TBOOK_CACHE=0` 关闭缓存（每个单元都构建，既不恢复也不存）；`TBOOK_CACHE_REMOTE=1` 允许从 Release 恢复，未设置时不访问网络。
+
+**命令**：
+
+```
+./tbook cache status [--book <slug>]       每个单元、当前键的前 16 位、本地是否已存
+./tbook cache key                          本地存储内容的 Actions 缓存键 build-cache-v1-<sha256>（条目不变，键不变）
+./tbook cache prune                        只留各单元当前键的条目；删除损坏条目、中断留下的临时目录与空目录
+./tbook cache export DIR [--book <slug>]   把各单元当前键的条目写成 DIR/cache-<target>-<unit>-<键前 16 位>.tar
+                                           与 DIR/build-cache.json（unit、key、asset、sha256、size）；
+                                           有单元不在本地存储中时列出它们，退出码为 1
+```
+
+导出的 tar 可复现：成员排序，不含属主与时间，权限只有 0644/0755。工作流如何保存、恢复本地存储，整站 Release 如何附带这些文件，见 `docs/PUBLISHING.md`。
+
+**接口**（`film.units` 等用它描述新单元）：
+
+```python
+Inputs().files(*paths, exclude=()).text(label, value).add(other)   # .key()；text 的值按 JSON 计入
+Unit(target, name, inputs, outputs: list[Path])                     # .key、.label、.entry_dir()
+run(unit, build_fn, *, repo=None) -> "cached" | "release" | "built"
+run(unit, None) -> "cached" | "release" | "missing"                 # 只恢复，不构建
+units(site, books) -> list[Unit]       # html/pdf/epub/slides 单元，加上 film.units(site, book)
+tool_version(*cmd), package_version(name), node_version(), chromium_version()
+store(unit), restore_local(unit), restore_remote(unit, repo), stored(), prune(units), actions_key(), export(dir, units)
+```
 
 ## 6. 站点结构（`_site/`）
 

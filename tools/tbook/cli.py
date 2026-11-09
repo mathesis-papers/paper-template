@@ -87,21 +87,24 @@ def cmd_build(args) -> int:
 
 
 def cmd_cache(args) -> int:
-    """./tbook cache status|key|prune|export: the build cache (tools/tbook/buildcache.py)."""
+    """./tbook cache status|key|prune|export: the build cache (tools/tbook/buildcache.py,
+    docs/ARCHITECTURE.md)."""
     from . import buildcache
 
-    site = config.load_site()
-    books = _books(args)
     if args.cache_cmd == "key":
         print(buildcache.actions_key())
         return 0
-    current = buildcache.units(site, books)
+    site = config.load_site()
+    current = buildcache.units(site, _books(args))
     if args.cache_cmd == "status":
         for unit in current:
             key = unit.key
-            state = "stored" if unit.entry_dir(key).is_dir() else "not stored"
+            state = "stored" if buildcache.read_entry(unit.entry_dir(key)) else "not stored"
             print(f"{unit.target:7} {unit.name:48} {key[:16]}  {state}")
-        print(f"{len(current)} unit(s); store {paths.rel(buildcache.store_root())}")
+        entries = buildcache.stored()
+        print(f"{len(current)} unit(s); {len(entries)} entr{'y' if len(entries) == 1 else 'ies'} in "
+              f"{paths.rel(buildcache.store_root())}"
+              + ("" if buildcache.enabled() else "; TBOOK_CACHE=0: builds neither restore nor store"))
         return 0
     if args.cache_cmd == "prune":
         if args.book:
@@ -280,12 +283,11 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--check", action="store_true")
     c.set_defaults(fn=cmd_template)
 
-    c = sub.add_parser("cache", help="build cache: status, key, prune, export (see docs/PUBLISHING.md)")
+    c = sub.add_parser("cache", help="build cache: status, key, prune, export (see docs/ARCHITECTURE.md)")
     csub = c.add_subparsers(dest="cache_cmd", required=True)
     t = csub.add_parser("status", help="every build unit, its key and whether the store has it")
     t.add_argument("--book", action="append")
-    t = csub.add_parser("key", help="the Actions cache key of the store's content")
-    t.add_argument("--book", action="append")
+    csub.add_parser("key", help="the Actions cache key of the store's content")
     t = csub.add_parser("prune", help="drop stored entries that are not the current key of a unit")
     t.add_argument("--book", action="append")
     t = csub.add_parser("export", help="write each unit's tar and build-cache.json into DIR (for a release)")

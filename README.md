@@ -95,6 +95,7 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 | `./tbook serve` | 本地预览站点 |
 | `./tbook viz\|slides\|film new …` | 新建可视化、演示文稿、视频 |
 | `./tbook lean-project` | 生成深度验证 Lake 工程 |
+| `./tbook cache status\|key\|prune\|export` | 构建缓存：输入未变的单元不再构建；各单元状态、Actions 缓存键、清理、导出 Release 附件 |
 | `./tbook template status\|update` | 模板版本与升级 |
 
 ## Agent 与 skills
