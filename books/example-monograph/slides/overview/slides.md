@@ -35,7 +35,7 @@ section: "模板的保证"
   </div>
   <div class="g3 mt-l">
     <Stat value="33" label="条形式结论（全书），全部经 Lean 内核验证" tone="ok" />
-    <Stat value="4" label="个开放问题与猜想（全书），标为 OPEN" tone="warn" />
+    <Stat value="3" label="个开放问题与猜想（全书），标为 OPEN" tone="warn" />
     <Stat value="0" label="条未验证的引用：./tbook check 拒绝发布" />
   </div>
 </div>

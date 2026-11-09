@@ -30,7 +30,7 @@ books/<slug>/
 
 ### 书库里有哪些书
 
-`books/` 下每个含 `book.toml` 的目录是一本书，`site.toml` 的 `[books] order` 决定书库首页的顺序。`[books] hide` 列出要隐藏的书（glob 模式，按目录名匹配）：隐藏的书仍在 `books/` 中，可以随时看它的写法，但检查、钉版、构建、站点与发版都当它不存在，按名字点它（`--book`、`./tbook new-chapter` 等）会报错。从模板创建的书库设 `hide = ["example-*"]`，隐藏模板附带的示例书，而不是删除它们（删除会让以后合并模板改动时冲突，见 `docs/UPGRADING.md` §6）。`./tbook books` 列出可见的书，`./tbook books --hidden` 列出隐藏的书。规则详见 `docs/ARCHITECTURE.md` §2.1。
+`books/` 下每个含 `book.toml` 的目录是一本书，`site.toml` 的 `[books] order` 决定书库首页的顺序。`[books] hide` 列出要隐藏的书（glob 模式，按目录名匹配）：隐藏的书仍在 `books/` 中，可以随时看它的写法，但检查、钉版、构建、站点与发版都当它不存在，按名字点它（`--book`、`./tbook new-chapter` 等）会报错。要重新使用它，从 `hide` 中去掉该模式并运行 `./tbook pin --refresh`：隐藏期间运行的 `pin --refresh` 已把只被它引用的声明从锁文件中删去。从模板创建的书库设 `hide = ["example-*"]`，隐藏模板附带的示例书，而不是删除它们（删除会让以后合并模板改动时冲突，见 `docs/UPGRADING.md` §6）。`./tbook books` 列出可见的书，`./tbook books --hidden` 列出隐藏的书。规则详见 `docs/ARCHITECTURE.md` §2.1。
 
 ### `SUMMARY.md`
 

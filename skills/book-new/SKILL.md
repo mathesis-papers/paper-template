@@ -21,7 +21,7 @@ description: 在书库中新建一本书、新增章节或新增一个语言版�
    2. `./tbook check`：0 错误，并有一行 `check: hidden by site.toml [books].hide, not checked: example-…`；`./tbook books` 不再列出示例书；
    3. `./tbook pin --refresh` 把只被示例书引用的声明从锁文件中清掉。
 
-   隐藏的书留在 `books/` 中可供参考（写法、可视化、视频、幻灯片），但检查、钉版、构建、站点、发版与 CI 都当它不存在，`--book example-monograph` 之类的点名会报错。删除也可以（检查、构建与 CI 不依赖示例书），但书库以后用 git 合并模板改动时，模板改过的示例书会与删除冲突（modify/delete），每次都要手动处理；隐藏则没有这个问题（`docs/UPGRADING.md` §6）。想看示例书的效果时，临时从 `hide` 中去掉该模式即可。
+   隐藏的书留在 `books/` 中可供参考（写法、可视化、视频、幻灯片），但检查、钉版、构建、站点、发版与 CI 都当它不存在，`--book example-monograph` 之类的点名会报错。删除也可以（检查、构建与 CI 不依赖示例书），但书库以后用 git 合并模板改动时，模板改过的示例书会与删除冲突（modify/delete），每次都要手动处理；隐藏则没有这个问题（`docs/UPGRADING.md` §6）。想看示例书的效果时，临时从 `hide` 中去掉该模式，再运行 `./tbook pin --refresh`：第 3 步已把只被示例书引用的声明从锁文件中删去，不重新解析，`./tbook check` 会报错，构建出的页面上每条定理都标 `UNVERIFIED`。看完恢复 `hide`，再运行一次 `./tbook pin --refresh`；这期间的锁文件不要提交。
 5. 在 GitHub：Settings → Pages → Source 选 “GitHub Actions”。
 6. `./tbook check && ./tbook build all`，`./tbook serve` 本地预览。
 

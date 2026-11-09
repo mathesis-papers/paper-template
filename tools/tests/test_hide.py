@@ -34,6 +34,11 @@ from test_template import copy_real_managed, run_release_plan
 ROOT = paths.ROOT
 NODE = shutil.which("node")
 HIDE_SITE = SITE + 'hide = ["example-*"]\n'
+# The error for naming the hidden book example-x (tools/tbook/config.py hidden_error, slides-lib.mjs hiddenError):
+# unhiding alone does not bring back the declarations that a pin --refresh made while it was hidden dropped.
+HIDDEN_MESSAGE = ('book example-x is hidden by site.toml [books].hide ("example-*"); to use it, remove that pattern '
+                  "from hide, then run ./tbook pin --refresh (the lock file keeps only the declarations that visible "
+                  "books cite)")
 HIDDEN_GID = "D9/S9/Hidden/OnlyHere.claim"  # cited only by the hidden book; the fake ledger cannot resolve it
 WORKFLOWS = ROOT / ".github" / "workflows"
 SETUP_ACTION = ROOT / ".github" / "actions" / "setup" / "action.yml"
@@ -106,9 +111,9 @@ class BookListTests(unittest.TestCase):
             self.assertEqual([b.slug for b in config.load_books()], ["demo"])
             with self.assertRaises(config.ConfigError) as cm:
                 config.load_books(["demo", "example-x"])
-            self.assertEqual(str(cm.exception), 'book example-x is hidden by site.toml [books].hide ("example-*"); '
-                                                 "to use it, remove that pattern from hide")
-            with self.assertRaisesRegex(config.ConfigError, r"books example-x, example-y are hidden .*remove that pattern"):
+            self.assertEqual(str(cm.exception), HIDDEN_MESSAGE)
+            with self.assertRaisesRegex(config.ConfigError, r"books example-x, example-y are hidden .*to use them, "
+                                                            r"remove that pattern from hide, then run \./tbook pin --refresh"):
                 config.load_books(["example-x", "example-y"])
             with self.assertRaisesRegex(config.ConfigError, "unknown book.*example-none; known: demo"):
                 config.load_books(["example-none"])  # matches the pattern but does not exist: unknown, not hidden
@@ -410,15 +415,29 @@ class NodeTests(unittest.TestCase):
             }));""")
         self.assertEqual(r.returncode, 0, r.stderr)
         got = json.loads(r.stdout)
-        message = 'book example-x is hidden by site.toml [books].hide ("example-*"); to use it, remove that pattern from hide'
-        self.assertEqual(got["errors"], [message] * 3)
+        self.assertEqual(got["errors"], [HIDDEN_MESSAGE] * 3)
         with CoreRepo(HIDE_SITE.replace('"second", "demo"', "")) as repo:  # Python says the same
             hidden_book(repo)
-            self.assertEqual(str(config.hidden_error(["example-x"])), message)
+            self.assertEqual(str(config.hidden_error(["example-x"])), HIDDEN_MESSAGE)
         self.assertEqual((got["slides"], got["hidden"], got["decks"], got["viz"], got["isBook"], got["byPath"]),
                          (["demo"], ["example-x"], [], ["demo"], [True, False], "example-x"))
         self.assertIn('no book "example-none"', got["unknown"])
         self.assertEqual(got["routes"], [{"hub": "demo"}, None, None])
+
+    def test_hidden_error_agrees_with_python(self):
+        """One or several books, hidden by one or several patterns: the same text from Python and Node."""
+        hide = ["example-*", "draft-?"]
+        cases = [["example-x"], ["example-x", "example-y"], ["example-x", "draft-1"]]
+        r = node_eval(self.root, """
+            import { hiddenError } from '@LIB@/slides-lib.mjs';
+            console.log(JSON.stringify(@CASES@.map((slugs) => hiddenError(slugs, @HIDE@).message)));"""
+                      .replace("@CASES@", json.dumps(cases)).replace("@HIDE@", json.dumps(hide)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        node = json.loads(r.stdout)
+        with CoreRepo(SITE + f"hide = {json.dumps(hide)}\n"):
+            self.assertEqual(node, [str(config.hidden_error(slugs)) for slugs in cases])
+        self.assertIn("books example-x, draft-1 are hidden by site.toml [books].hide (\"example-*\", \"draft-?\"); "
+                      "to use them, remove those patterns from hide, then run ./tbook pin --refresh", node[2])
 
     def test_validation_agrees_with_python(self):
         for text in ('[site]\n[books]\nhide = "example-*"\n', "[site]\n[books]\nhide = [1]\n",

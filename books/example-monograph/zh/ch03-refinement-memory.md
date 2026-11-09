@@ -128,7 +128,7 @@ $$
 - 在时刻 $t_0$ 与 $t_1$ 之间遗忘事件 $e$，记作 $\mathrm{Forgot}(e, t_0, t_1)$，指以下四条同时成立：$t_0 < t_1$；对每个满足 $t_0 \le t \le t_1$ 的时刻 $t$，$e \in L(t)$；$\mathrm{Knows}(e, t_0)$；$\mathrm{Knows}(e, t_1)$ 不成立。
 :::
 
-两者在 Lean 中是 [`Knows`](lean:D5/S3/ObserverMemory/TwoTimeKnowledge.Knows) 与 [`Forgot`](lean:D5/S3/ObserverMemory/TwoTimeKnowledge.Forgot)；第二条“始终在账”是 `Persists`。知道就是 [@thm-target-recovery] 中的纤维条件，读数是 $r_t$，目标是 $v_e$；$W$ 非空时，它等价于存在 $g$ 使 $v_e = g \circ r_t$[^factors]。遗忘是语义上的：事件仍在账本上，失去的不是记录，而是读数区分它的取值的能力。它不是删除账目，也不是物理擦除或某种认知状态的标签。
+两者在 Lean 中是 [`Knows`](lean:D5/S3/ObserverMemory/TwoTimeKnowledge.Knows) 与 [`Forgot`](lean:D5/S3/ObserverMemory/TwoTimeKnowledge.Forgot)；第二条“始终在账”是 `Persists`。知道就是 [@thm-target-recovery] 中的纤维条件，读数是 $r_t$，目标是 $v_e$；$W$ 非空时，它等价于存在 $g$ 使 $v_e = g \circ r_t$ 成立[^factors]。遗忘是语义上的：事件仍在账本上，失去的不是记录，而是读数区分它的取值的能力。它不是删除账目，也不是物理擦除或某种认知状态的标签。
 
 [^factors]: Lean 用 Mathlib 的 `Function.FactorsThrough` 表达这个纤维条件。名字说“经由……分解”，定义却只要求纤维上取常值，不要求分解映射存在。[@thm-max-compatible] 中的相容条件，在 Lean 中也是这样写的。
 

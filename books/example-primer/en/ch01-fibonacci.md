@@ -14,7 +14,7 @@ $$
 The $F_n$ of this book is `Nat.fib n` from Mathlib, Lean's mathematics library.
 :::
 
-Throughout the book we use the convention $F_0 = 0$, $F_1 = 1$[^mathlib]. Here are the first few terms, with $2^n$ in the third row for comparison:
+Throughout the book we use the convention $F_0 = 0$, $F_1 = 1$.[^mathlib] Here are the first few terms, with $2^n$ in the third row for comparison:
 
 | $n$ | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

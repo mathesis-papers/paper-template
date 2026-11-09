@@ -78,10 +78,12 @@ git 历史指 `HEAD` 可达的全部提交，包括以合并提交（merge commi
 有的书库不（只）用 `./tbook template update`，而是把模板仓库加为 git 远端，直接合并它的发布 tag 或分支：
 
 ```bash
-git remote add template https://github.com/the-omega-institute/trureturing-books-template.git
-git fetch template --tags
-git merge vX.Y.Z    # 从 “Use this template” 创建的书库与模板没有共同历史，第一次合并要加 --allow-unrelated-histories
+git remote add --no-tags template https://github.com/the-omega-institute/trureturing-books-template.git
+git fetch template main "+refs/tags/v*:refs/template-tags/v*"
+git merge refs/template-tags/vX.Y.Z   # 从 “Use this template” 创建的书库与模板没有共同历史，第一次合并要加 --allow-unrelated-histories
 ```
+
+模板的发布 tag 只取到 `refs/template-tags/` 下，不进书库自己的 `refs/tags`（`--no-tags` 让以后的 `git fetch template` 也不自动带回 tag）：书库的 `release.yml` 把推送的 `v*` tag 当作全部书的发版，`git push --tags` 会把模板的版本 tag 当成书库的发版推上去；与书库自己的 tag 同名时（两边都有 `v1.0.0`），`git fetch template --tags` 还会以 “would clobber existing tag” 失败，`git merge v1.0.0` 合到的则是书库自己的提交。以后每次升级重复后两行（不再需要 `--allow-unrelated-histories`）；要合并模板尚未发布的改动，用 `git merge template/main`。
 
 这样合并会带来模板的全部改动，包括 `books/example-*` 下的示例书。示例书被删掉的书库，每当模板改动示例书，合并就在这些文件上冲突（modify/delete），每次都要手动处理。所以**隐藏示例书，不要删除**：在 `site.toml` 的 `[books]` 中设
 

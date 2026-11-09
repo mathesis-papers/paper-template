@@ -472,14 +472,19 @@ def hidden_books() -> list[str]:
 
 
 def hidden_error(slugs: list[str]) -> ConfigError:
-    """The error for naming hidden books explicitly (``--book``, ``new-chapter <slug>`` …)."""
+    """The error for naming hidden books explicitly (``--book``, ``new-chapter <slug>`` …).
+
+    Unhiding alone is not enough once ``./tbook pin --refresh`` has run while the book was hidden: the lock file
+    keeps only the declarations visible books cite, so the message names the refresh too. The Node scripts give
+    the same text (tools/node/slides-lib.mjs hiddenError; tools/tests/test_hide.py compares them)."""
     site = load_site()
     patterns = list(dict.fromkeys(site.hidden_by(s) for s in slugs))
     one = len(slugs) == 1
     return ConfigError(
         f"book{'' if one else 's'} {', '.join(slugs)} {'is' if one else 'are'} hidden by site.toml [books].hide "
         f"({', '.join(json.dumps(p, ensure_ascii=False) for p in patterns)}); to use {'it' if one else 'them'}, remove "
-        f"{'that pattern' if len(patterns) == 1 else 'those patterns'} from hide")
+        f"{'that pattern' if len(patterns) == 1 else 'those patterns'} from hide, then run ./tbook pin --refresh "
+        f"(the lock file keeps only the declarations that visible books cite)")
 
 
 def named_book(name: str | Path) -> Book:
