@@ -6,7 +6,7 @@
 # Books repositories pick the release up through template-sync.yml (./tbook template update).
 #
 # In this repository v* tags are template releases, so release.yml skips them; the example site's build
-# cache is attached here instead, as release.yml attaches a books repository's (docs/PUBLISHING.md §4): the
+# cache is attached here instead, as release.yml attaches a books repository's (docs/PUBLISHING.md §5): the
 # job "site" builds the whole site as release.yml's build job does and runs ./tbook cache export; publish
 # creates the release as a draft, uploads the tars and build-cache.json, then publishes it. The job repeats
 # those few steps rather than calling release.yml, whose plan, notes and downloads are about books releases.

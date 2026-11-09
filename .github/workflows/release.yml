@@ -17,7 +17,7 @@
 # (<slug>-<deck>-<lang>.pdf); its notes list each book's version, editions, theorem count and the pinned
 # trureturing commit.
 #
-# Every release is also a restore point of the build cache (docs/PUBLISHING.md §4): whatever the tag, the
+# Every release is also a restore point of the build cache (docs/PUBLISHING.md §5): whatever the tag, the
 # build job builds the whole site (./tbook build all, films included), restoring unchanged units from the
 # Actions cache of the default branch or from earlier releases, and ./tbook cache export writes one tar per
 # unit and build-cache.json, which are attached beside the downloads. A build that has no cache

@@ -10,7 +10,7 @@
 #   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
 #   media  visualization browser tests, slide decks (Slidev + Chromium) and films
 #
-# build and media go through the build cache (docs/PUBLISHING.md §4): outside pull-request events they
+# build and media go through the build cache (docs/PUBLISHING.md §5): outside pull-request events they
 # restore the store that pages.yml saved; in every event they may restore a unit from the newest published
 # releases (TBOOK_CACHE_REMOTE=1). CI never saves the Actions cache. Both use the Pages URL, as pages.yml
 # does, so that their keys are the site's keys.

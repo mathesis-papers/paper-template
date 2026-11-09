@@ -1035,7 +1035,7 @@ class PullRequestCacheTests(unittest.TestCase):
         for path, save in saves.items():
             restore = restores[path]
             self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
-            inputs = {"inputs.browsers": "true", "inputs.fonts": "true", "inputs.films": "true"}
+            inputs = {"inputs.browsers": "true", "inputs.fonts": "true", "steps.films.outputs.install": "true"}
             conds = {name: re.sub(r"hashFiles\([^)]*\)", "'h'", step.get("if", ""))
                      for step, name in ((restore, "restore"), (save, "save"))}
             for name, cond in conds.items():
@@ -1048,7 +1048,7 @@ class PullRequestCacheTests(unittest.TestCase):
                 for event in pull_requests:
                     self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context),
                                      f"{path}: {name} on {event}")
-            for key in ("inputs.browsers", "inputs.fonts", "inputs.films"):
+            for key in ("inputs.browsers", "inputs.fonts", "steps.films.outputs.install"):
                 if key in conds["restore"]:
                     off = {**inputs, key: "false"}
                     self.assertFalse(gha_if(conds["restore"], event="push", ref="refs/heads/main", context=off), path)
@@ -1201,7 +1201,7 @@ fi
 
 class BuildCacheWorkflowTests(unittest.TestCase):
     """The build cache store (.cache/artifacts) in GitHub Actions: who restores and who saves it, the builds
-    that use it, and the releases that carry it (docs/PUBLISHING.md §4, docs/VERIFICATION.md §2)."""
+    that use it, and the releases that carry it (docs/PUBLISHING.md §5, docs/VERIFICATION.md §2)."""
 
     WORKFLOWS = GITHUB_DIR / "workflows"
 

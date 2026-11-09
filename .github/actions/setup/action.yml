@@ -11,7 +11,8 @@
 # films from theme/film/requirements.txt too; Node packages from package-lock.json (KaTeX, Slidev,
 # Playwright). Java, needed by epubcheck, is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
 # Films: ffmpeg and fallback fonts for math glyphs come from apt; theme/film/setup.sh installs the
-# Python packages (already installed here) and downloads the Kokoro model into .cache/film/models.
+# Python packages (already installed here) and downloads the Kokoro model into .cache/film/models. None
+# of it is installed when no book has a film (books/*/films/*/film.json): there is nothing to render.
 #
 # Caches. The pip cache, Playwright's Chromium, the fetched fonts and the film models are restored and
 # saved only outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
@@ -42,7 +43,7 @@ inputs:
     required: false
     default: 'true'
   films:
-    description: Install the film toolchain (ffmpeg, fallback fonts, theme/film/setup.sh with the Kokoro model). Needs browsers 'true'.
+    description: Install the film toolchain (ffmpeg, fallback fonts, theme/film/setup.sh with the Kokoro model) when a book has a film. Needs browsers 'true'.
     required: false
     default: 'false'
   python-version:
@@ -60,6 +61,19 @@ runs:
         echo "::error title=tbook setup::films: 'true' renders frames in Chromium; set browsers: 'true' as well"
         exit 1
 
+    - name: Find films
+      id: films
+      shell: bash
+      env:
+        WANTED: ${{ inputs.films }}
+      run: |
+        if [ "$WANTED" = "true" ] && compgen -G 'books/*/films/*/film.json' >/dev/null; then
+          echo "install=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "install=false" >> "$GITHUB_OUTPUT"
+          if [ "$WANTED" = "true" ]; then echo "No film (books/*/films/*/film.json): the film toolchain is not installed."; fi
+        fi
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -72,12 +86,12 @@ runs:
       with:
         path: ~/.cache/pip
         # Jobs with and without films keep separate entries: an entry is saved once, by the first job of its key.
-        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-films-${{ inputs.films }}-${{ hashFiles('requirements.txt', 'theme/film/requirements.txt') }}
+        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-films-${{ steps.films.outputs.install }}-${{ hashFiles('requirements.txt', 'theme/film/requirements.txt') }}
 
     - name: Install Python packages
       shell: bash
       env:
-        FILMS: ${{ inputs.films }}
+        FILMS: ${{ steps.films.outputs.install }}
       run: |
         python -m pip install -r requirements.txt
         if [ "$FILMS" = "true" ] && [ -f theme/film/requirements.txt ]; then
@@ -132,11 +146,11 @@ runs:
         tool: mdbook@0.5.4
 
     - name: Install system fonts and ffmpeg
-      if: inputs.fonts == 'true' || inputs.films == 'true'
+      if: inputs.fonts == 'true' || steps.films.outputs.install == 'true'
       shell: bash
       env:
         FONTS: ${{ inputs.fonts }}
-        FILMS: ${{ inputs.films }}
+        FILMS: ${{ steps.films.outputs.install }}
       run: |
         packages=()
         if [ "$FONTS" = "true" ]; then
@@ -174,7 +188,7 @@ runs:
 
     - name: Restore the film models
       id: film-models-cache
-      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != '' && !startsWith(github.event_name, 'pull_request')
+      if: steps.films.outputs.install == 'true' && !startsWith(github.event_name, 'pull_request')
       uses: actions/cache/restore@v5
       with:
         path: .cache/film/models
@@ -182,14 +196,14 @@ runs:
         key: film-models-${{ hashFiles('theme/film/setup.sh') }}
 
     - name: Install the film toolchain
-      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != ''
+      if: steps.films.outputs.install == 'true'
       shell: bash
       env:
         PYTHON: python
       run: bash theme/film/setup.sh
 
     - name: Save the film models
-      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != '' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.films.outputs.install == 'true' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
       uses: actions/cache/save@v5
       with:
         path: .cache/film/models
