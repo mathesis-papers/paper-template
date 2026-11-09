@@ -99,10 +99,11 @@ jobs:
         if: hashFiles('tools/node/slides-check.mjs') != ''
         run: node tools/node/slides-check.mjs
 
-      - name: Without the example book (template repository only)
-        # Books repositories may delete books/example-monograph (skills/book-new) and run this same CI with
-        # no book at all. Repeat the checks and the unit tests in a worktree without it, so that no managed
-        # check or test comes to depend on it.
+      - name: Without the example books (template repository only)
+        # Books repositories may delete the template's example books (books/example-*; hiding them with
+        # site.toml [books].hide is the alternative, tested below) and run this same CI with no book at all.
+        # Repeat the checks and the unit tests in a worktree without them, so that no managed check or test
+        # comes to depend on them.
         if: github.repository == 'the-omega-institute/trureturing-books-template'
         env:
           PYTHONPATH: tools
@@ -116,7 +117,7 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/node_modules" "$dir/node_modules"
           if [ -d .cache ]; then ln -s "$GITHUB_WORKSPACE/.cache" "$dir/.cache"; fi
           cd "$dir"
-          git rm -r -q books/example-monograph
+          git rm -r -q books/example-*
           python3 - <<'PY'
           import re
           from pathlib import Path
