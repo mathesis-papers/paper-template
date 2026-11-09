@@ -24,7 +24,7 @@
       "mode": "100644"
     },
     ".github/workflows/lean-verify.yml": {
-      "sha256": "38b8f1aa7803e970cdb8fd4fedfae273d9f4e4ca33ed90a53e0b6826f18f61ca",
+      "sha256": "9d5180fc096c851a4346ccd3f30ab9aa3c9ef9058534ac9dde30d7aa8468c5ab",
       "mode": "100644"
     },
     ".github/workflows/pages.yml": {
@@ -60,15 +60,15 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "8711c4dd8af07304222a379dbb44f57bc7b168eff8a4050971fbecb03c279d5a",
+      "sha256": "24b0a87cb290da965c74eddf8ea0c526cd458082ba4e0f41729b1bb2ada827a6",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "82faa12a38853ecbfebf48fc4855b5e4c35f2d6c4fdb9c3e7eb9cfe8e4c599e0",
+      "sha256": "51cd9b7a828c9674007a691a6320800a480340a9b739499dde34056b0fce5d3b",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "b0107a656eeb89968fd360fe6c592dbec3e0fde30df3429b91b4edcb57f7b877",
+      "sha256": "5b2f28fbacf2346e9c8c1d9b4be8c9cdf55c419246543aa4be5f5413fb01b57b",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -80,7 +80,7 @@
       "mode": "100644"
     },
     "docs/VERIFICATION.md": {
-      "sha256": "80144f12fc7e10e6623993361e313df8dd0c0091ee66d7375bb9abf7c6322e4c",
+      "sha256": "ee0ba679cb55efc4787818f2934ad7210b1c80fd0cac3aa494f8e75531da825c",
       "mode": "100644"
     },
     "package-lock.json": {
@@ -112,7 +112,7 @@
       "mode": "100644"
     },
     "skills/book-slides/SKILL.md": {
-      "sha256": "bb23ec2e240522a7794e432f206b2ac4dfdb76aedfed917d2f3a04a77286b2d5",
+      "sha256": "b4d531770b550a3f6e432ff892a8c904366f6e05fa7a948080d63b7dda30ab1a",
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
@@ -132,7 +132,7 @@
       "mode": "100644"
     },
     "skills/trureturing-pin/SKILL.md": {
-      "sha256": "008c5b913b9175f4375b5ba4b20d3c12ae1c4a42f338dcb7597a2bbe6bc03e81",
+      "sha256": "047b3adfca30f8bdee50d36739fc11d942edfd78726aa78bde6c317426c301f7",
       "mode": "100644"
     },
     "tbook": {
@@ -340,7 +340,7 @@
       "mode": "100644"
     },
     "theme/slides/README.md": {
-      "sha256": "fb95b400124bcc488e25869bfe495bec8537fc81d667c7f6cab0730fd81d29c2",
+      "sha256": "fe39c3a03e5ba8ae883dce2af03753294a38e3cc10c602a01b99f0d317de2801",
       "mode": "100644"
     },
     "theme/slides/components/LeanBadge.vue": {
@@ -464,7 +464,7 @@
       "mode": "100755"
     },
     "tools/filters/tr-book.lua": {
-      "sha256": "42435242ea2c6ce92cd80c29a39e7dc67e3a9206e2b0f51dee3ce0ca3de83f0e",
+      "sha256": "b4219c8dc26dadd6754a48e7f59a1ec0f936e0b1b510c7596f70b7eb08e30516",
       "mode": "100644"
     },
     "tools/filters/tr-env.lua": {
@@ -484,11 +484,11 @@
       "mode": "100644"
     },
     "tools/node/slides-check.mjs": {
-      "sha256": "a6b8807a718048c35fca0dfe92b6c7258f4ced13d3d5fd391f46128ec8406a93",
+      "sha256": "6da813e714300284c537e1300a88bea117f92e70008156812fb1886ec4ade0fc",
       "mode": "100644"
     },
     "tools/node/slides-lib.mjs": {
-      "sha256": "fc7d616a8349b46298374b22a0bf8e973281f837278232261973bbbab68261a5",
+      "sha256": "8220e4f9db32bf9c888bae00159c7ebd85c531d490c0beda19b476c0e785c403",
       "mode": "100644"
     },
     "tools/node/slides-new.mjs": {
@@ -536,7 +536,7 @@
       "mode": "100644"
     },
     "tools/tbook/check.py": {
-      "sha256": "49d40102c4ed6106907b09c981048d683593d25bdaec436133f611811e6c5a14",
+      "sha256": "5ba28e73f91503cfa236489dc8c613a43b760db1b91a3b851d34d0524cf68ff0",
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
@@ -552,7 +552,7 @@
       "mode": "100644"
     },
     "tools/tbook/doctor.py": {
-      "sha256": "9864d79720d42dd7bf54435c548c49491c4d767ed6b687566a43face9babe5f3",
+      "sha256": "89a58ff192af9a0017b866f914649b19f0c4d1f855e25c101f90ae6e34293d2b",
       "mode": "100644"
     },
     "tools/tbook/film.py": {
@@ -564,7 +564,7 @@
       "mode": "100644"
     },
     "tools/tbook/lean.py": {
-      "sha256": "f866d1c325569fd44c401522e6724d3823c0876087f9d79fe1f9eb1321c4aedd",
+      "sha256": "6324e2384411b3b7e837ef7a46d3cf454deb07a15e78d263309654f225faf6fe",
       "mode": "100644"
     },
     "tools/tbook/leanverify.py": {
@@ -576,11 +576,11 @@
       "mode": "100644"
     },
     "tools/tbook/mathrender.py": {
-      "sha256": "47d140a15a9a29e0c62832b624a86cfeb6d7344ddd130d212a013b13c18e1062",
+      "sha256": "f3717ce55e4a5c8a4a33c36e481072e82b1ffc6731628c531601fb778efd7770",
       "mode": "100644"
     },
     "tools/tbook/mdscan.py": {
-      "sha256": "268e78a44f005c168d329c929c2486972b8a068e72c11e67bebcaf48fbca9372",
+      "sha256": "6dfe100499bcb682f2dff70c4affbbbc56ff905cb342fda1bd6f34bea3912893",
       "mode": "100644"
     },
     "tools/tbook/model.py": {
@@ -592,7 +592,7 @@
       "mode": "100644"
     },
     "tools/tbook/pandoc.py": {
-      "sha256": "b8022b3675a81a3e831fac559d233a848fdb76a009f4d50302cbaf3113c4024a",
+      "sha256": "d1bcad3db1760ff1a4ecb280acbcf1bb236c644acbd2283679daafd56f2a3900",
       "mode": "100644"
     },
     "tools/tbook/paths.py": {
@@ -600,11 +600,11 @@
       "mode": "100644"
     },
     "tools/tbook/pin.py": {
-      "sha256": "95545aa6c1531c0921acbd3f78138437e80b48d88364da72dac7c29cce1d783a",
+      "sha256": "ce4a424ea4eb3b3c0bfe9a08d04886c7674d1b397e08df80b28f8d1cc8c01481",
       "mode": "100644"
     },
     "tools/tbook/render.py": {
-      "sha256": "f33c676679d41878245edf67d59a96a5d2629536be7cb2d0ff33db01007847c2",
+      "sha256": "b2a5ae3d6b1285914b22d913cb6c3600f4ed792f1be28ab5bf9de72909e0cf40",
       "mode": "100644"
     },
     "tools/tbook/serve.py": {
@@ -616,7 +616,7 @@
       "mode": "100644"
     },
     "tools/tbook/slides.py": {
-      "sha256": "1f84c7184515c0353e6bbf0b108903deb702af7b1b76b29e9e5d16465eab86ac",
+      "sha256": "0fba652e92f238dca644ae8a4f7b2baadffeb136166a3683c7bb3830d469f10c",
       "mode": "100644"
     },
     "tools/tbook/summary.py": {
@@ -636,7 +636,7 @@
       "mode": "100644"
     },
     "tools/tests/test_blocks.py": {
-      "sha256": "f943a2d9aeb801cc63563127f4078c771a98935d74c86ec2b4bf8df1f2246b36",
+      "sha256": "55c1f846a36175f44db1da60c4b6def53c7716fecea60a1361ed3ed29ee76d68",
       "mode": "100644"
     },
     "tools/tests/test_core.py": {
@@ -652,7 +652,7 @@
       "mode": "100644"
     },
     "tools/tests/test_followups_pandoc.py": {
-      "sha256": "bb31caa3df8c5eb908960745b097f9d6621ddba74bc2a079b5350e96cca19d66",
+      "sha256": "ba4cb63b7047706b28897bf19dd604e81fe0e46e1f55943805d016d54b4656db",
       "mode": "100644"
     },
     "tools/tests/test_html.py": {
@@ -660,7 +660,7 @@
       "mode": "100644"
     },
     "tools/tests/test_links.py": {
-      "sha256": "c14ac1fa9dc3600cd39aa4af5255f98b1081b208d4a0a48b4c6ad4b15e9ff774",
+      "sha256": "0672b962205c0ee00ab5f6bd277dcdcc2d24ecdbc9cbf04cb0947e5e9bdce97f",
       "mode": "100644"
     },
     "tools/tests/test_markdown.py": {
@@ -680,7 +680,7 @@
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {
-      "sha256": "ea7dc4d1f3c3f6d4c60cc1ddd03a83de4b8d8e5408d643f64172d36b85ed7c24",
+      "sha256": "c9dd3f8717862223652045b3b4e8d1cb943d060db3dedd1f997a0a8de097bcc0",
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
@@ -688,7 +688,7 @@
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
-      "sha256": "25bf69f71d228fd2232642cbc2d808d4810c0048939560552f479c96e4c7954a",
+      "sha256": "03646b40a930bd2c23766657ec14308ba9950637d0cbb8d3651b79670246b343",
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {
