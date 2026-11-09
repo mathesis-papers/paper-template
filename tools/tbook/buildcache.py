@@ -279,8 +279,8 @@ def series(version: str, parts: int = 2) -> str:
 
     Keys hold a tool's series, not its exact build. The versions that decide an output are pinned in files
     every key already covers (requirements.txt: Pandoc and Typst; package-lock.json: Playwright and its
-    Chromium, the fonts; theme/film/requirements.txt; mdBook in .github/actions/setup), so the series only
-    tells apart a machine whose tool behaves differently. The exact build would key the runner image: a new
+    Chromium, the fonts; theme/film/requirements.txt), so the series only tells apart a machine whose tool
+    behaves differently. (mdBook, installed at one exact version everywhere, counts by its exact version.) The exact build would key the runner image: a new
     Node patch or an Ubuntu ffmpeg revision would make every entry, and every published release, useless.
     """
     m = re.search(r"\d+(?:\.\d+)*", version)
@@ -338,7 +338,7 @@ class Unit:
 def html_unit(site: config.Site, book: config.Book, lang: str, out_dir: Path) -> Unit:
     from . import doctor
 
-    inputs = site_inputs(site).files(book.dir).text("mdbook", series(tool_version(doctor.mdbook_path() or "")))
+    inputs = site_inputs(site).files(book.dir).text("mdbook", tool_version(doctor.mdbook_path() or ""))
     return Unit("html", f"{book.slug}/{lang}", inputs.text("node", node_version()), [Path(out_dir)])
 
 
@@ -380,7 +380,19 @@ def _epubcheck_mode() -> str:
     """$TBOOK_EPUBCHECK as the build reads it: an EPUB stored without the check is not restored into a
     build that checks."""
     mode = os.environ.get("TBOOK_EPUBCHECK", "1").lower()
-    return "off" if mode in ("0", "false", "no", "off") else mode
+    if mode in ("0", "false", "no", "off"):
+        return "off"
+    # the check cannot run here (pandoc.check_epub skips it): the EPUB is stored as unchecked
+    if not shutil.which("java"):
+        return "skipped (no java)"
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("epubcheck") is None:
+            return "skipped (no epubcheck)"
+    except (ImportError, ValueError):
+        return "skipped (no epubcheck)"
+    return mode
 
 
 def epub_unit(site: config.Site, book: config.Book, lang: str, out_file: Path) -> Unit:
@@ -569,7 +581,7 @@ def store(unit: Unit, key: str | None = None) -> Path:
         (tmp / ENTRY).write_text(json.dumps({
             "schema": SCHEMA, "target": unit.target, "unit": unit.name, "key": key, "created": int(time.time()),
             "outputs": outputs, "files": listed, "dirs": dirs, "inputs": [list(p) for p in unit.inputs.parts],
-        }, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        }, indent=1, ensure_ascii=True) + "\n", encoding="utf-8")  # a non-UTF-8 file name is escaped
         _publish(tmp, final)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -619,18 +631,22 @@ def restore_local(unit: Unit, key: str | None = None) -> bool:
     the store has no valid entry (a damaged one is removed) or the copy fails."""
     key = key or unit.key
     entry = unit.entry_dir(key)
-    if not entry.is_dir():
+    try:
+        if not entry.is_dir():
+            return False
+        data = read_entry(entry)
+        if data is None:
+            why = "no valid entry.json"
+        elif (data["target"], data["unit"], data["key"]) != (unit.target, unit.name, key):
+            why = "it belongs to another unit"
+        elif [o.get("path") if isinstance(o, dict) else None for o in data["outputs"]] != [
+                _out_path(Path(o)) for o in unit.outputs]:
+            why = "it was stored for other output paths"
+        else:
+            why = verify(entry)
+    except OSError as exc:  # unreadable, or removed meanwhile: a miss, but nothing proves it damaged
+        _say(f"cache: cannot read the stored {unit.label} ({exc}); building it")
         return False
-    data = read_entry(entry)
-    if data is None:
-        why = "no valid entry.json"
-    elif (data["target"], data["unit"], data["key"]) != (unit.target, unit.name, key):
-        why = "it belongs to another unit"
-    elif [o.get("path") if isinstance(o, dict) else None for o in data["outputs"]] != [
-            _out_path(Path(o)) for o in unit.outputs]:
-        why = "it was stored for other output paths"
-    else:
-        why = verify(entry)
     if why:
         _say(f"cache: dropping the stored {unit.label} ({why})")
         shutil.rmtree(entry, ignore_errors=True)
@@ -752,8 +768,10 @@ def _remote_index(repo: str) -> dict[tuple[str, str, str], Found]:
     for rel in releases:
         if not isinstance(rel, dict) or rel.get("draft"):
             continue
-        assets = {a.get("name"): a for a in rel.get("assets") or [] if isinstance(a, dict)}
-        if assets.get(MANIFEST):
+        listed = rel.get("assets")
+        assets = {a["name"]: a for a in (listed if isinstance(listed, list) else [])
+                  if isinstance(a, dict) and isinstance(a.get("name"), str)}
+        if isinstance(assets.get(MANIFEST), dict):
             with_cache.append((rel, assets))
     if not with_cache:
         _say(f"cache: no published release of {repo} carries {MANIFEST}; building what is not stored")
@@ -767,11 +785,15 @@ def _remote_index(repo: str) -> dict[tuple[str, str, str], Found]:
             continue
         if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
             continue
-        for e in manifest.get("entries") or []:
-            if not isinstance(e, dict):
+        entries = manifest.get("entries")
+        if not isinstance(entries, list):
+            _say(f"cache: {MANIFEST} of release {tag} has no list of entries; skipping it")
+            continue
+        for e in entries:  # a malformed entry is skipped; the others, and other releases, still count
+            if not isinstance(e, dict) or not isinstance(e.get("asset"), str):
                 continue
             k = (e.get("target"), e.get("unit"), e.get("key"))
-            asset = assets.get(e.get("asset"))
+            asset = assets.get(e["asset"])
             if asset and all(isinstance(x, str) for x in k) and k not in index:
                 index[k] = (tag, e, asset)  # type: ignore[index]
     return index
@@ -891,7 +913,7 @@ def run(unit: Unit, build: Callable[[], Any] | None, *, repo: str | None = None)
         store(unit, key)
     except MissingOutput:
         raise
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError: a name or value the entry cannot record
         _say(f"cache: cannot store {unit.label} ({exc}); it was built but is not cached")
     return "built"
 

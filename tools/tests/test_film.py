@@ -990,5 +990,22 @@ class PipelineTest(unittest.TestCase):
             self.assertTrue(os.access(THEME_FILM / name, os.X_OK), name)
 
 
+class DoctorFfmpegTest(unittest.TestCase):
+    def test_doctor_honours_ffmpeg_env(self):
+        """./tbook doctor looks for ffmpeg where the film build does: $FFMPEG, else PATH."""
+        from tbook import doctor
+
+        with mock.patch.dict(os.environ, {"FFMPEG": "/opt/ff/bin/ffmpeg"}):
+            report = mock.Mock()
+            doctor.check_ffmpeg(report)
+        check = report.add.call_args[0][0]
+        self.assertTrue(check.ok)
+        self.assertIn("/opt/ff/bin/ffmpeg", check.detail)
+        with mock.patch.dict(os.environ, {"FFMPEG": "", "PATH": ""}):
+            report = mock.Mock()
+            doctor.check_ffmpeg(report)
+        self.assertFalse(report.add.call_args[0][0].ok)
+
+
 if __name__ == "__main__":
     unittest.main()

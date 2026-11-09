@@ -10,13 +10,20 @@ with the site's ``404.html`` and status 404, as Pages does.
 Standard library only (``http.server``). Correct MIME types for the files the books ship
 (``.mjs``, ``.wasm``, ``.woff2``, ``.epub``, …); no caching, so a rebuild shows up on reload.
 Ctrl-C stops the server cleanly.
+
+Files are served with ``Accept-Ranges: bytes`` and honour a single byte range (RFC 9110 §14),
+as Pages does: Safari and iOS play a ``<video>`` only from a server that answers range requests
+with 206. See ``byte_range`` for which ``Range`` headers are honoured, ignored or refused.
 """
 
 from __future__ import annotations
 
+import datetime
+import email.utils
 import functools
 import os
 import posixpath
+import re
 import sys
 import urllib.parse
 from http import HTTPStatus
@@ -73,6 +80,47 @@ def base_path(site: config.Site | None = None) -> str:
     path = urllib.parse.urlparse(site.base_url).path or "/"
     path = "/" + path.strip("/") + "/"
     return "/" if path == "//" else path
+
+
+class RangeNotSatisfiable(ValueError):
+    """A well-formed byte range that selects nothing of the file (answered with 416)."""
+
+
+_RANGE_SPEC = re.compile(r"([0-9]*)-([0-9]*)")
+
+
+def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """The inclusive ``(first, last)`` bytes a ``Range`` header selects from a ``size``-byte file.
+
+    Returns None when the header is to be ignored, i.e. the whole file is sent with 200: no header,
+    a unit other than ``bytes``, a syntactically invalid range set (RFC 9110 §14.2 lets a server
+    ignore it), several ranges (honouring only single ranges keeps the server simple; media players
+    ask for one range at a time), or an empty file. Raises ``RangeNotSatisfiable`` for a valid
+    single range that selects nothing: a first byte at or past the end, or a zero-length suffix.
+    """
+    if header is None or size <= 0:
+        return None
+    unit, sep, ranges = header.partition("=")
+    if not sep or unit.strip().lower() != "bytes":
+        return None
+    specs = [spec.strip() for spec in ranges.split(",") if spec.strip()]  # empty list items don't count
+    if len(specs) != 1:
+        return None
+    match = _RANGE_SPEC.fullmatch(specs[0])
+    if not match or not any(match.groups()):
+        return None
+    first, last = match.groups()
+    if not first:  # suffix range "-n": the last n bytes
+        length = int(last)
+        if length == 0:
+            raise RangeNotSatisfiable(header)
+        return max(size - length, 0), size - 1
+    first = int(first)
+    if last and int(last) < first:
+        return None  # invalid, not unsatisfiable
+    if first >= size:
+        raise RangeNotSatisfiable(header)
+    return first, min(int(last), size - 1) if last else size - 1
 
 
 class PagesHandler(SimpleHTTPRequestHandler):
@@ -137,16 +185,86 @@ class PagesHandler(SimpleHTTPRequestHandler):
             return
         if fs_path.is_dir():
             fs_path = fs_path / "index.html"
+        elif inner.endswith("/"):  # "page.html/" names no file, as on Pages
+            self._not_found()
+            return
         if not fs_path.is_file():
             self._not_found()
             return
-        f = self.send_head()
-        if f:
-            try:
-                if not head:
-                    self.copyfile(f, self.wfile)
-            finally:
-                f.close()
+        self._send_file(fs_path, head)
+
+    # -- files -------------------------------------------------------------------
+    def _send_file(self, fs_path: Path, head: bool) -> None:
+        """Answer with the regular file ``fs_path``: 200, 304, or for a byte range 206 or 416.
+
+        Precedence follows RFC 9110 §13.2.2: If-Modified-Since (304, decided as
+        SimpleHTTPRequestHandler does) before Range. Range applies to GET only (§14.2: HEAD
+        ignores it and gets the full response's headers). If-Range is honoured when it is
+        exactly the Last-Modified date this response carries; anything else (an entity tag,
+        since no ETag is sent, or another date) means the file may have changed, so the Range
+        is ignored and the whole file is sent with 200.
+        """
+        try:
+            f = open(fs_path, "rb")
+        except OSError:
+            self._not_found()
+            return
+        with f:
+            st = os.fstat(f.fileno())
+            size = st.st_size
+            if self._not_modified(st.st_mtime):
+                self.send_response(HTTPStatus.NOT_MODIFIED)
+                self.end_headers()
+                return
+            last_modified = self.date_time_string(st.st_mtime)
+            span = None
+            if not head and self.headers.get("If-Range", last_modified).strip() == last_modified:
+                try:
+                    span = byte_range(self.headers.get("Range"), size)
+                except RangeNotSatisfiable:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.end_headers()
+                    return
+            first, last = span or (0, size - 1)
+            self.send_response(HTTPStatus.PARTIAL_CONTENT if span else HTTPStatus.OK)
+            self.send_header("Content-Type", self.guess_type(str(fs_path)))
+            self.send_header("Content-Length", str(last - first + 1))
+            if span:
+                self.send_header("Content-Range", f"bytes {first}-{last}/{size}")
+            self.send_header("Last-Modified", last_modified)
+            self.send_header("Accept-Ranges", "bytes")
+            self.end_headers()
+            if head:
+                return
+            if not span:
+                self.copyfile(f, self.wfile)
+                return
+            f.seek(first)
+            remaining = last - first + 1
+            while remaining > 0:
+                chunk = f.read(min(remaining, 64 * 1024))
+                if not chunk:  # the file shrank while being sent
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def _not_modified(self, mtime: float) -> bool:
+        """If-Modified-Since says the client's copy is current (SimpleHTTPRequestHandler's test)."""
+        if "If-Modified-Since" not in self.headers or "If-None-Match" in self.headers:
+            return False
+        try:
+            since = email.utils.parsedate_to_datetime(self.headers["If-Modified-Since"])
+        except (TypeError, IndexError, OverflowError, ValueError):
+            return False  # ill-formed: ignored
+        if since.tzinfo is None:  # obsolete format without a zone: GMT (RFC 9110 §5.6.7)
+            since = since.replace(tzinfo=datetime.timezone.utc)
+        if since.tzinfo is not datetime.timezone.utc:
+            return False
+        modified = datetime.datetime.fromtimestamp(mtime, datetime.timezone.utc).replace(microsecond=0)
+        return modified <= since
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         self._serve(head=False)

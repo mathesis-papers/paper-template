@@ -1688,5 +1688,39 @@ class OwnBackgroundBuildTest(unittest.TestCase):
         self.assertIn("PDF page 1 does not draw the print backdrop", r.stderr)
 
 
+class BuildOncePerProcessTest(unittest.TestCase):
+    """`./tbook build all` builds the decks, then the site step publishes them through build() again: with
+    the cache off (TBOOK_CACHE=0), or a store that failed, they must not be built a second time."""
+
+    def test_build_then_publish_builds_once(self):
+        from tbook import buildcache
+
+        tmp = Path(tempfile.mkdtemp(prefix="tbook-slides-once-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        out = tmp / "build" / "slides" / "bk"
+        calls = []
+
+        def fake_build(site, book, out_dir):
+            calls.append(Path(out_dir))
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+        unit = SimpleNamespace(key="k1", label="slides bk")
+        book = SimpleNamespace(slug="bk")
+        with mock.patch.dict(os.environ, {"TBOOK_CACHE": "0"}), \
+                mock.patch.object(slides, "deck_names", return_value=["overview"]), \
+                mock.patch.object(slides, "_build", side_effect=fake_build), \
+                mock.patch.object(slides, "_BUILT", set()), \
+                mock.patch.object(buildcache, "slides_unit", return_value=unit):
+            slides.build(None, book, out)
+            slides.build(None, book, out)
+            self.assertEqual(len(calls), 1, "the second call reuses this process's build")
+            unit.key = "k2"  # an input changed: build again
+            slides.build(None, book, out)
+            self.assertEqual(len(calls), 2)
+            shutil.rmtree(out)  # the output is gone: build again
+            slides.build(None, book, out)
+            self.assertEqual(len(calls), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

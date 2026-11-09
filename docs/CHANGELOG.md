@@ -12,8 +12,10 @@
 
 ### 变更
 
-- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再触发任何工作流；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：每分钟视频约占 85 MB（1080p 两版加 720p 两版），视频多的书库留意站点大小。
+- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：每分钟视频约占 85 MB（1080p 两版加 720p 两版），视频多的书库留意站点大小。
 - 以 `workflow_call` 调用 `ci.yml` 的书库工作流须授予 `pages: read`（**需要手动操作**）：`build` 与 `media` 作业用 `actions/configure-pages` 取得 Pages 地址，使 CI 的缓存键与 `pages.yml` 一致。
+- `.github/actions/setup` 的 `fonts: 'true'` 也安装 Playwright `--with-deps` 会装的字体（`fonts-liberation`、`fonts-ipafont-gothic`、`fonts-wqy-zenhei`、`fonts-freefont-ttf` 等）：PDF 与 EPUB 的键包含系统字体族，构建它们的作业（`ci.yml` 的 build、`pages.yml`、发版）因此看到同一套字体，键一致。
+- `./tbook serve` 支持 HTTP 字节范围请求（`Range`，206），本地预览的视频在 Safari/iOS 中也能播放；`./tbook doctor` 按 `$FFMPEG` 查找 ffmpeg，与视频构建一致。
 - `ci.yml` 的 `media` 作业也构建视频（PR 中验证改动的视频能渲染）；在默认分支与 tag 的推送上不构建，由 `pages.yml` 与发版工作流构建，同一次推送不会把一个视频渲染两次。`pages.yml` 的构建步骤有短于作业的时限，超时后已完成的单元照常保存。
 
 - 标题按行内 Markdown 读：环境标题与 SUMMARY 章节标题中 `$…$` 之外的反斜杠转义（`C\*-代数`、`\$5`）在 HTML 页头、侧栏、`<title>`、站点、PDF、EPUB 与账本中都显示为标点本身，`$…$` 内的 TeX 不变。此前 HTML 与站点保留反斜杠；SUMMARY 中 `$…$` 外的 `\{` 现在显示为 `{`。

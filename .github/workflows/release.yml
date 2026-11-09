@@ -130,6 +130,13 @@ jobs:
               site = config.load_site()
               title = f"{site.text(site.title, site.default_language)} {tag}"
               prerelease = is_prerelease(tag[1:])
+          elif tag.startswith("film-"):
+              # film-<slug>-<NNN>-v<k>: the per-film releases of template 0.1.0. Films are built with the site
+              # now (pages.yml, and every release); such a tag publishes nothing and can be deleted.
+              print(f"::notice title=Release::{tag} is a per-film tag; films are built with the site now, so "
+                    "it publishes nothing (it can be deleted).")
+              emit("skip", "true")
+              sys.exit(0)
           else:
               known = ", ".join(sorted(by_slug)) or "none"
               fail(f"tag {tag} names no book (expected <slug>-v<version> or v<version>; books: {known})")

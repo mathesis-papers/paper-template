@@ -1330,10 +1330,12 @@ class WorkflowTests(unittest.TestCase):
 
     def test_films_are_built_with_the_site(self):
         """Films are build units like the others (pages.yml, release.yml): there is no film workflow and no
-        film-* release tag."""
+        film-* release tag (release.yml's plan only recognises a legacy one to skip it: test_release_plan)."""
         self.assertFalse((WORKFLOWS / "film.yml").exists())
         for path in sorted((WORKFLOWS.parent).rglob("*.yml")):
             text = path.read_text(encoding="utf-8")
+            if path.name == "release.yml":  # the plan's skip of legacy per-film tags
+                text = re.sub(r'(?ms)^ *elif tag\.startswith\("film-"\):\n.*?sys\.exit\(0\)\n', "", text)
             self.assertNotRegex(text, r"film\.yml|['\"!]film-|\bfilm-(\*|<|\$\{\{)", path.name)
         text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
         tags = re.search(r"(?m)^on:\n  push:\n    tags:\n((?:      - .*\n)+)", text).group(1)
@@ -1404,6 +1406,10 @@ class NoBooksTests(unittest.TestCase):
         self.assertIn("there are no books", log)
         self.assertEqual(run_release_plan(root, "v1.0.0", template_repo=True)[1].get("skip"), "true")
         self.run_ok(root, str(root / "tbook"), "new-book", "my-book", "--title", "zh=我的书", "--title", "en=My Book")
+        # a per-film tag of template 0.1.0 (film-<slug>-<NNN>-v<k>) publishes nothing now: skipped, not failed
+        rc, outputs, log = run_release_plan(root, "film-my-book-001-v1")
+        self.assertEqual((rc, outputs.get("skip")), (0, "true"), log)
+        self.assertIn("per-film tag", log)
         # Only a semantic-version pre-release is a GitHub pre-release; date tags are ordinary releases, a
         # same-day suffix included (2026.11.10-2 parses as a semantic version, but it is a date).
         for tag, pre in (("v2026.11.08", "false"), ("v2026-11-08", "false"), ("v20261108", "false"),

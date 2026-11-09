@@ -155,6 +155,11 @@ runs:
         packages=()
         if [ "$FONTS" = "true" ]; then
           packages+=(fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core)
+          # The fonts `npx playwright install --with-deps` adds (its ubuntu24.04 "tools" group). PDF and EPUB
+          # keys include the font families Typst finds on the system, so every job that builds them gets
+          # the same set whether or not it also installs browsers or films.
+          packages+=(fonts-noto-color-emoji fonts-unifont xfonts-cyrillic xfonts-scalable fonts-liberation
+                     fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf)
         fi
         if [ "$FILMS" = "true" ]; then
           # ffmpeg encodes the films; DejaVu and FreeFont cover math glyphs the @fontsource fonts lack.

@@ -16,8 +16,11 @@
 # build-cache-v1- picks the newest entry of the run's own ref, then of the default branch).
 #
 # save runs ./tbook cache prune (only the entries of the current inputs stay) and saves the store under
-# ./tbook cache key, a digest of the stored (unit, key) pairs, unless that equals the key restore found:
-# an unchanged store is not uploaded again.
+# <./tbook cache key>-r<run id>-<run attempt>: ./tbook cache key is a digest of the stored (unit, key) pairs,
+# and the store is saved only when that digest differs from the one in the key restore found (an
+# unchanged store is not uploaded again). The run suffix makes every saved key new: cache keys are
+# immutable, so a store that returns to an earlier content (a revert) could not be saved under that
+# earlier key again, and restore, which takes the newest entry of the prefix, would keep the newer one.
 #
 # Trust. A restored entry replaces a build: its files go into the site and the releases as they are.
 # So the store is saved only from runs of the default branch's own code: push to the default branch,
@@ -93,11 +96,13 @@ runs:
       run: |
         set -euo pipefail
         ./tbook cache prune
-        key="$(./tbook cache key)"
-        echo "key=$key" >> "$GITHUB_OUTPUT"
-        if [ "$key" = "${TBOOK_BUILD_CACHE_RESTORED:-}" ]; then
+        content="$(./tbook cache key)"
+        restored="${TBOOK_BUILD_CACHE_RESTORED:-}"
+        restored="${restored%-r*}"
+        echo "key=$content-r$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        if [ "$content" = "$restored" ]; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
-          echo "the store is the one restored ($key); not saved again"
+          echo "the store is the one restored ($content); not saved again"
         else
           echo "changed=true" >> "$GITHUB_OUTPUT"
         fi

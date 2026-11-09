@@ -19,7 +19,7 @@ description: 为书做讲解视频时使用：按 trureturing-film 方案新建�
 2. **片中的数字必须精确算出或取自所钉提交。**
 3. **旁白英文自然，字幕中文准确**，各一行，不逐字硬译。旁白与字幕写在 `script.json`，它是唯一的时间来源。
 4. **颜色只来自令牌**（`C.lean` 绿、`C.now` 琥珀、`C.open` 红、`C.argued` 紫，其余 `C.cyan`、`C.mag`、`C.white`、`C.dim`）。
-5. **仓库只存源码**：`film.json`、`script.json`、`scenes.js`、可选 `data/*.json`、`poster.jpg`（≤ 300 KB）。成片是构建产物，与 PDF 一样：构建写到 `build/films/<slug>/<id>/`，站点托管在 `_site/<slug>/films/<id>/`。没有单独的视频 Release。
+5. **仓库只存源码**：`film.json`、`script.json`、`scenes.js`、可选 `data/*.json`、`poster.jpg`（≤ 300 KB）。成片是构建产物，与 PDF 一样：构建写到 `build/films/<slug>/<id>/`，站点托管在 `_site/<slug>/films/<id>/`。没有单独的视频 Release，`film-*` tag 也不发布任何东西。
 
 ## 流程
 
@@ -51,7 +51,7 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
    TBOOK_FILMS=require ./tbook build films --book <book>
    ```
 
-   每部视频是一个构建单元（`./tbook cache status` 中目标为 `films`）：输入未变时从本地缓存或已发布的整站 Release 恢复，否则运行 `film.sh <dir> all`（`FILM_STRICT=1`：只用 TTS 实测的时间轴与自托管字体），把 `outputs` 中的五个文件复制到 `build/films/<slug>/<id>/`。构建不写任何入库文件；`poster.jpg` 只由第 4 步手工更新。渲染后若实际时长与 `film.json` 的 `duration` 不同，构建会警告，按提示更新。
+   每部视频是一个构建单元（`./tbook cache status` 中目标为 `films`）：输入未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链时用它取得视频）；都没有时运行 `film.sh <dir> all`（`FILM_STRICT=1`：只用 TTS 实测的时间轴与自托管字体），把 `outputs` 中的五个文件复制到 `build/films/<slug>/<id>/`。构建不写任何入库文件；`poster.jpg` 只由第 4 步手工更新。渲染后若实际时长与 `film.json` 的 `duration` 不同，构建会警告，按提示更新。
    `TBOOK_FILMS`：`auto`（默认）缓存未命中且工具链齐全时渲染，否则警告并在站点上只显示海报与“视频未构建”；`require` 缺工具链时失败；`skip` 从不渲染（命中缓存仍恢复）。`./tbook build site` 与 `./tbook build all` 同样会渲染或恢复视频。
 6. 嵌入章节——**所有语言版本都要加**，`src` 相同，只翻译图注：
 
@@ -61,8 +61,10 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
    :::
    ```
 
-   外部视频：`::: {.film src="trureturing-film:film-<NNN>-v<k>"}`。HTML 中为 `<video>`：播放站内 `films/<id>/` 的 720p 旁白版，海报为提交的 `poster.jpg`，附 1080p、720p、纯配乐下载；站点没有该视频时显示海报与“视频未构建”。PDF/EPUB 中为海报、图注与站点视频页地址（`site.toml` 没有 `base_url` 时只有海报）。
-7. `./tbook build site --book <book> && ./tbook serve` 查看视频页 `<slug>/films/` 与章节中的播放器（手机宽度、深浅主题）。
+   本书的视频：HTML 中为 `<video>`，播放站内 `films/<id>/` 的 720p 旁白版，海报为提交的 `poster.jpg`，附 1080p、720p、纯配乐下载与视频页链接；站点没有该视频（未构建）时改为显示海报与“视频未构建”。PDF/EPUB 中为海报、图注与站点视频页地址（`site.toml` 没有 `base_url` 时只有海报与图注）。
+
+   外部视频（trureturing-film 的 Release）：`::: {.film src="trureturing-film:film-<NNN>-v<k>"}`。HTML 中为 `<video>`，直接播放该 Release 的旁白版附件 `TRURETURING_<NNN>_narrated_EN_subs_ZH-EN.mp4`，海报为其 `TRURETURING_<NNN>_cover.jpg`，附“观看”（视频文件）与“下载”（Release 页）链接；不经站点托管，也不显示“视频未构建”。Release 附件的地址在 iOS Safari 中不能播放，需要所有读者都能看的视频请做成本书的视频。PDF/EPUB 中没有海报，为标题“trureturing-film 的视频 · film-<NNN>-v<k>”、图注与该 Release 页的地址（不依赖 `base_url`）。
+7. `./tbook build site --book <book> && ./tbook serve` 查看视频页 `<slug>/films/` 与章节中的播放器（手机宽度、深浅主题）。`./tbook serve` 支持按字节范围请求，Safari 也能在本地播放；用 iPhone 查看时设置 `TBOOK_SERVE_HOST=0.0.0.0`，从同一网络访问。
 
 ## 常见问题
 
@@ -71,9 +73,11 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
 | `check` 警告 `subject_commit` 与所钉提交不同 | 视频依据的提交过期；复核片中陈述后更新 `subject_commit`，构建会重新渲染 |
 | `check` 警告 `release_tag` / `published_tag` 不再使用 | 旧的逐片 Release 字段；删除即可，视频随站点构建 |
 | 站点显示“视频未构建” | 缓存未命中且没有渲染：工具链不全（构建日志列出缺项，运行 `theme/film/setup.sh`）或 `TBOOK_FILMS=skip` |
-| 改了章节，视频却重新渲染 | 不应发生：键只含视频目录（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`、令牌、引擎绘制的书目与 Lean 数据和工具版本；用 `./tbook cache status` 与条目的 `entry.json` 比对输入 |
+| 改了章节，视频却重新渲染 | 不应发生：键只含 git 列出的视频文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、字体与 Playwright 的 npm 版本、Kokoro 模型版本与 Node 主版本，不含站点地址。改 `book.toml` 的版本或标题、钉新的 trureturing 提交也会让视频重新渲染（它们属于引擎数据）；用 `./tbook cache status` 与条目的 `entry.json` 比对输入 |
+| PR 中视频每次推送都重新渲染 | 预期如此：PR 运行不读也不存 Actions 缓存（防投毒），只从已发布的 Release 恢复；合入后 `pages.yml` 渲染并保存，之后分支与 `main` 上的构建都从缓存恢复，PR 要等某个 Release 附上该键 |
+| 本机没有视频工具链 | 设置 `TBOOK_CACHE_REMOTE=1` 构建，从已发布的整站 Release 恢复键未变的视频；改动过的视频仍需工具链渲染（或交给 CI） |
 | 数学符号显示为方框 | 用 `F.math` 字体；CI 安装 `fonts-dejavu-core`、`fonts-freefont-ttf` 作后备 |
 
 ## 完成标准
 
-单帧与海报逐张看过；`./tbook check` 通过；`TBOOK_FILMS=require ./tbook build films` 成功；各语言章节都已嵌入，站点视频页、章节播放器（含 iOS Safari）与 PDF 中显示正确。
+单帧与海报逐张看过；`./tbook check` 通过；`TBOOK_FILMS=require ./tbook build films` 成功；各语言章节都已嵌入，站点视频页、章节播放器（用 `./tbook serve` 在桌面浏览器与 iOS Safari 中实际播放）与 PDF/EPUB 中显示正确。

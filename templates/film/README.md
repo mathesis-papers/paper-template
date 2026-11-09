@@ -117,15 +117,16 @@ Python 包钉在 `theme/film/requirements.txt`，`setup.sh` 装进独立的视�
 ## 构建与发布 · Build and publish
 
 1. `./tbook check` 无错误；提交 `film.json`、`script.json`、`scenes.js`、`poster.jpg`。
-2. `./tbook build films --book <slug>`（`build site`、`build all` 同样）：每部视频是一个构建单元。键覆盖视频依赖的全部输入——视频目录（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的书目与 Lean 数据（所钉提交、引用的声明）及片内文字、字体与 Playwright 的 npm 版本、Kokoro 模型版本，以及 ffmpeg、Node、Chromium、视频 Python 的版本；不含站点地址。键未变时从本地缓存或已发布的整站 Release 恢复，否则以 `FILM_STRICT=1` 运行 `film.sh <dir> all` 并把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`。
+2. `./tbook build films --book <slug>`（`build site`、`build all` 同样）：每部视频是一个构建单元。键覆盖视频依赖的全部输入——git 列出的视频目录文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、`package-lock.json` 中 @fontsource 字体与 Playwright 的版本、Kokoro 模型版本与 Node 主版本；不含站点地址，也不含探测到的 ffmpeg、Chromium 与视频 Python。键未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链的贡献者可用它取得视频）；都没有时以 `FILM_STRICT=1` 运行 `film.sh <dir> all` 并把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`。
 3. `TBOOK_FILMS`：`auto`（默认）缓存未命中且工具链齐全时渲染，否则警告，站点只显示海报与“视频未构建”；`require` 缺工具链时失败；`skip` 从不渲染（命中缓存仍恢复）。
-4. 站点把视频放在 `<slug>/films/<id>/<文件名>`（同源，Content-Type 与按字节范围请求正确，iOS Safari 可以播放）；整站 Release 附带构建缓存，没有缓存的构建可以从中恢复。
+4. 站点把视频放在 `<slug>/films/<id>/<文件名>`（同源，Content-Type 与按字节范围请求正确，iOS Safari 可以播放）；整站 Release 附带构建缓存，没有缓存的构建设置 `TBOOK_CACHE_REMOTE=1` 时可以从中恢复。
 5. 在章节中嵌入：`::: {.film src="<NNN>-<name>"}` 或 `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`，块内文字为图注。
 
 1. `./tbook check` passes; commit `film.json`, `script.json`, `scenes.js`, `poster.jpg`.
-2. `./tbook build films --book <slug>` (or `build site`, `build all`): each film is a build unit keyed by everything its videos depend on (not the site's address); an unchanged film is restored from the local cache or the latest whole-site release, a changed one is rendered with `film.sh <dir> all` (`FILM_STRICT=1`) into `build/films/<slug>/<id>/`.
-3. `TBOOK_FILMS=auto|require|skip` decides what happens when a film must be rendered and the toolchain is missing: leave it out with a warning, fail, or never render.
-4. The site serves the videos at `<slug>/films/<id>/<file>`, same origin, which iOS Safari needs.
+2. `./tbook build films --book <slug>` (or `build site`, `build all`): each film is a build unit. Its key covers everything the videos depend on: the film's files as git lists them (not `out/`, `poster.jpg` or `README.md`), `theme/film/` (not `site/`), `theme/generated/tokens.mjs`, `tools/tbook/film.py`, the data the engine draws (the book's code, version and titles, the pinned commit, the cited declarations and their statement digests, the in-frame strings), the `package-lock.json` versions of the @fontsource fonts and Playwright, the Kokoro model release and Node's major version; not the site's address, nor the probed ffmpeg, Chromium or film Python. An unchanged film is restored from the local cache, and with `TBOOK_CACHE_REMOTE=1` also from the published whole-site releases (the way for contributors without the film toolchain to get the videos); otherwise it is rendered with `film.sh <dir> all` (`FILM_STRICT=1`) and the five `outputs` files are copied to `build/films/<slug>/<id>/`.
+3. `TBOOK_FILMS`: `auto` (default) renders a film the cache does not hold when the toolchain is complete, and otherwise warns and the site shows only the poster and "Video not built"; `require` fails without the toolchain; `skip` never renders (a cached film is still restored).
+4. The site serves the videos at `<slug>/films/<id>/<file>`, same origin with the right Content-Type and byte-range responses, which iOS Safari needs; whole-site releases carry the build cache, from which a build without a cache can restore them with `TBOOK_CACHE_REMOTE=1`.
+5. Embed a film in a chapter with `::: {.film src="<NNN>-<name>"}` or `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`; the text inside the block is the caption.
 
 ## 边界 · Scope
 

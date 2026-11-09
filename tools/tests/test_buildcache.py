@@ -239,6 +239,25 @@ class KeyTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=name):
                 buildcache.Unit("html", name, buildcache.Inputs(), []).entry_dir()
 
+    def test_an_epub_check_that_cannot_run_keys_apart(self):
+        """An EPUB whose epubcheck was skipped (no Java, no epubcheck package) is not restored into a build
+        that checks."""
+        with Scratch():
+            with mock.patch.object(buildcache.shutil, "which", return_value="/usr/bin/java"), \
+                    mock.patch("importlib.util.find_spec", return_value=object()):
+                checked = buildcache._epubcheck_mode()
+            with mock.patch.object(buildcache.shutil, "which", return_value=None):
+                no_java = buildcache._epubcheck_mode()
+            with mock.patch.object(buildcache.shutil, "which", return_value="/usr/bin/java"), \
+                    mock.patch("importlib.util.find_spec", return_value=None):
+                no_package = buildcache._epubcheck_mode()
+            os.environ["TBOOK_EPUBCHECK"] = "0"
+            with mock.patch.object(buildcache.shutil, "which", return_value=None):
+                off = buildcache._epubcheck_mode()
+        self.assertEqual(checked, "1")
+        self.assertEqual(len({checked, no_java, no_package, off}), 4)
+        self.assertEqual(off, "off")
+
     def test_book_units_do_not_depend_on_the_film_pipeline(self):
         with Scratch() as s:
             write(s.root / "theme" / "mdbook" / "book.css", "a")
@@ -255,6 +274,51 @@ class KeyTests(unittest.TestCase):
 
 
 class StoreTests(unittest.TestCase):
+    def test_an_unreadable_entry_is_a_miss_and_is_kept(self):
+        with Scratch() as s:
+            write(s.root / "src" / "a.md", "a")
+            unit = s.unit()
+            quiet(buildcache.run, unit, Builder(unit))
+            entry = unit.entry_dir()
+            with mock.patch.object(buildcache, "verify", side_effect=PermissionError(13, "Permission denied")):
+                builder = Builder(unit)
+                result, out = quiet(buildcache.run, unit, builder)
+            self.assertEqual((result, builder.calls), ("built", 1))
+            self.assertIn(f"cannot read the stored {unit.label}", out)
+            self.assertTrue(entry.is_dir(), "an entry that could not be read is not deleted")
+
+    def test_a_name_the_entry_cannot_record_does_not_fail_the_build(self):
+        with Scratch() as s:
+            write(s.root / "src" / "a.md", "a")
+            unit = s.unit()
+            builder = Builder(unit)
+            with mock.patch.object(buildcache, "store", side_effect=UnicodeEncodeError("utf-8", "x", 0, 1, "bad")):
+                result, out = quiet(buildcache.run, unit, builder)
+            self.assertEqual((result, builder.calls), ("built", 1))
+            self.assertIn(f"cannot store {unit.label}", out)
+
+    @unittest.skipIf(sys.platform == "darwin", "macOS file systems refuse names that are not UTF-8")
+    def test_non_utf8_file_names_are_stored_and_restored(self):
+        with Scratch() as s:
+            write(s.root / "src" / "a.md", "a")
+            unit = s.unit(outputs=("build/out/site",))
+
+            def build():
+                site = unit.outputs[0]
+                site.mkdir(parents=True, exist_ok=True)
+                with open(os.fsencode(site) + b"/caf\xe9.txt", "wb") as f:
+                    f.write(b"x")
+
+            try:
+                result, out = quiet(buildcache.run, unit, build)
+            except OSError as exc:  # a file system that refuses the name altogether
+                self.skipTest(str(exc))
+            self.assertEqual(result, "built", out)
+            self.assertNotIn("cannot store", out)
+            shutil.rmtree(s.root / "build")
+            self.assertEqual(quiet(buildcache.run, unit, build)[0], "cached")
+            self.assertTrue(os.path.exists(os.fsencode(unit.outputs[0]) + b"/caf\xe9.txt"))
+
     def test_built_once_then_restored_with_the_same_shape(self):
         with Scratch() as s:
             write(s.root / "src" / "a.md", "a")
@@ -741,6 +805,22 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(results, ["built", "release"], out)
         self.assertIn("cannot read build-cache.json of release v2", out)
         self.assertIn("cannot restore html demo/zh from release v1 (HTTP 404", out)
+
+    def test_mistyped_manifests_are_skipped(self):
+        """A manifest of the right schema with mistyped entries does not stop the index: valid entries, in
+        it and in other releases, are still used, and the releases are listed once."""
+        zh, en = (next(e for e in self.manifest["entries"] if e["unit"] == u) for u in ("demo/zh", "demo/en"))
+        bad = {"build-cache.json": json.dumps({**self.manifest, "entries": [
+            {"target": "html", "unit": "demo/en", "key": en["key"], "asset": ["not", "a", "name"]}, 7, zh,
+        ]}).encode(), zh["asset"]: self.assets[zh["asset"]]}
+        worse = {"build-cache.json": json.dumps({**self.manifest, "entries": {"not": "a list"}}).encode()}
+        self.gh.release("o/r", [("v3", False, worse), ("v2", False, bad), ("v1", False, self.assets)])
+        results, _, out = self.build_all(repo="o/r")
+        self.assertEqual(results, ["release", "release"], out)
+        self.assertIn("demo/zh restored from release v2", out)
+        self.assertIn("demo/en restored from release v1", out)
+        self.assertIn("build-cache.json of release v3 has no list of entries", out)
+        self.assertEqual(len([p for _, p, _ in self.gh.requests if "per_page" in p]), 1)
 
     def test_unreachable_api(self):
         with socket.socket() as sock:  # a port nothing listens on

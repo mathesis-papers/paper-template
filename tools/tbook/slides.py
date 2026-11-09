@@ -1736,8 +1736,19 @@ def build(site: config.Site, book: config.Book, out_dir: Path) -> Path | None:
     if not deck_names(book):
         print(f"  {book.slug}: no slides", flush=True)
         return None
-    buildcache.run(buildcache.slides_unit(site, book, out_dir), lambda: _build(site, book, out_dir))
+    unit = buildcache.slides_unit(site, book, out_dir)
+    done = (unit.key, str(Path(out_dir).resolve()))
+    if done in _BUILT and Path(out_dir).is_dir():  # built or restored earlier in this process (build, then publish)
+        return Path(out_dir)
+    buildcache.run(unit, lambda: _build(site, book, out_dir))
+    _BUILT.add(done)
     return Path(out_dir)
+
+
+# (key, output directory) of the decks build() produced in this process: `./tbook build all` builds them,
+# then the site step publishes them through build() again, which must not build them a second time when
+# the cache is off (TBOOK_CACHE=0) or could not store them.
+_BUILT: set[tuple[str, str]] = set()
 
 
 def _build(site: config.Site, book: config.Book, out_dir: Path) -> None:

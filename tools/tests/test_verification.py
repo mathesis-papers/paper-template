@@ -1247,7 +1247,9 @@ class BuildCacheWorkflowTests(unittest.TestCase):
                                     context={"inputs.mode": "save", "steps.prune.outputs.changed": changed}))
 
     def test_an_unchanged_store_is_not_saved_again(self):
-        """save compares the key of the pruned store with the key restore matched (kept in the environment)."""
+        """save compares the content digest of the pruned store with the one in the key restore matched (kept in
+        the environment), and saves under a key of its own run: cache keys are immutable, so a store that
+        returns to an earlier content (a revert) must still become the newest entry."""
         steps = action_steps("build-cache")
         remember = next(s for s in steps if "TBOOK_BUILD_CACHE_RESTORED" in s.get("run", "") and s.get("id") != "prune")
         self.assertEqual(remember["env"], {"MATCHED": "${{ steps.restore.outputs.cache-matched-key }}"})
@@ -1257,13 +1259,17 @@ class BuildCacheWorkflowTests(unittest.TestCase):
                                         "if [ \"$*\" = 'cache key' ]; then echo build-cache-v1-abc; fi\n",
                                         encoding="utf-8")
         (self.tmp / "tbook").chmod(0o755)
-        for restored, changed in (("build-cache-v1-abc", "false"), ("build-cache-v1-old", "true"), ("", "true")):
+        for restored, changed in (("build-cache-v1-abc-r41-1", "false"), ("build-cache-v1-abc", "false"),
+                                  ("build-cache-v1-old-r40-2", "true"), ("build-cache-v1-abcd-r41-1", "true"),
+                                  ("", "true")):
             out = self.tmp / "output.txt"
             out.write_text("", encoding="utf-8")
-            r = run_bash(prune["run"], self.tmp, {"GITHUB_OUTPUT": str(out), "TBOOK_BUILD_CACHE_RESTORED": restored})
+            r = run_bash(prune["run"], self.tmp, {"GITHUB_OUTPUT": str(out), "TBOOK_BUILD_CACHE_RESTORED": restored,
+                                                  "GITHUB_RUN_ID": "77", "GITHUB_RUN_ATTEMPT": "2"})
             self.assertEqual(r.returncode, 0, r.stderr)
             outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines())
-            self.assertEqual(outputs, {"key": "build-cache-v1-abc", "changed": changed}, restored)
+            self.assertEqual(outputs, {"key": "build-cache-v1-abc-r77-2", "changed": changed}, restored)
+            self.assertTrue(outputs["key"].startswith("build-cache-v1-"), "restore finds it by the prefix")
         calls = (self.tmp / "calls.txt").read_text(encoding="utf-8").splitlines()
         self.assertEqual(calls[:2], ["cache prune", "cache key"], "pruned before the key is taken")
 
@@ -1331,6 +1337,34 @@ class BuildCacheWorkflowTests(unittest.TestCase):
                                         context={"steps.build.outcome": "failure"}))
             else:
                 self.assertEqual(saves, [], f"{where}: only pages.yml saves the store")
+
+    def test_pdf_and_epub_jobs_see_the_same_system_fonts(self):
+        """PDF and EPUB keys include the font families Typst finds on the system, so every job that builds them
+        installs one font set: fonts 'true', which also covers the fonts Playwright's --with-deps adds in the
+        jobs that install browsers (otherwise ci.yml's build job could never restore what pages.yml saved)."""
+        checked = []
+        for (wf, job), steps in self.building_jobs().items():
+            if not any(re.search(r"^\./tbook build(?: [\w ]*)?\b(?:all|pdf|epub)\b", s.get("run", ""), re.M)
+                       for s in steps):
+                continue
+            setup = next(s for s in steps if s.get("uses") == "./.github/actions/setup")
+            self.assertEqual(setup["with"].get("fonts"), "true", f"{wf}, job {job}")
+            checked.append((wf, job))
+        self.assertEqual(sorted(checked), [("ci.yml", "build"), ("pages.yml", "build"), ("release.yml", "build"),
+                                           ("template-release.yml", "site")])
+        text = (GITHUB_DIR / "actions" / "setup" / "action.yml").read_text(encoding="utf-8")
+        block = re.search(r'if \[ "\$FONTS" = "true" \]; then\n(.*?)\n\s*fi\n', text, re.S).group(1)
+        listed = set(re.findall(r"\b(x?fonts-[\w.-]+)", block))
+        deps = GITHUB_DIR.parent / "node_modules" / "playwright-core" / "lib" / "server" / "registry" / "nativeDeps.js"
+        if not deps.is_file():
+            self.skipTest("node_modules/playwright-core is not installed")
+        r = subprocess.run(["node", "-e", "const d=require(process.argv[1]).deps['ubuntu24.04-x64'];"
+                            "console.log([...d.tools,...d.chromium].filter(p=>/^x?fonts-/.test(p)).join(' '))",
+                            str(deps)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        playwright = set(r.stdout.split())
+        self.assertTrue(playwright)
+        self.assertLessEqual(playwright, listed, "fonts 'true' installs every font Playwright's --with-deps adds")
 
     def test_films_render_once_per_change(self):
         """ci.yml leaves the films to pages.yml on the default branch and to the release workflows on tags,
