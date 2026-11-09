@@ -55,7 +55,7 @@ MANIFEST = "build-cache.json"  # the release asset that lists the release's cach
 ENTRY = "entry.json"
 VERSION = "2"  # part of every key: bump it to rebuild everything once
 KEEP = 2  # entries kept per unit in the local store
-REMOTE_RELEASES = 5  # newest published releases searched for an entry
+REMOTE_RELEASES = 5  # newest published releases with a build-cache.json searched for an entry
 TARGETS = ("html", "pdf", "epub", "slides", "films")
 TIMEOUT = 300  # seconds per HTTP request
 MAX_JSON = 32 << 20  # bytes: a release list or build-cache.json larger than this is refused
@@ -273,15 +273,23 @@ def package_version(name: str) -> str:
         return "missing"
 
 
+def series(version: str, parts: int = 2) -> str:
+    """The release series of a version line: its first version number cut to ``parts`` components
+    ("v22.23.4" → "22" with parts=1, "pandoc 3.1.11" → "3.1"); the text itself when it has no number.
+
+    Keys hold a tool's series, not its exact build. The versions that decide an output are pinned in files
+    every key already covers (requirements.txt: Pandoc and Typst; package-lock.json: Playwright and its
+    Chromium, the fonts; theme/film/requirements.txt; mdBook in .github/actions/setup), so the series only
+    tells apart a machine whose tool behaves differently. The exact build would key the runner image: a new
+    Node patch or an Ubuntu ffmpeg revision would make every entry, and every published release, useless.
+    """
+    m = re.search(r"\d+(?:\.\d+)*", version)
+    return ".".join(m.group(0).split(".")[:parts]) if m else version
+
+
 def node_version() -> str:
-    return tool_version(os.environ.get("NODE") or shutil.which("node") or "")
-
-
-def chromium_version() -> str:
-    """The Chromium that Playwright drives: $PW_CHROMIUM_PATH's version, or Playwright's own build (its
-    version is fixed by package-lock.json)."""
-    exe = os.environ.get("PW_CHROMIUM_PATH")
-    return tool_version(exe) if exe else "playwright-chromium (package-lock.json)"
+    """Node's major version (``series``)."""
+    return series(tool_version(os.environ.get("NODE") or shutil.which("node") or ""), 1)
 
 
 def _python() -> str:
@@ -330,7 +338,7 @@ class Unit:
 def html_unit(site: config.Site, book: config.Book, lang: str, out_dir: Path) -> Unit:
     from . import doctor
 
-    inputs = site_inputs(site).files(book.dir).text("mdbook", tool_version(doctor.mdbook_path() or ""))
+    inputs = site_inputs(site).files(book.dir).text("mdbook", series(tool_version(doctor.mdbook_path() or "")))
     return Unit("html", f"{book.slug}/{lang}", inputs.text("node", node_version()), [Path(out_dir)])
 
 
@@ -352,7 +360,7 @@ def _pandoc_version() -> str:
     from . import pandoc
 
     try:
-        return tool_version(pandoc.pandoc_path())
+        return series(tool_version(pandoc.pandoc_path()))
     except Exception:  # noqa: BLE001 - no pandoc: the build fails on its own
         return "missing"
 
@@ -364,7 +372,7 @@ def _dated(inputs: Inputs) -> Inputs:
 
 def pdf_unit(site: config.Site, book: config.Book, lang: str, variant: str, out_file: Path) -> Unit:
     inputs = site_inputs(site).files(book.dir).add(_fonts())
-    inputs.text("pandoc", _pandoc_version()).text("typst", package_version("typst")).text("node", node_version())
+    inputs.text("pandoc", _pandoc_version()).text("typst", series(package_version("typst"))).text("node", node_version())
     return Unit("pdf", f"{book.slug}/{lang}/{variant}", _dated(inputs), [Path(out_file)])
 
 
@@ -377,16 +385,16 @@ def _epubcheck_mode() -> str:
 
 def epub_unit(site: config.Site, book: config.Book, lang: str, out_file: Path) -> Unit:
     inputs = site_inputs(site).files(book.dir).add(_fonts())
-    inputs.text("pandoc", _pandoc_version()).text("typst", package_version("typst")).text("node", node_version())
+    inputs.text("pandoc", _pandoc_version()).text("typst", series(package_version("typst"))).text("node", node_version())
     inputs.text("epubcheck", _epubcheck_mode())
     return Unit("epub", f"{book.slug}/{lang}", _dated(inputs), [Path(out_file)])
 
 
 def slides_unit(site: config.Site, book: config.Book, out_dir: Path) -> Unit:
     """A book's decks (HTML of every language and the PDFs, build/slides/<slug>/): the decks and the book's
-    metadata, the slide theme and tools, the lock (cited GIDs), the site's base path, Node and Chromium, and
-    whether PDFs are exported and the decks checked in a browser (decks stored unchecked are not restored
-    into a build that checks)."""
+    metadata, the slide theme and tools, the lock (cited GIDs), package-lock.json (Slidev, Playwright and its
+    Chromium), the site's base path, Node's major version, and whether PDFs are exported and the decks
+    checked in a browser (decks stored unchecked are not restored into a build that checks)."""
     from . import slides
 
     inputs = (Inputs()
@@ -398,8 +406,7 @@ def slides_unit(site: config.Site, book: config.Book, out_dir: Path) -> Unit:
               .text("base_url", site.base_url or "")
               .text("no_pdf", os.environ.get("TBOOK_SLIDES_NO_PDF") == "1")
               .text("no_check", os.environ.get("TBOOK_SLIDES_NO_CHECK") == "1")
-              .text("node", node_version())
-              .text("chromium", chromium_version()))
+              .text("node", node_version()))
     return Unit("slides", book.slug, inputs, [Path(out_dir)])
 
 
@@ -727,25 +734,32 @@ Found = tuple[str, dict[str, Any], dict[str, Any]]  # (release tag, manifest ent
 
 @lru_cache(maxsize=8)
 def _remote_index(repo: str) -> dict[tuple[str, str, str], Found]:
-    """(target, unit, key) → (release tag, manifest entry, asset) over the newest published releases (drafts
-    are ignored). Read once per process; a failure is reported once and gives an empty index."""
+    """(target, unit, key) → (release tag, manifest entry, asset) over the newest ``REMOTE_RELEASES``
+    published releases that carry a ``build-cache.json`` (drafts and releases without one, such as a
+    release made by hand, are skipped and do not count). Read once per process; a failure is reported once
+    and gives an empty index."""
     index: dict[tuple[str, str, str], Found] = {}
     if not _REPO_RE.fullmatch(repo or ""):
         return index
     try:
-        releases = json.loads(_http(f"{_api()}/repos/{repo}/releases?per_page=30"))
+        releases = json.loads(_http(f"{_api()}/repos/{repo}/releases?per_page=100"))
         if not isinstance(releases, list):
             raise ValueError("unexpected answer")
     except Exception as exc:  # noqa: BLE001 - the build goes on without the releases
         _say(f"cache: cannot list the releases of {repo} ({_why(exc)}); building what is not stored")
         return index
-    published = [r for r in releases if isinstance(r, dict) and not r.get("draft")][:REMOTE_RELEASES]
-    for rel in published:
-        tag = str(rel.get("tag_name") or "")
-        assets = {a.get("name"): a for a in rel.get("assets") or [] if isinstance(a, dict)}
-        manifest_asset = assets.get(MANIFEST)
-        if not manifest_asset:
+    with_cache = []
+    for rel in releases:
+        if not isinstance(rel, dict) or rel.get("draft"):
             continue
+        assets = {a.get("name"): a for a in rel.get("assets") or [] if isinstance(a, dict)}
+        if assets.get(MANIFEST):
+            with_cache.append((rel, assets))
+    if not with_cache:
+        _say(f"cache: no published release of {repo} carries {MANIFEST}; building what is not stored")
+    for rel, assets in with_cache[:REMOTE_RELEASES]:
+        tag = str(rel.get("tag_name") or "")
+        manifest_asset = assets[MANIFEST]
         try:
             manifest = json.loads(_asset_bytes(repo, manifest_asset))
         except Exception as exc:  # noqa: BLE001

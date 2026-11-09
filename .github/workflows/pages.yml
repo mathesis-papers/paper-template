@@ -65,7 +65,9 @@ jobs:
     name: Build the site
     needs: probe
     runs-on: ubuntu-24.04
-    # Rendering a film that no cache holds takes long (frames, narration, encoding).
+    # Rendering a film that no cache holds takes long (frames, narration, encoding). The build step has a
+    # shorter limit of its own: a step that runs out of time fails, while a job that does is cancelled and
+    # skips the save, so every unit built until then would be lost and the next run would start over.
     timeout-minutes: 240
     permissions:
       contents: read
@@ -116,6 +118,9 @@ jobs:
 
       - name: Build everything
         id: build
+        # Below the job's limit, so that the save below still runs: what was built is kept, and a re-run
+        # (or the next push) continues from there.
+        timeout-minutes: 210
         env:
           # Units missing from the Actions cache are looked up in the newest published releases.
           TBOOK_CACHE_REMOTE: '1'

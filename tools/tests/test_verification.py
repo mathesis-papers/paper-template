@@ -1295,7 +1295,7 @@ class BuildCacheWorkflowTests(unittest.TestCase):
             self.assertEqual(steps[restores[0]]["with"].get("pages-url"), "${{ steps.pages.outputs.base_url }}", where)
             if wf != "pages.yml":  # pages.yml asks only when its probe found Pages enabled
                 self.assertEqual(steps[pages[0]].get("continue-on-error"), "true", where)
-            films = False
+            films, film_if = False, ""
             for i in builds:
                 env, run = steps[i]["env"], steps[i]["run"]
                 self.assertEqual(env.get("TBOOK_CACHE_REMOTE"), "1", f"{where}: {run}")
@@ -1303,11 +1303,22 @@ class BuildCacheWorkflowTests(unittest.TestCase):
                 self.assertNotIn("TBOOK_CACHE", env, where)
                 if re.search(r"^\./tbook build\b.*\b(all|films)\b", run, re.M):
                     films = True
+                    film_if = steps[i].get("if", "")
                     self.assertEqual(env.get("TBOOK_FILMS"), "require", f"{where}: {run}")
             setup = next(s for s in steps if s.get("uses") == "./.github/actions/setup")
-            self.assertEqual(setup["with"].get("films", "false"), "true" if films else "false", where)
+            wanted = setup["with"].get("films", "false")
             if films:
                 self.assertEqual(setup["with"].get("browsers"), "true", where)
+            if film_if:
+                # the toolchain is installed exactly when the film step runs; pull requests always render
+                for event, ref in (("push", "refs/heads/main"), ("push", "refs/tags/v1"), ("push", "refs/heads/x"),
+                                   ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", "refs/heads/main")):
+                    runs = gha_if(film_if, event=event, ref=ref)
+                    self.assertEqual(gha_if(wanted, event=event, ref=ref), runs, f"{where}: {event} {ref}")
+                    if event == "pull_request":
+                        self.assertTrue(runs, where)
+            else:
+                self.assertEqual(wanted, "true" if films else "false", where)
             if wf == "pages.yml":
                 self.assertEqual(len(saves), 1, where)
                 self.assertGreater(saves[0], max(builds), where)
@@ -1320,6 +1331,26 @@ class BuildCacheWorkflowTests(unittest.TestCase):
                                         context={"steps.build.outcome": "failure"}))
             else:
                 self.assertEqual(saves, [], f"{where}: only pages.yml saves the store")
+
+    def test_films_render_once_per_change(self):
+        """ci.yml leaves the films to pages.yml on the default branch and to the release workflows on tags,
+        which build them (pages.yml also stores them); a film is not rendered by two runs of one push."""
+        media = workflow_jobs(self.WORKFLOWS / "ci.yml")["media"]
+        step = next(s for s in media if re.search(r"^\./tbook build films\b", s.get("run", ""), re.M))
+        self.assertFalse(gha_if(step["if"], event="push", ref="refs/heads/main"))
+        self.assertFalse(gha_if(step["if"], event="push", ref="refs/tags/v1.0.0"))
+        self.assertTrue(gha_if(step["if"], event="push", ref="refs/heads/feature"))
+        self.assertTrue(gha_if(step["if"], event="pull_request", ref="refs/pull/7/merge"))
+
+    def test_pages_build_step_times_out_before_the_job(self):
+        """A step that runs out of time fails and the save still runs; a job that does is cancelled and
+        loses every unit it built."""
+        steps = workflow_jobs(self.WORKFLOWS / "pages.yml")["build"]
+        build = next(s for s in steps if s.get("id") == "build")
+        job = re.search(r"(?m)^  build:\n(?:    .*\n)*?    timeout-minutes: (\d+)$",
+                        (self.WORKFLOWS / "pages.yml").read_text(encoding="utf-8"))
+        self.assertTrue(job)
+        self.assertLess(int(build["timeout-minutes"]) + 15, int(job.group(1)))
 
     def test_pages_runs_one_at_a_time(self):
         """The workflow that saves the store and renders films for it runs one run at a time; a later run

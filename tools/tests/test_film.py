@@ -492,13 +492,15 @@ class VideoUnitTest(unittest.TestCase):
         self.assertEqual([u.name for u in film.units(self.sb.site, self.sb.book)], ["bk/001-golden-deficit"])
         labels = [label for label, _ in unit.inputs.parts]
         for want in ("books/bk/films/001-golden-deficit/scenes.js", "books/bk/films/001-golden-deficit/script.json",
-                     "books/bk/films/001-golden-deficit/film.json", "<engine>", "<npm>", "<kokoro>", "<ffmpeg>",
-                     "<node>", "<chromium>", "<python>"):
+                     "books/bk/films/001-golden-deficit/film.json", "<engine>", "<npm>", "<kokoro>", "<node>"):
             self.assertIn(want, labels)
-        self.assertTrue(any(label.endswith("theme/film/engine.js") for label in labels))
-        self.assertTrue(any(label.endswith("theme/film/requirements.txt") for label in labels))
-        self.assertTrue(any(label.endswith("theme/generated/tokens.mjs") for label in labels))
-        self.assertTrue(any(label.endswith("tools/tbook/film.py") for label in labels))
+        for probed in ("<ffmpeg>", "<chromium>", "<python>"):
+            self.assertNotIn(probed, labels)
+        # theme/film/ lies outside the sandbox's root here, so its labels are <outside>/film/…
+        self.assertTrue(any(label.endswith("film/engine.js") for label in labels))
+        self.assertTrue(any(label.endswith("film/requirements.txt") for label in labels))
+        self.assertTrue(any(label.endswith("/tokens.mjs") for label in labels))
+        self.assertTrue(any(label.endswith("/film.py") for label in labels))
         self.assertFalse(any("/theme/film/site/" in label or "__pycache__" in label for label in labels))
         self.assertFalse(any(label.endswith("/poster.jpg") or "/out/" in label for label in labels))
         npm = dict(unit.inputs.parts)["<npm>"]
@@ -542,13 +544,17 @@ class VideoUnitTest(unittest.TestCase):
         self.sb.book = config.load_book(self.sb.book.dir)
         self.assertNotEqual(self.sb.key(), key3)
 
-    def test_tool_versions_change_the_key(self):
+    def test_the_toolchain_present_or_not_keeps_the_key(self):
+        # a build without the film toolchain (TBOOK_FILMS=auto|skip) restores the videos a full one stored
         key = self.sb.key()
-        with mock.patch.object(film.buildcache, "chromium_version", return_value="Chromium 999"):
-            self.assertNotEqual(self.sb.key(), key)
-        with mock.patch.object(film, "_python_version", return_value="2.7"):
-            self.assertNotEqual(self.sb.key(), key)
-        with mock.patch.object(film, "ffmpeg_path", return_value=""):
+        with mock.patch.object(film, "ffmpeg_path", return_value=""), \
+                mock.patch.object(film, "film_python", return_value="/nonexistent/python"), \
+                mock.patch.dict(os.environ, {"PW_CHROMIUM_PATH": "/nonexistent/chromium"}):
+            self.assertEqual(self.sb.key(), key)
+
+    def test_node_major_version_changes_the_key(self):
+        key = self.sb.key()
+        with mock.patch.object(film.buildcache, "node_version", return_value="999"):
             self.assertNotEqual(self.sb.key(), key)
 
     def test_buildcache_lists_film_units(self):

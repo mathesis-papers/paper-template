@@ -214,6 +214,20 @@ class KeyTests(unittest.TestCase):
         b = buildcache.Inputs([("a", "b\tc")]).key()
         self.assertNotEqual(a, b)
 
+    def test_tools_count_by_release_series(self):
+        self.assertEqual(buildcache.series("v22.23.4", 1), "22")
+        self.assertEqual(buildcache.series("pandoc 3.1.11.1"), "3.1")
+        self.assertEqual(buildcache.series("mdbook v0.5.4"), "0.5")
+        self.assertEqual(buildcache.series("0.15.2"), "0.15")
+        self.assertEqual(buildcache.series("missing"), "missing")
+        # a new Node patch release keeps every key; a new major version changes them
+        buildcache.tool_version.cache_clear()
+        self.addCleanup(buildcache.tool_version.cache_clear)
+        with mock.patch.object(buildcache, "tool_version", side_effect=["v22.1.0", "v22.9.9", "v24.0.0"]):
+            self.assertEqual(buildcache.node_version(), "22")
+            self.assertEqual(buildcache.node_version(), "22")
+            self.assertEqual(buildcache.node_version(), "24")
+
     def test_unit_key_depends_on_target_and_name(self):
         inputs = buildcache.Inputs().text("x", "same")
         keys = {buildcache.Unit(t, n, inputs, []).key for t, n in (("pdf", "b/zh/screen"), ("pdf", "b/zh/print"),
@@ -495,7 +509,7 @@ class FakeGitHub:
                 entries.append({"name": name, "url": self.url(self.api) + api_path, "size": len(data),
                                 "browser_download_url": self.url(self.dl) + dl_path, "digest": digest})
             listing.append({"tag_name": tag, "draft": draft, "assets": entries})
-        self.routes[f"api/repos/{repo}/releases?per_page=30"] = (200, {}, json.dumps(listing).encode())
+        self.routes[f"api/repos/{repo}/releases?per_page=100"] = (200, {}, json.dumps(listing).encode())
 
 
 def tar_bytes(members: list[tuple[tarfile.TarInfo, bytes | None]]) -> bytes:
@@ -636,6 +650,20 @@ class RemoteTests(unittest.TestCase):
         self.assertIn("demo/zh restored from release v2", out)
         self.assertIn("demo/en restored from release v1", out)
 
+    def test_releases_without_a_manifest_do_not_count(self):
+        # releases made by hand (no build-cache.json) do not push the site's release out of the window
+        manual = [(f"manual-{i}", False, {"video.mp4": b"mp4"}) for i in range(buildcache.REMOTE_RELEASES + 2)]
+        self.gh.release("o/r", manual + [("v1", False, self.assets)])
+        results, _, out = self.build_all(repo="o/r")
+        self.assertEqual(results, ["release", "release"], out)
+        self.assertIn("restored from release v1", out)
+
+    def test_says_once_when_no_release_has_a_manifest(self):
+        self.gh.release("o/r", [("manual", False, {"video.mp4": b"mp4"})])
+        results, _, out = self.build_all(repo="o/r")
+        self.assertEqual(results, ["built", "built"])
+        self.assertEqual(out.count("no published release of o/r carries build-cache.json"), 1, out)
+
     def test_digest_mismatches_are_refused(self):
         zh = next(e for e in self.manifest["entries"] if e["unit"] == "demo/zh")
         en = next(e for e in self.manifest["entries"] if e["unit"] == "demo/en")
@@ -697,7 +725,7 @@ class RemoteTests(unittest.TestCase):
         self.assertIn("not the entry it claims", out)
 
     def test_http_errors_and_rate_limits_fall_back_to_building(self):
-        self.gh.routes["api/repos/o/r/releases?per_page=30"] = (
+        self.gh.routes["api/repos/o/r/releases?per_page=100"] = (
             403, {"X-RateLimit-Remaining": "0"}, b'{"message": "API rate limit exceeded"}')
         results, builders, out = self.build_all(repo="o/r")
         self.assertEqual(results, ["built", "built"])

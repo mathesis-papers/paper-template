@@ -1315,11 +1315,6 @@ def font_package(pkg: str) -> Path | None:
     return None
 
 
-@lru_cache(maxsize=None)
-def _python_version(exe: str) -> str:
-    return buildcache.tool_version(exe, "-c", "import sys; print('%d.%d' % sys.version_info[:2])")
-
-
 def _npm_packages() -> dict[str, list[str]]:
     """Versions and integrity hashes, from package-lock.json, of the npm packages a render uses: the
     @fontsource fonts the page inlines and Playwright (whose Chromium renders without PW_CHROMIUM_PATH)."""
@@ -1341,9 +1336,12 @@ def video_unit(site: config.Site, film: Film) -> buildcache.Unit:
     README), ``theme/film/`` (not the films page assets in ``site/``), ``theme/generated/tokens.mjs``,
     ``tools/tbook/film.py``, the data the engine draws (:func:`engine_data`: the book's code, version and
     titles, the cited Lean declarations and the pinned commit, the in-frame strings), the npm packages of
-    the fonts and of Playwright, the Kokoro model release, and the versions of ffmpeg, Node, Chromium and
-    the film Python. ``theme/film/requirements.txt`` pins the Python packages. Not the site's address: the
-    videos are the same wherever the site is served.
+    the fonts and of Playwright (which fixes its Chromium), the Kokoro model release and Node's major
+    version. ``theme/film/requirements.txt`` pins the Python packages. Not the site's address: the videos
+    are the same wherever the site is served. Not the probed ffmpeg, Chromium or film Python either
+    (:func:`tbook.buildcache.series`): a build without the film toolchain (``TBOOK_FILMS=auto|skip``) must
+    find the same key to restore the videos, and a new ffmpeg package revision on the runner does not
+    change what a film shows.
     """
     where = paths.rel(film.dir)
     inputs = (buildcache.Inputs()
@@ -1353,10 +1351,7 @@ def video_unit(site: config.Site, film: Film) -> buildcache.Unit:
               .text("engine", engine_data(film))
               .text("npm", _npm_packages())
               .text("kokoro", KOKORO_RELEASE)
-              .text("ffmpeg", buildcache.tool_version(ffmpeg_path(), "-version") if ffmpeg_path() else "missing")
-              .text("node", buildcache.node_version())
-              .text("chromium", buildcache.chromium_version())
-              .text("python", _python_version(film_python())))
+              .text("node", buildcache.node_version()))
     return buildcache.Unit("films", f"{film.book.slug}/{film.id}", inputs, [film.build_dir])
 
 

@@ -180,7 +180,7 @@ HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook
 
 环境变量：`MDBOOK`（mdBook 路径）、`PANDOC`、`PW_CHROMIUM_PATH`（已有的 Chromium）、`TBOOK_EPUBCHECK=1|warn|0`、`TBOOK_SLIDES_NO_PDF=1`（不导出、不发布幻灯片 PDF；`slides.publish` 会去掉章节卡片中指向未发布 PDF 的链接）、`TBOOK_SLIDES_NO_CHECK=1`、`SOURCE_DATE_EPOCH`（可复现的时间戳）、`TBOOK_REPO` / `TBOOK_BASE_URL`（覆盖仓库与站点地址）、`TRURETURING_DIR`（本地 trureturing 检出）、`TRURETURING_TOKEN`（读取私有 trureturing；GitHub API 也依次用 `GITHUB_TOKEN`、`GH_TOKEN`）、`TBOOK_LANG=zh|en`（模板升级摘要语言）。
 
-视频构建：每部视频是一个构建单元（目标 `films`，单元 `<slug>/<id>`，`tbook.film.units`），由 `./tbook build films|site|all` 经 `film.build_videos` 运行。键覆盖视频依赖的全部输入，而不含无关输入：视频目录中 git 会提交的文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含视频页资源 `site/`，含 `requirements.txt`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（`film.engine_data`：书的代号、版本与标题，所钉提交与引用声明的名称、陈述摘要，片内文字）、`package-lock.json` 中字体与 Playwright 的版本、Kokoro 模型版本（`film.KOKORO_RELEASE`），以及 ffmpeg（`-version` 首行）、Node、Chromium 与视频 Python（主次版本）的版本；不含站点地址，所以 CI、Pages 与 Release 的构建共用同一份视频。缓存未命中时按 `TBOOK_FILMS` 处理：`auto`（默认）在工具链齐全（`film.toolchain_missing`：ffmpeg、Node 与 Playwright、Chromium、视频 Python 的包、Kokoro 模型、字体）时渲染，否则警告并删去该视频的旧构建目录；`require` 失败；`skip` 从不渲染。渲染即 `FILM_STRICT=1 theme/film/film.sh <dir> all`，在 `out/` 中工作，只把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`，不写入库文件（提交的 `poster.jpg` 只由手工的 `poster` 步骤生成）。视频工具链由 `theme/film/setup.sh` 安装：钉死的包进 `$FILM_CACHE/venv`（默认 `.cache/film/venv`，`PYTHON` 可指定别的解释器），模型进 `$KOKORO_MODEL_DIR`（默认 `.cache/film/models`）；ffmpeg 来自系统（`FFMPEG` 可覆盖）。
+视频构建：每部视频是一个构建单元（目标 `films`，单元 `<slug>/<id>`，`tbook.film.units`），由 `./tbook build films|site|all` 经 `film.build_videos` 运行。键覆盖视频依赖的全部输入，而不含无关输入：视频目录中 git 会提交的文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含视频页资源 `site/`，含 `requirements.txt`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（`film.engine_data`：书的代号、版本与标题，所钉提交与引用声明的名称、陈述摘要，片内文字）、`package-lock.json` 中字体与 Playwright（它决定 Chromium）的版本、Kokoro 模型版本（`film.KOKORO_RELEASE`）与 Node 主版本；不含站点地址，所以 CI、Pages 与 Release 的构建共用同一份视频。也不含探测到的 ffmpeg、Chromium 与视频 Python：没有视频工具链的构建（`TBOOK_FILMS=auto|skip`）须算出同一个键才能恢复视频，运行器上 ffmpeg 包的新修订也不改变视频的内容。缓存未命中时按 `TBOOK_FILMS` 处理：`auto`（默认）在工具链齐全（`film.toolchain_missing`：ffmpeg、Node 与 Playwright、Chromium、视频 Python 的包、Kokoro 模型、字体）时渲染，否则警告并删去该视频的旧构建目录；`require` 失败；`skip` 从不渲染。渲染即 `FILM_STRICT=1 theme/film/film.sh <dir> all`，在 `out/` 中工作，只把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`，不写入库文件（提交的 `poster.jpg` 只由手工的 `poster` 步骤生成）。视频工具链由 `theme/film/setup.sh` 安装：钉死的包进 `$FILM_CACHE/venv`（默认 `.cache/film/venv`，`PYTHON` 可指定别的解释器），模型进 `$KOKORO_MODEL_DIR`（默认 `.cache/film/models`）；ffmpeg 来自系统（`FFMPEG` 可覆盖）。
 
 ### 5.1 构建缓存
 
@@ -197,8 +197,10 @@ HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook
 **键**是单元全部输入（`Inputs`）的 SHA-256，再并入 target 与单元名。输入按“标签 + 摘要”逐项计入：
 
 - 文件：仓库是 git 工作树时，取所列目录下 git 会提交的文件（已跟踪的，以及未跟踪且未被忽略的），构建产物与被忽略的文件不计入；git 整体忽略的目录（如 `.cache/fonts/`）与仓库外的目录逐个文件计入。仓库外的文件记为 `<outside>/<目录名>/<相对路径>`，键与目录所在位置无关。不是 git 工作树时遍历目录，跳过 `build/`、`_site/`、`.cache/`、`node_modules/`、`out/`、`frames/`、`tts/` 等。
-- HTML、PDF、EPUB：`tools/tbook/`、`tools/filters/`、`tools/node/`、`theme/`（不含只供视频用的 `theme/film/`）、`i18n/`、`site.toml`、锁文件、`requirements.txt`、`package-lock.json`，整个书目录 `books/<slug>/`（各语言版本互相引用，改动任一语言都会重建这本书的全部单元），站点地址与仓库、Python 主次版本、Node 版本。HTML 另计 mdBook 版本；PDF 与 EPUB 另计 Pandoc 与 `typst` 模块版本、`.cache/fonts/` 的字体文件、Typst 找到的字体族（含系统字体）与 `$SOURCE_DATE_EPOCH`；EPUB 还计 `$TBOOK_EPUBCHECK`，未经检查存下的 EPUB 不会恢复到要求检查的构建中。`.cache/fonts-fontsource/` 由构建从 `@fontsource` 包派生，不计入。
-- 幻灯片：书的 `book.toml`、`slides/`、`assets/`，`theme/slides/`、`theme/generated/`、`theme/i18n/`、`i18n/`、`tools/node/`、`tools/tbook/slides.py`、锁文件、`site.toml`、`package-lock.json`，站点基路径与地址，`TBOOK_SLIDES_NO_PDF`、`TBOOK_SLIDES_NO_CHECK`，Node 与 Chromium 版本。
+- HTML、PDF、EPUB：`tools/tbook/`、`tools/filters/`、`tools/node/`、`theme/`（不含只供视频用的 `theme/film/`）、`i18n/`、`site.toml`、锁文件、`requirements.txt`、`package-lock.json`，整个书目录 `books/<slug>/`（各语言版本互相引用，改动任一语言都会重建这本书的全部单元），站点地址与仓库、Python 主次版本、Node 主版本。HTML 另计 mdBook 版本系列；PDF 与 EPUB 另计 Pandoc 与 `typst` 模块的版本系列、`.cache/fonts/` 的字体文件、Typst 找到的字体族（含系统字体）与 `$SOURCE_DATE_EPOCH`；EPUB 还计 `$TBOOK_EPUBCHECK`，未经检查存下的 EPUB 不会恢复到要求检查的构建中。`.cache/fonts-fontsource/` 由构建从 `@fontsource` 包派生，不计入。
+- 幻灯片：书的 `book.toml`、`slides/`、`assets/`，`theme/slides/`、`theme/generated/`、`theme/i18n/`、`i18n/`、`tools/node/`、`tools/tbook/slides.py`、锁文件、`site.toml`、`package-lock.json`，站点基路径与地址，`TBOOK_SLIDES_NO_PDF`、`TBOOK_SLIDES_NO_CHECK`，Node 主版本（Chromium 由 `package-lock.json` 中的 Playwright 决定）。
+
+工具只按**版本系列**计入（`buildcache.series`：Node、Chromium 取主版本，其余取“主.次”，如 Pandoc `3.1`、mdBook `0.5`）。决定产物的版本已钉在键覆盖的文件中（`requirements.txt` 钉 Pandoc 与 Typst，`package-lock.json` 钉 Playwright、Slidev 与字体，`theme/film/requirements.txt`，`.github/actions/setup` 钉 mdBook）；若计入精确版本，键就随运行器镜像而变，Node 的一个补丁版本或 Ubuntu 的 ffmpeg 修订就会让全部条目与已发布的 Release 失效。
 
 `buildcache.VERSION` 也计入每个键，改动它即全部重建一次。
 
@@ -207,7 +209,7 @@ HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook
 **查找顺序**（`buildcache.run(unit, build)`）：
 
 1. 本地存储：逐个文件核对 `entry.json` 记下的摘要、目录与产物形状（没有多余文件，没有符号链接），记下的产物路径须与当前一致；不符即删除该条目并构建。
-2. `TBOOK_CACHE_REMOTE=1` 时，查仓库（`site.toml` 的 `repo`、`TBOOK_REPO` 或 `GITHUB_REPOSITORY`）最新 5 个已发布的 Release（草稿不算）所附的 `build-cache.json`，从新到旧取第一个有该键的条目：设置了 `GITHUB_TOKEN` 或 `GH_TOKEN` 时经 API 的资产地址下载（私有仓库也可用；跳转到存储地址时不带令牌），否则用公开下载地址；核对大小不超过声明值、SHA-256 与 `build-cache.json` 和 GitHub 报告的 `digest` 一致；只解出 `entry.json` 与 `files/` 下的普通文件和目录，链接、设备文件、`..`、绝对路径、重复成员一律拒绝（逐个写出，不依赖 Python 3.11.4 才有的解包过滤器）；再按第 1 步校验后放入本地存储并恢复。API 地址取 `$GITHUB_API_URL`（默认 `https://api.github.com`）。
+2. `TBOOK_CACHE_REMOTE=1` 时，查仓库（`site.toml` 的 `repo`、`TBOOK_REPO` 或 `GITHUB_REPOSITORY`）最新 5 个附有 `build-cache.json` 的已发布 Release（草稿与没有该文件的 Release，例如手工发的，不算在内；只看最新的 100 个 Release）中的 `build-cache.json`，从新到旧取第一个有该键的条目：设置了 `GITHUB_TOKEN` 或 `GH_TOKEN` 时经 API 的资产地址下载（私有仓库也可用；跳转到存储地址时不带令牌），否则用公开下载地址；核对大小不超过声明值、SHA-256 与 `build-cache.json` 和 GitHub 报告的 `digest` 一致；只解出 `entry.json` 与 `files/` 下的普通文件和目录，链接、设备文件、`..`、绝对路径、重复成员一律拒绝（逐个写出，不依赖 Python 3.11.4 才有的解包过滤器）；再按第 1 步校验后放入本地存储并恢复。API 地址取 `$GITHUB_API_URL`（默认 `https://api.github.com`）。
 3. 都没有：构建，成功后存入；构建失败则什么也不存，构建声明的产物缺失是错误。
 
 缓存不会让本来能成功的构建失败：Release 不可达、限流、条目损坏、磁盘写满都只打印一行原因，然后照常构建（或只是不存）。每个进程只列一次 Release。
@@ -235,7 +237,7 @@ Unit(target, name, inputs, outputs: list[Path])                     # .key、.la
 run(unit, build_fn, *, repo=None) -> "cached" | "release" | "built"
 run(unit, None) -> "cached" | "release" | "missing"                 # 只恢复，不构建
 units(site, books) -> list[Unit]       # html/pdf/epub/slides 单元，加上 film.units(site, book)
-tool_version(*cmd), package_version(name), node_version(), chromium_version()
+tool_version(*cmd), package_version(name), series(version, parts=2), node_version()
 store(unit), restore_local(unit), restore_remote(unit, repo), stored(), prune(units), actions_key(), export(dir, units)
 ```
 

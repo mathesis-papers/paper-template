@@ -11,16 +11,16 @@
       "sha256": "85bccbd23a9070becfe1dc0dbb9ad7305fb2bb98f92f54cb9856d7d6eca4ebfe",
       "mode": "100644"
     },
+    ".github/actions/build-cache/action.yml": {
+      "sha256": "965187a07a0e5ebf1fb386e9f3105b690ecbb6cab44116e74d338a389777fdd7",
+      "mode": "100644"
+    },
     ".github/actions/setup/action.yml": {
-      "sha256": "cfbb8cb7c9aedbbfde3b1c5c45156d053fbc2a3b5c865b94014108941bd09f48",
+      "sha256": "26d608980948a959131cfc93108a242b305f02b7903bfe7a0fd1ea1882a9f258",
       "mode": "100644"
     },
     ".github/workflows/ci.yml": {
-      "sha256": "e7a14b68dab60c641b92950edfd1546d4ec271a8c2e82edaa482c6ca3eded3e1",
-      "mode": "100644"
-    },
-    ".github/workflows/film.yml": {
-      "sha256": "e6e63fb9a98e2863437d9a500d6d4e4a5c97462e43d52a877d4789c05c1b38e4",
+      "sha256": "bd23ed51a06f5ff2065a898e284264d0b522d44242cf16719deb808cf20b0adf",
       "mode": "100644"
     },
     ".github/workflows/lean-verify.yml": {
@@ -28,15 +28,15 @@
       "mode": "100644"
     },
     ".github/workflows/pages.yml": {
-      "sha256": "67bb27a23ea8b9baee61a1f3fd6848ffbc12ac748e121e8ac8c7c64ca59815ee",
+      "sha256": "c8b86d3b496cd5cb01b6a0fa00b65e08e75134b465e5c05576953c48f8d807dd",
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "ed370cf2b9467af1d7172be3b9c8e0f79d2524a9954cc3dc99657807649023e9",
+      "sha256": "2aecdfd82a2e087085d5eab364c54730007341512927ac4e55d4831300a5b024",
       "mode": "100644"
     },
     ".github/workflows/template-release.yml": {
-      "sha256": "89e516d1d1b2d6bee0d8bdad58b12e2adec4f0f617b929148dfc1f5073d075a0",
+      "sha256": "e609a9d0541cb1ba9af50719c4c3366f6a27290e9bd1abee8eeed23d3e564ea8",
       "mode": "100644"
     },
     ".github/workflows/template-sync.yml": {
@@ -60,19 +60,19 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "1585f4ff89d6e2fbf3a81e0eb832fd97fb3d9a02df90c6e3af8ce58ae04e3a35",
+      "sha256": "2cdbaa1d6a21749f73fd531bf2b80f2ad3a8ecef39b5c4e12b732f54a07296b4",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "bf594e4383b17b9187827399c169f437e182da665968f2f4d903c04a5221cec4",
+      "sha256": "21d9b7cae4f1a50b2844501045a6c505fa34e678132fe30b6512cc34f022aa07",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "da377a37558d2206ce4421af7531d55c7bb24e1a4bba30209511ca6b06c7e78f",
+      "sha256": "18be2f9737ce218baafcfb7e5a004d7124615238a42c1d53054aae31c5f1cd4f",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
-      "sha256": "e11b9e5edce1e60b15866ef8b9ea505ff68acbc26d5dce0de8cd8e92050ef53a",
+      "sha256": "f0978fc2919ba22c6be6037cd718f47efafe06316ad9d3956137566ea876f49b",
       "mode": "100644"
     },
     "docs/UPGRADING.md": {
@@ -80,7 +80,7 @@
       "mode": "100644"
     },
     "docs/VERIFICATION.md": {
-      "sha256": "09817e46e68905ec6933d782d0a4934611076e62d43a1419e97843e7f80ab674",
+      "sha256": "07d909d5a425c1a0a8ebd114c86e02a2a6768356fce15632fe1fbcac63d69869",
       "mode": "100644"
     },
     "package-lock.json": {
@@ -100,7 +100,7 @@
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
-      "sha256": "c803763654d549912b79ac3030f5e70ec2bb0d6482a29fb578ee77d261e00a77",
+      "sha256": "f4872e6188bbe5df083b706b6e23381bf32be8e3a285186335450ccee9062f6a",
       "mode": "100644"
     },
     "skills/book-new/SKILL.md": {
@@ -108,7 +108,7 @@
       "mode": "100644"
     },
     "skills/book-release/SKILL.md": {
-      "sha256": "47e920228e436a1d68168bed3e1f35e3f47c3e5b0db313d056b021a60adf63ff",
+      "sha256": "9fe7077804b0f914905f6983fa90827f582c88f33f0bf33cc7b2955d01518012",
       "mode": "100644"
     },
     "skills/book-slides/SKILL.md": {
@@ -172,11 +172,11 @@
       "mode": "100644"
     },
     "templates/film/README.md": {
-      "sha256": "8240db127691cac908bba36e33d0eda9e7925c81c0f8541a43d0b08680c366a3",
+      "sha256": "4340b2cce5871413d814282f147e914f7fdd3cd59b547ad1060ae2ee1f04106e",
       "mode": "100644"
     },
     "templates/film/film.json": {
-      "sha256": "fa36edd7624c887586261424c3c4828f69284738ffc5e252abfb86382c08bf15",
+      "sha256": "5183e7a67b162bbcd6620f7d726e7e623bb251ab0d728ac13fe5bc1ba41c69cb",
       "mode": "100644"
     },
     "templates/film/scenes.js": {
@@ -220,11 +220,11 @@
       "mode": "100644"
     },
     "theme/film/build.py": {
-      "sha256": "2761db2706fabe65e7ed7a401cd0d6e889b9fdf09c5b17feea53420402bb2d49",
+      "sha256": "1f61d6e223c8290945f8b0811aac580978e8cb7b5c3a00525f4398b9d6e69fd4",
       "mode": "100644"
     },
     "theme/film/common.py": {
-      "sha256": "4f2b96088b9d463378e1aaf2a47bb84668ed7e59181cda63c52548766694632a",
+      "sha256": "4048fc3603105efc616e221ce8bd4c59c402213ca80448d93f1234e1c6cfc0e0",
       "mode": "100644"
     },
     "theme/film/engine.js": {
@@ -232,7 +232,7 @@
       "mode": "100644"
     },
     "theme/film/film.sh": {
-      "sha256": "10f8bcaa0e07db367035cbb83c96156a10f8bd6906984e35437cb90a1a1781fe",
+      "sha256": "936421e11e9329717a7a84581df3d1340084c59e2ecb894280226a36ea0ac7c2",
       "mode": "100755"
     },
     "theme/film/lib.js": {
@@ -240,23 +240,19 @@
       "mode": "100644"
     },
     "theme/film/mix.py": {
-      "sha256": "c125b3c037317bac34ec2b4c6f16a9b06723ba5c0c5dcf2e1f530c4ec83d63bb",
+      "sha256": "c0f44f9b29964266b7ceacd12963e836c2fa0bbfbbf228002821f99f60888132",
       "mode": "100644"
     },
     "theme/film/music.py": {
-      "sha256": "8265c724da3e68332a0c848bcd4e707c823254d62420878e76fd46528f871dae",
+      "sha256": "2cd68876f596795be1c569ed26676c6aa8dd7109969a6f11a92c6460524970d0",
       "mode": "100644"
     },
     "theme/film/mux.sh": {
-      "sha256": "491328ff2c2eec57d0afe65c02e632d88ce306ed8581759d329f5137ba98393f",
+      "sha256": "0ac80df0030c14fa8279b347fc8e59427b1fcf7fe6c8e0340f896d9361fc7f13",
       "mode": "100755"
     },
     "theme/film/poster.js": {
-      "sha256": "61b788a1ac9f75d4e15dc39672f9032ca36721e17cc0197fad282fd8f8e0d9e9",
-      "mode": "100644"
-    },
-    "theme/film/release.py": {
-      "sha256": "f4739a272dd2a267f5c1e03b9c7124cc42076090a40c86c6df9a7ebfa7a14863",
+      "sha256": "a184c2fc0607cbac6ad11590c558de53345b9d7bd9598fd32672214c86963c76",
       "mode": "100644"
     },
     "theme/film/render.js": {
@@ -264,11 +260,15 @@
       "mode": "100644"
     },
     "theme/film/render_all.sh": {
-      "sha256": "2e5694d676012600db018c772a3319b5b4ae9a6688657d28a6b01545b3cc7688",
+      "sha256": "ec556a67397ff85173b83c92365b8dbcb2c25ffc86476e7e9e62f84e10e6c949",
       "mode": "100755"
     },
+    "theme/film/requirements.txt": {
+      "sha256": "927e37e0e8c3ce900c8093bf48e96a839581fe423a5564039f1eef8065654022",
+      "mode": "100644"
+    },
     "theme/film/setup.sh": {
-      "sha256": "757f7b9170d8a0b040d0b95545637209c65708e5f77662a70078d9112dbfde4a",
+      "sha256": "1550c0e8847584673821aee79d51eb9ab8a965bcdea09b818d7c6913b3eb1cfe",
       "mode": "100755"
     },
     "theme/film/shot.js": {
@@ -288,7 +288,7 @@
       "mode": "100755"
     },
     "theme/film/tts.py": {
-      "sha256": "cb1aba0dbe7cc59e2c3b21238dd02ef1a995e95f96b12b2d8a0e2792ce205cac",
+      "sha256": "4f5b6842fe4e56a5ae7e828097fb4f0d253e5cb6b40e46f4f16cc8731ff55b83",
       "mode": "100644"
     },
     "theme/generated/tokens.css": {
@@ -304,11 +304,11 @@
       "mode": "100644"
     },
     "theme/i18n/en.toml": {
-      "sha256": "5063c1c4ee324ac0a1d03ebc2be25429518e0de06013608fa0e28e6a7c7fc52b",
+      "sha256": "8de81b6a36882fc15529943202b101c65de8402851d1ba427c4f1282104ceec0",
       "mode": "100644"
     },
     "theme/i18n/zh.toml": {
-      "sha256": "b960f7990939c65c1fd8e9f4a178a133b8425c2952484972ff53edd82482e0bb",
+      "sha256": "330a132f03d5a2c197247eb0da620ba7a278c5bc47e6d72842b2f58b1df90268",
       "mode": "100644"
     },
     "theme/mdbook/favicon.svg": {
@@ -320,7 +320,7 @@
       "mode": "100644"
     },
     "theme/mdbook/tr-book.css": {
-      "sha256": "77f49b496fd3de68b2e469d79217a361b71ab87dc3bee055424d792636fdb9ef",
+      "sha256": "ade3c85ad265ed4bf9250a32c66ee910846fe6083422727b9acfbae562c07ca1",
       "mode": "100644"
     },
     "theme/mdbook/tr-book.js": {
@@ -548,7 +548,11 @@
       "mode": "100644"
     },
     "tools/tbook/build.py": {
-      "sha256": "9bc6bc2f56be782f315c9e49a4d84a7db365695c6c35a3807564fed840719bf6",
+      "sha256": "e6c5a5ed877eeeaf297c2057fbd344c1d11e7ba10bded1ad70a3d30e3b72ad02",
+      "mode": "100644"
+    },
+    "tools/tbook/buildcache.py": {
+      "sha256": "9a46267a9cd64769c8b38e6d638943f13f1179a912852506413b833493dc04d8",
       "mode": "100644"
     },
     "tools/tbook/check.py": {
@@ -556,7 +560,7 @@
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
-      "sha256": "35a373d2a5fa2e8dc98c7c601d02e461e8d9ba8a91075fcbb2b08f88d8ba6e6a",
+      "sha256": "1e680b0efef4cd16e6dae7d507aa320847807eae665159bb35be2649080df5d8",
       "mode": "100644"
     },
     "tools/tbook/config.py": {
@@ -572,7 +576,7 @@
       "mode": "100644"
     },
     "tools/tbook/film.py": {
-      "sha256": "1ea65c614af901275a23fc0f198b9e11419649703d34bf643ad97e8501be4f6c",
+      "sha256": "e1a141d0de1b6ab978d02791979dd8ea045b1e31767abe32e77e934d7a3dc22d",
       "mode": "100644"
     },
     "tools/tbook/html.py": {
@@ -628,11 +632,11 @@
       "mode": "100644"
     },
     "tools/tbook/site.py": {
-      "sha256": "25fb6804696d0ffa6e81535d800dc3076e1a81f75c7a9aadee0bb593504c95a1",
+      "sha256": "933ee8075f141a86e41f88ddd14ddd7e950419cceec0db1f763955f3c117533d",
       "mode": "100644"
     },
     "tools/tbook/slides.py": {
-      "sha256": "b48e31d063db200acfd1c256a1747a4d57ce8b5632c5a08ff057b5f59b7d969b",
+      "sha256": "581763db9992a4a23578d81ebada0c7bfbcba537475917d1134ee13d27bfa922",
       "mode": "100644"
     },
     "tools/tbook/summary.py": {
@@ -655,12 +659,16 @@
       "sha256": "f5dfa61acdb6f281cc4845d80793891d00c74a5c8bcc274fcd97df8dcc189546",
       "mode": "100644"
     },
+    "tools/tests/test_buildcache.py": {
+      "sha256": "6145a846db38f2dda553ea4ecf70d123bf1058b1cdbd31196b111ca5ed07c3ec",
+      "mode": "100644"
+    },
     "tools/tests/test_core.py": {
       "sha256": "d812fb94ad4cde0712d0ba98624eb7c15ecb03bf834c39be21d865c3d35b1b79",
       "mode": "100644"
     },
     "tools/tests/test_film.py": {
-      "sha256": "bf01bd8ce55adddeea8a1fe8412851f1b6d5fe1306e0edfb5cef643250d00931",
+      "sha256": "c55cdc7ce71f7a94d46071cf56fd1d75b0c9d930fccd2112cb22e88b0dd13b14",
       "mode": "100644"
     },
     "tools/tests/test_followups_core.py": {
@@ -700,11 +708,11 @@
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
-      "sha256": "eff18b6b07d7790010fbb3ea28a7d79220a98b4e35a3859f4be8696e6880e65d",
+      "sha256": "1e5ef515ea54432b9faacdffc838380449a956f2f0f0294a04d931ed82db94d1",
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
-      "sha256": "fd56e7592d39544ae45a2b52778d6d31ef2a84f85d366e22a1e619db52916192",
+      "sha256": "eecd617b074a261784199d965991c41c1a574717bd11b547a4db0abe2e3df232",
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {
