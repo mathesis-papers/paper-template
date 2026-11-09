@@ -73,6 +73,7 @@
 #let tr-fonts = (
   "display": ("Chakra Petch", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "system-ui", "sans-serif",),
   "body": ("Noto Sans SC", "Chakra Petch", "PingFang SC", "Microsoft YaHei", "system-ui", "sans-serif",),
+  "body-latin": ("Source Sans 3", "Noto Sans SC", "Chakra Petch", "PingFang SC", "Microsoft YaHei", "system-ui", "sans-serif",),
   "serif": ("Noto Serif SC", "Songti SC", "STSong", "serif",),
   "data": ("JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace",),
   "film-display": ("Orbitron", "DejaVu Sans", "sans-serif",),

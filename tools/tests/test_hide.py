@@ -204,6 +204,27 @@ class CommandTests(unittest.TestCase):
             (out / slug).mkdir(parents=True)  # a media-only rebuild keeps the books already published …
         self.assertEqual([b.slug for b in site._site_books([], out)], ["demo"], "… except hidden ones")
 
+    def test_site_builds_remove_hidden_books(self):
+        """A book hidden after the site was built: a media-only rebuild (`./tbook build viz`) does not empty
+        _site/, so it removes the book's pages itself, and nothing else."""
+        out = paths.SITE_OUT
+        for slug in ("demo", "example-x"):
+            write(out / slug / "zh" / "index.html", "published before")
+        write(out / "manifest.json", "{}")
+        write(out / "notes" / "keep.txt", "not a book")
+        with mock.patch.object(site, "_media_module", lambda part: None), mock.patch.object(site, "_warn") as warn:
+            site.build(config.load_site(), config.load_books(), out, only={"viz"})
+        self.assertFalse((out / "example-x").exists())
+        self.assertTrue((out / "demo" / "zh" / "index.html").is_file())
+        self.assertTrue((out / "notes" / "keep.txt").is_file())
+        self.assertNotIn("example-x", (out / "index.html").read_text(encoding="utf-8"))
+        warn.assert_any_call("removed the pages of example-x (hidden by site.toml [books].hide)")
+        self.assertEqual(site._remove_hidden_books(out, set()), [], "nothing left to remove")
+        (out / "example-x").symlink_to(out / "notes", target_is_directory=True)
+        self.assertEqual(site._remove_hidden_books(out, set()), ["example-x"])
+        self.assertTrue((out / "notes" / "keep.txt").is_file(), "a link is removed, not what it points at")
+        self.assertFalse((out / "example-x").is_symlink())
+
     def test_doctor_names_hidden_books(self):
         self.assertEqual(doctor.books_line(), "books: demo; hidden by site.toml [books].hide: example-x")
         write(paths.SITE_TOML, SITE)

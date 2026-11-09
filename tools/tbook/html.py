@@ -57,7 +57,7 @@ from . import config, ledger, mathrender, mdscan, paths, render
 from .model import EditionModel, load_edition
 
 MDBOOK_THEME = paths.THEME / "mdbook"
-KATEX_DIST = paths.ROOT / "node_modules" / "katex" / "dist"
+KATEX_DIST = mathrender.KATEX_DIST
 ASSET_DIR = "tr"  # staged next to src/; published as <edition>/tr/
 DEFAULT_BRANCH = "main"
 MDBOOK_SERIES = (0, 5)
@@ -349,12 +349,10 @@ def paper_palette_css() -> str:
 
 
 def _katex_css() -> str:
-    css_path = KATEX_DIST / "katex.min.css"
-    if not css_path.exists():
-        raise HtmlError(f"{paths.rel(css_path)} not found; run `npm ci` in the repository root")
-    css = css_path.read_text(encoding="utf-8")
-    # Every browser that runs the book reads WOFF2; ship only those fonts.
-    return re.sub(r'(url\(fonts/[^)]+\.woff2\) format\("woff2"\))(?:,url\([^)]*\) format\("[^"]*"\))+', r"\1", css)
+    try:
+        return mathrender.katex_css()  # only the WOFF2 fonts, which every browser that runs the book reads
+    except mathrender.MathError as exc:
+        raise HtmlError(str(exc)) from None
 
 
 def _favicon(tokens: dict) -> str:
@@ -474,7 +472,7 @@ def stage_edition(site: config.Site, book: config.Book, edition: config.Edition,
     (assets / "katex" / "katex.min.css").write_text(_katex_css(), encoding="utf-8")
     fonts = src / ASSET_DIR / "katex" / "fonts"
     fonts.mkdir(parents=True)
-    for font in sorted((KATEX_DIST / "fonts").glob("*.woff2")):
+    for font in mathrender.katex_fonts():
         shutil.copy2(font, fonts / font.name)
     data = editions_data(site, book, edition, model, lock)
     (assets / "tr-editions.js").write_text(

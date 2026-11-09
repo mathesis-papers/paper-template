@@ -88,6 +88,15 @@ export const TOKENS = {
       "system-ui",
       "sans-serif"
     ],
+    "body-latin": [
+      "Source Sans 3",
+      "Noto Sans SC",
+      "Chakra Petch",
+      "PingFang SC",
+      "Microsoft YaHei",
+      "system-ui",
+      "sans-serif"
+    ],
     "serif": [
       "Noto Serif SC",
       "Songti SC",
@@ -112,7 +121,7 @@ export const TOKENS = {
       "DejaVu Sans",
       "sans-serif"
     ],
-    "google-fonts-css": "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+    "google-fonts-css": "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=Source+Sans+3:ital,wght@0,400..700;1,400..700&display=swap"
   },
   "effect": {
     "glow-cyan": "0 0 18px rgba(25, 240, 255, 0.45)",

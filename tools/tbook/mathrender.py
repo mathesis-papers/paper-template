@@ -64,6 +64,7 @@ from pathlib import Path
 from . import mdscan, paths
 
 RENDERER = paths.TOOLS / "node" / "katex-render.mjs"
+KATEX_DIST = paths.ROOT / "node_modules" / "katex" / "dist"  # KaTeX's stylesheet and fonts (npm ci)
 FALLBACK_CLASS = "katex-fallback"
 BLOCK_CLASS = "tr-math"
 
@@ -440,6 +441,22 @@ def render_formulas(items: list[tuple[str, bool]]) -> list[dict]:
         if not (isinstance(a.get("html"), str) or isinstance(a.get("error"), str)):
             raise MathError("katex-render answered without html or error")
     return answers
+
+
+def katex_css() -> str:
+    """KaTeX's stylesheet for rendered formulas, with only the WOFF2 fonts (every browser that shows the HTML
+    reads WOFF2): it loads them from ``fonts/`` next to itself (:func:`katex_fonts`). Raises :class:`MathError`
+    when the katex package is not installed."""
+    css_path = KATEX_DIST / "katex.min.css"
+    if not css_path.exists():
+        raise MathError(f"{paths.rel(css_path)} not found; run `npm ci` in the repository root")
+    css = css_path.read_text(encoding="utf-8")
+    return re.sub(r'(url\(fonts/[^)]+\.woff2\) format\("woff2"\))(?:,url\([^)]*\) format\("[^"]*"\))+', r"\1", css)
+
+
+def katex_fonts() -> list[Path]:
+    """The WOFF2 fonts :func:`katex_css` names, to be published as ``fonts/<name>`` next to it."""
+    return sorted((KATEX_DIST / "fonts").glob("*.woff2"))
 
 
 _ANY_TAG_RE = re.compile(r"<[^>]*>")

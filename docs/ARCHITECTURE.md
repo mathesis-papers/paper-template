@@ -91,7 +91,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 - `#id`：形式结论、定义、开放条目必须有 id；id 以字母开头，可含字母、数字、`-`、`_`、`:`。
 - `title="…"`：可选，单行行内 Markdown，可含行内数学；属性值里反斜杠与花括号原样保留（`title="$\mathbb{N}$ 上的 $\{-1,0,1\}$"`）。值内的双引号写 `\"`；`\\` 读作一个反斜杠，所以 TeX 的 `\\` 要写成 `\\\\`。标题中可以写 `[@id]`（见 §3.3）。
-- 标题的统一读法（环境标题与 SUMMARY 中的章节标题）：`$…$` 内的 TeX 不变；`$…$` 与行内代码之外，反斜杠加 ASCII 标点是 Markdown 转义，所有输出都显示标点本身（`C\*-代数` → C*-代数，`\$5` → $5，不是公式）。纯文字场合（mdBook 页头、侧栏、`<title>`、站点）用 `mdscan.unescape_markdown()` 的结果；mdBook 页头由 `render.title_html()` 写出，字面的 `$`、`\`、反引号写成字符引用，所以页头里的公式与 Pandoc 看到的完全相同；重新写回 mdBook 的 SUMMARY 时每个 ASCII 标点都加反斜杠（`html._escape_title()`）；Pandoc、账本拿到的是原 Markdown（`model.title_markdown()`、`Chapter.title_md`）。
+- 标题的统一读法（环境标题与 SUMMARY 中的章节标题）：`$…$` 内的 TeX 不变；`$…$` 与行内代码之外，反斜杠加 ASCII 标点是 Markdown 转义，所有输出都显示标点本身（`C\*-代数` → C*-代数，`\$5` → $5，不是公式）。纯文字场合（mdBook 页头、侧栏、`<title>`、站点的目录）用 `mdscan.unescape_markdown()` 的结果；站点落地页的验证摘要列出定理标题时，标题文字照此读，公式在构建时由 KaTeX 渲染（`site.title_html()`，全站一次 Node 进程；Node 或 KaTeX 不可用、或某个公式渲染失败时显示其 TeX 源码并警告），有公式的页面才加载站点自带的 KaTeX 样式与字体（`assets/katex/`）；mdBook 页头由 `render.title_html()` 写出，字面的 `$`、`\`、反引号写成字符引用，所以页头里的公式与 Pandoc 看到的完全相同；重新写回 mdBook 的 SUMMARY 时每个 ASCII 标点都加反斜杠（`html._escape_title()`）；Pandoc、账本拿到的是原 Markdown（`model.title_markdown()`、`Chapter.title_md`）。
 - `lean="GID [GID …]"`：一条或多条，空格或逗号分隔。
 - 只有显示 `LEAN ✓` 的形式结论计入各输出中的“LEAN ✓ n”与定理数（账本、版权页、封面、站点）；显示 `UNVERIFIED` 的不计入。
 - 编号：同一顶层章节内，所有编号种类共用一个计数器：`定理2.1`、`定义2.2`（中文、日文不加空格；英文为 `Theorem 2.1`）……前言类（prefix）章节用 `0.n`，附录类（suffix）章节用 `A.n`、`B.n`。
@@ -132,7 +132,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 :::
 ```
 
-- HTML：可视化以 iframe 嵌入（`height` 160–2400，默认 560），附“全屏打开”；视频以 `<video controls preload="metadata" playsinline>` 播放站内的 `films/<id>/<outputs.narrated_720p>`（海报为提交的 `poster.jpg`），附 `film.json` 的 `outputs` 所列视频的下载（默认只有 720p 旁白版；列出时另有 1080p、纯配乐）；站点没有该视频时，`site.mark_films` 给 `<figure>` 加 `tr-film-unbuilt`，样式改为显示海报与“视频未构建”；幻灯片为链接卡片（在线演示、PDF）。
+- HTML：可视化以 iframe 嵌入（`height` 160–2400，默认 560），附“全屏打开”；视频以 `<video controls preload="metadata" playsinline>` 播放站内的 `films/<id>/<outputs.narrated_720p>`（海报为提交的 `poster.jpg`），附 `film.json` 的 `outputs` 所列视频的下载（默认只有 720p 旁白版；列出时另有 1080p、纯配乐）；站点没有该视频时，`site.mark_films` 给 `<figure>` 加 `tr-film-unbuilt`，样式改为显示海报与“视频未构建”，并把隐藏的播放器改为 `preload="none"`，浏览器就不去请求不存在的文件（视频构建后复原为 `metadata`）；幻灯片为链接卡片（在线演示、PDF）。
 - PDF / EPUB：静态缩略图或海报 + 图注 + 在线地址（由 `site.toml` 的 `base_url` 拼出；没有 `base_url` 时视频只有海报）。
 - 书内媒体的源文件：
   - 可视化：`books/<slug>/viz/visualizations.json`（登记表）+ `viz/<id>/`（`index.html`、`style.css`、`main.js`、`thumb.jpg`）与 `viz/tests/<id>.test.mjs`；页面契约见 `templates/viz/README.md`。
@@ -268,7 +268,7 @@ store(unit), restore_local(unit), restore_remote(unit, repo), stored(), prune(un
 index.html                 书库首页（双语切换，书卡片：封面、简介、在线阅读、下载、媒体计数）
 404.html                   自包含的 404 页
 .nojekyll
-assets/                    站点共享样式、tokens.css、site.js、favicon
+assets/                    站点共享样式、tokens.css、site.js、favicon；katex/（KaTeX 样式与 WOFF2 字体，定理标题含公式时才有）
 manifest.json              机器可读清单（schema trureturing-books.site.v1，见下）
 <slug>/index.html          书的落地页：版本、语言、下载、目录、验证摘要、可视化/视频/幻灯片
 <slug>/cover-<lang>.png    站点封面（640×1024，tbook.cover 生成）
@@ -286,7 +286,7 @@ manifest.json              机器可读清单（schema trureturing-books.site.v1
 
 站点品牌：`site.toml` 可选 `[site] logo = "TRURETURING//BOOKS"`；缺省时用英文站名生成 `FIRST//REST`。
 
-所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。`./tbook serve` 在同样的子路径下预览（`TBOOK_SERVE_HOST=0.0.0.0` 可供局域网访问）；`./tbook build site --book x` 只装配选定的书；`./tbook build viz|films [--book x]` 只重新发布（选定书的）这些部分，书库首页与 `manifest.json` 仍列出 `_site/` 中已有的全部书。媒体发布失败时，站点其余部分仍会写出，命令以非零退出。
+所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。`./tbook serve` 在同样的子路径下预览（`TBOOK_SERVE_HOST=0.0.0.0` 可供局域网访问）；`./tbook build site --book x` 只装配选定的书；`./tbook build viz|films [--book x]` 只重新发布（选定书的）这些部分，书库首页与 `manifest.json` 仍列出 `_site/` 中已有的全部书；被 `[books] hide` 隐藏的书的 `_site/<slug>/` 在每次站点构建时删除（完整构建本来就先清空 `_site/`），其他内容不动。媒体发布失败时，站点其余部分仍会写出，命令以非零退出。
 
 mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`；媒体块把相对本书的目标写在 `data-tr-src` / `data-tr-poster`，`site.publish_html` 据此修正。界面语言记在 localStorage 的 `tr-lang`，书库首页、落地页、可视化、视频页与幻灯片共用。
 
@@ -377,4 +377,4 @@ def generate(out_dir) -> Path
 | Slidev | 53.0.0 | `package.json` |
 | Playwright | `playwright-chromium@1.56.1` | `package.json`；本地可用 `PW_CHROMIUM_PATH` 指向已有 Chromium |
 
-字体：网页用 Google Fonts（Chakra Petch、JetBrains Mono、Noto Sans SC）；PDF 用系统字体加 `tools/fetch-fonts.sh` 拉取的 TTF（`.cache/fonts/`）；幻灯片与视频用 `@fontsource` 自托管。
+字体：网页用 Google Fonts（Chakra Petch、JetBrains Mono、Noto Sans SC，以及英文等非中日韩文字用的 Source Sans 3：令牌 `font.body-latin`。Noto Sans SC 把弯引号与撇号画成全角，中文需要这样，英文里却与词隔开，所以 mdBook、站点、视频页与可视化在语言不是中日韩时把 `--tr-font-body` 换成它；PDF 的英文正文本来用拉丁字体，EPUB 正文用阅读器的字体）；PDF 用系统字体加 `tools/fetch-fonts.sh` 拉取的 TTF（`.cache/fonts/`）；幻灯片与视频用 `@fontsource` 自托管。
