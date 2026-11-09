@@ -460,6 +460,22 @@ class NodeTests(unittest.TestCase):
         self.assertIn("books example-x, draft-1 are hidden by site.toml [books].hide (\"example-*\", \"draft-?\"); "
                       "to use them, remove those patterns from hide, then run ./tbook pin --refresh", node[2])
 
+    def test_unhide_hint_agrees_with_python(self):
+        """A "not in trureturing.lock.json" message about a hidden book read by path says why pin --refresh cannot
+        help yet; the same text from Python and Node, and nothing for a visible book."""
+        hide = ["example-*"]
+        write(self.root / "site.toml", SITE + f"hide = {json.dumps(hide)}\n")
+        r = node_eval(self.root, """
+            import { unhideHint } from '@LIB@/slides-lib.mjs';
+            console.log(JSON.stringify([unhideHint('example-x'), unhideHint('my-book')]));""")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        node = json.loads(r.stdout)
+        with CoreRepo(SITE + f"hide = {json.dumps(hide)}\n"):
+            self.assertEqual(node, [config.unhide_hint("example-x"), config.unhide_hint("my-book")])
+        self.assertEqual(node[1], "")
+        self.assertIn('book example-x is hidden by site.toml [books].hide "example-*"', node[0])
+        self.assertIn("pin --refresh collects the citations of visible books only", node[0])
+
     def test_validation_agrees_with_python(self):
         for text in ('[site]\n[books]\nhide = "example-*"\n', "[site]\n[books]\nhide = [1]\n",
                      '[site]\n[books]\nhide = [""]\n', "books = 1\n[site]\n", "[[books]]\nhide = []\n[site]\n"):

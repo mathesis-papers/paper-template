@@ -1688,6 +1688,21 @@ class OwnBackgroundBuildTest(unittest.TestCase):
         self.assertIn("PDF page 1 does not draw the print backdrop", r.stderr)
 
 
+class IndexFontsTest(unittest.TestCase):
+    def test_index_uses_the_theme_fonts(self):
+        """The decks page links the fonts URL of theme/tokens.json and gives English text the Latin face."""
+        import json as _json
+
+        url = _json.loads((paths.THEME / "tokens.json").read_text(encoding="utf-8"))["font"]["google-fonts-css"]
+        site = config.load_site()
+        books = config.load_books()
+        if not books:
+            self.skipTest("no book")
+        page = slides.index_html(site, books[0], [])
+        self.assertIn(f'href="{url}"', page.replace("&amp;", "&"))
+        self.assertIn(":not(:lang(zh), :lang(ja), :lang(ko)) { --tr-font-body: var(--tr-font-body-latin); }", page)
+
+
 class BuildOncePerProcessTest(unittest.TestCase):
     """`./tbook build all` builds the decks, then the site step publishes them through build() again: with
     the cache off (TBOOK_CACHE=0), or a store that failed, they must not be built a second time."""

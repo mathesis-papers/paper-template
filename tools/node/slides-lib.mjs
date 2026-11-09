@@ -379,6 +379,16 @@ export function hiddenError(slugs, patterns) {
   return err;
 }
 
+/** For a "not in trureturing.lock.json" message about a book read by path: when site.toml [books].hide hides
+ *  `slug`, why ./tbook pin --refresh cannot help yet; '' otherwise (the same text as tools/tbook/config.py). */
+export function unhideHint(slug, root = ROOT) {
+  let pattern = '';
+  try { pattern = hiddenBy(slug, hidePatterns(root)); } catch { return ''; }
+  if (!pattern) return '';
+  return ` (book ${slug} is hidden by site.toml [books].hide ${JSON.stringify(pattern)}: remove that pattern `
+    + 'from hide first, since ./tbook pin --refresh collects the citations of visible books only)';
+}
+
 /** Slugs of every directory of books/ with a book.toml, hidden ones included, sorted. */
 export function bookDirs(root = ROOT) {
   const dir = join(root, 'books');

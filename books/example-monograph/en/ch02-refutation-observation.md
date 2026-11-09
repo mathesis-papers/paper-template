@@ -19,7 +19,7 @@ Readout
 
 ## Refuting a conjecture
 
-For a positive integer $n$, let $a(n)$ be the greatest natural number $k$ with $(1 + 1/n)^k \le 2$; this is the OEIS sequence A175406.[^sup] The formula field of the entry reads:
+For a positive integer $n$, let $a(n)$ be the greatest natural number $k$ with $(1 + 1/n)^k \le 2$; this is the OEIS sequence A175406[^sup]. The formula field of the entry reads:
 
 > a(n) = n log 2 + O(1). Conjecture: a(n) = floor((n + 1/2) log 2).
 >

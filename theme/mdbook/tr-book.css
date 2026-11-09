@@ -283,7 +283,7 @@ html.navy .chapter li a.active, html.ayu .chapter li a.active { text-shadow: var
    mdBook's mid grey (on which the dim ink of a figure drawn for both palettes reads at 1.5:1); an SVG, which
    scales cleanly, as large as the window allows rather than at its intrinsic size. */
 .content .checkbox-img:checked ~ .img-wrapper > img {
-  background: var(--bg); border: 1px solid var(--tr-line-hot);
+  background: var(--bg); border: 1px solid var(--tr-line-hot); box-sizing: border-box;
   box-shadow: 0 18px 48px color-mix(in srgb, var(--tr-void-deep) 70%, transparent);
 }
 .content .checkbox-img:checked ~ .img-wrapper > img:is([src$=".svg" i], [src*=".svg?" i], [src*=".svg#" i]) {

@@ -465,6 +465,19 @@ def book_slugs() -> list[str]:
     return order + [s for s in found if s not in order]
 
 
+def unhide_hint(slug: str) -> str:
+    """For a "not in trureturing.lock.json" message about a book read by path: when site.toml [books].hide hides
+    ``slug``, why ./tbook pin --refresh cannot help yet (it collects visible books only); '' otherwise."""
+    try:
+        pattern = load_site().hidden_by(slug)
+    except ConfigError:
+        return ""
+    if not pattern:
+        return ""
+    return (f" (book {slug} is hidden by site.toml [books].hide {json.dumps(pattern)}: remove that pattern "
+            "from hide first, since ./tbook pin --refresh collects the citations of visible books only)")
+
+
 def hidden_books() -> list[str]:
     """Slugs of the books that site.toml [books].hide hides (they exist but no command sees them), sorted."""
     site = load_site()

@@ -524,7 +524,7 @@ def check_native(book, *, lock: lean.Lock | None = None, ledger: lean.Ledger | N
                 err(reg_file, line, f"{at}: lean[{k}]: {gid} cannot be linked: trureturing.lock.json is missing (run ./tbook pin)")
             elif res is None:
                 err(reg_file, line, f"{at}: lean[{k}]: {gid} is not in trureturing.lock.json; cite it in a chapter "
-                                    "and run ./tbook pin --refresh")
+                                    "and run ./tbook pin --refresh" + config.unhide_hint(book.slug))
             elif res.kind not in lean.FORMAL_KINDS:
                 err(reg_file, line, f"{at}: lean[{k}]: {gid} is a Lean {res.kind}, not a theorem; lean lists the "
                                     "theorems the visualization cites (shown as LEAN ✓)")
@@ -595,7 +595,8 @@ def check_page(book, vid: str, page: Path, ids: set[str], *, lock=None, ledger=N
                 continue
             res = lock.get(value) if lock is not None else None
             if lock is not None and res is None:
-                err(line, f'data-lean-gid="{value}" is not in trureturing.lock.json; cite it in a chapter and run ./tbook pin --refresh')
+                err(line, f'data-lean-gid="{value}" is not in trureturing.lock.json; cite it in a chapter and run ./tbook pin --refresh'
+                    + config.unhide_hint(book.slug))
             elif res is not None and res.kind not in lean.FORMAL_KINDS:
                 err(line, f'data-lean-gid="{value}" names a Lean {res.kind}, not a theorem; data-lean-gid cites verified '
                           'theorems (LEAN ✓); link a definition with data-trureturing-path="<module>.lean"')

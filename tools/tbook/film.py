@@ -595,7 +595,8 @@ def validate_meta(meta: dict, film_dir: Path, book: config.Book, lock: lean.Lock
             if lock is None:
                 err(f"film.json: {gid}: trureturing.lock.json is missing or unreadable; run ./tbook pin")
             elif res is None:
-                err(f"film.json: {gid} is not in trureturing.lock.json; cite it in a chapter or run ./tbook pin --refresh")
+                err(f"film.json: {gid} is not in trureturing.lock.json; cite it in a chapter or run ./tbook pin --refresh"
+                    + config.unhide_hint(book.slug))
             elif res.kind not in lean.FORMAL_KINDS:
                 err(f"film.json: {gid} is a Lean {res.kind}, not a theorem; lean lists the theorems the film cites "
                     "(shown as LEAN ✓)")

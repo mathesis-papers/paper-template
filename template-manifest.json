@@ -200,7 +200,7 @@
       "mode": "100644"
     },
     "templates/viz/index.html": {
-      "sha256": "3e0471d019015461d5b9f8e5f671f5a5b603c05d17c638a68e7e35a23c37af4e",
+      "sha256": "51598806454d2441e8af719b4f7b094d45ae7d1c7bcdc9d60ced1d44d43e53e6",
       "mode": "100644"
     },
     "templates/viz/main.js": {
@@ -320,7 +320,7 @@
       "mode": "100644"
     },
     "theme/mdbook/tr-book.css": {
-      "sha256": "9c4f6e9e6520244b8669c7b6faa6e149a44ae0bf0ab2d450e2e748e2a3212396",
+      "sha256": "fe01ebda3d12c50c325682cbbcd9d2718a9f242709ef5f9fe9da3f327a379112",
       "mode": "100644"
     },
     "theme/mdbook/tr-book.js": {
@@ -508,7 +508,7 @@
       "mode": "100644"
     },
     "tools/node/slides-lib.mjs": {
-      "sha256": "6f074ccf3804219e5a08e012a4643c687b6ea608d37010c18a74250abab5d94f",
+      "sha256": "337d0ff64766561e0ec3e5de3d1dfe976eaa499e816948c902c3f51fbc20f186",
       "mode": "100644"
     },
     "tools/node/slides-new.mjs": {
@@ -540,7 +540,7 @@
       "mode": "100644"
     },
     "tools/node/viz-validate.mjs": {
-      "sha256": "4be5ea1c5dbd1fc8d782d6ab41c2bf8dc5dce586714fa7951056431c67024aad",
+      "sha256": "7e0b7e858f9dafaa812f87faaf983fe67850a67b3b57cce0ce6d21b05a6d64c9",
       "mode": "100644"
     },
     "tools/tbook/__init__.py": {
@@ -568,7 +568,7 @@
       "mode": "100644"
     },
     "tools/tbook/config.py": {
-      "sha256": "4ad890be729ab5c68a0612c66c8533e582b957b6b0533b003145f400d3622580",
+      "sha256": "4e60c7ba4e9b835a67c12a4cf8ae246093ba558b48aed005521e4445af63bd96",
       "mode": "100644"
     },
     "tools/tbook/cover.py": {
@@ -580,7 +580,7 @@
       "mode": "100644"
     },
     "tools/tbook/film.py": {
-      "sha256": "96d3f4cb84e90baa0f585558f1a85bf55d5278ebcec6005420ffbcfa789e685f",
+      "sha256": "7175644cdbcf472f7fedfa60fd3465cc03ce677b749e66cff5c0bc183aa24789",
       "mode": "100644"
     },
     "tools/tbook/html.py": {
@@ -640,7 +640,7 @@
       "mode": "100644"
     },
     "tools/tbook/slides.py": {
-      "sha256": "53fe23fda11c9a12794c8fc56d50505a932d214c806d5aa53bab868bdc34390e",
+      "sha256": "ef528b12a11fbf6060f9883d53a502e7bf78ec1d37b842c1296a21384e38f87a",
       "mode": "100644"
     },
     "tools/tbook/summary.py": {
@@ -656,7 +656,7 @@
       "mode": "100644"
     },
     "tools/tbook/viz.py": {
-      "sha256": "345f2a51feb9a858a9e6382ef11bb36449b672ddb6c48e010de4a9b87387d6a9",
+      "sha256": "bacc94c0fd7b5ffb3f6f023a193c2fa9acf804d6585f73791c38b138f6fdef35",
       "mode": "100644"
     },
     "tools/tests/test_blocks.py": {
@@ -684,7 +684,7 @@
       "mode": "100644"
     },
     "tools/tests/test_hide.py": {
-      "sha256": "bb407393cf5ad2ac9a78c1395d3cbe1bfacdbc1835eda7163b08f21debacfde9",
+      "sha256": "b3c33020b05eaa2c2b980b0df547106516cc4f24c62cb207e50d60903b48e3f5",
       "mode": "100644"
     },
     "tools/tests/test_html.py": {
@@ -716,7 +716,7 @@
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {
-      "sha256": "1a4b46292f73d06f2cc125240d0fb0f13acf00af3e98189cf7539f08cd63d6f5",
+      "sha256": "56de213ba4d42defba88e985c0728a925a6cbf2a0fdc4d356f05978363f721c1",
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
@@ -728,7 +728,7 @@
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {
-      "sha256": "624eda6b202b54bc905196049bbc2e2c354166b95acab3abf47656f9e9604f40",
+      "sha256": "8b163b387dfd12eda31df90c858dfceb0f26b4c5351461050e36b2ea42ccf572",
       "mode": "100644"
     }
   }

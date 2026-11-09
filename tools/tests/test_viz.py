@@ -742,6 +742,16 @@ class Strings(unittest.TestCase):
         self.assertEqual(viz.t("en", "published", n=3), "3 published · in registry order")
         self.assertFalse(re.search(r"[㐀-鿿]", " ".join(viz.STRINGS["en"].values())))
 
+    def test_pages_load_the_theme_fonts(self):
+        """Visualization pages link the Google Fonts URL of theme/tokens.json (it carries the Latin face English
+        text uses), not a copy that drifts from it."""
+        url = json.loads((paths.THEME / "tokens.json").read_text(encoding="utf-8"))["font"]["google-fonts-css"]
+        pages = [paths.ROOT / "templates" / "viz" / "index.html"] + sorted(paths.BOOKS.glob("*/viz/*/index.html"))
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            if "fonts.googleapis.com/css" in text:
+                self.assertIn(f'href="{url}"', text, page)
+
     def test_runtime_has_no_hard_coded_palette(self):
         """theme/viz colours come from tokens.css; hex values appear only in marked fallbacks."""
         tokens = json.loads(paths.TOKENS.read_text(encoding="utf-8"))
