@@ -99,7 +99,8 @@ def check_orphans(model: EditionModel, issues: list[Issue]) -> None:
 
 
 def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> None:
-    """Local files that chapters link to or embed must exist, and links must stay in the book directory.
+    """Local files that chapters link to or embed must exist, links must stay in the book directory,
+    and destinations should not be empty (HTML links to the page itself, PDF/EPUB show the text).
 
     Runs the builds' own link rewriting (:func:`tbook.render.rewrite_links`), so it reads links and
     images the way the builds do: inline, ``<…>`` and percent-encoded destinations, reference
@@ -122,7 +123,7 @@ def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> 
             for p in missing:
                 what = "is not a file" if p.exists() else "does not exist"
                 _warn(issues, doc.path, lineno, f"links to {paths.rel(p)}, which {what}")
-            for msg in ctx.issues:  # "link leaves the book directory: …"
+            for msg in ctx.issues:  # "link leaves the book directory: …", "empty link destination in …"
                 _warn(issues, doc.path, lineno, msg[len(prefix):] if msg.startswith(prefix) else msg)
 
 

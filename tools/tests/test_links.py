@@ -10,6 +10,12 @@ Run: PYTHONPATH=tools:tools/tests python -m unittest test_links
   ``(…)`` titles, nested brackets in the link text, the autolink ``<lean:GID>``) were neither checked
   nor pinned and shipped a raw ``lean:`` href; one written across lines still cannot be read, so
   ``./tbook check`` reports it and no target writes its ``lean:`` destination.
+* ``<lean:GID>`` as the destination of a link or definition begun on an earlier line was read as an
+  autolink: check passed, HTML shipped ``href="[GID](https://…)"`` and the EPUB build failed.
+* Indented code (top level, list items, quotes, footnotes) stays as written and is not checked.
+* A link or image with an empty destination made Typst fail ("URL must not be empty") and an empty
+  image source failed epubcheck; ``[x]:`` with no destination vanished from PDF/EPUB (Pandoc read an
+  empty definition) while HTML showed it.
 
 The fixtures are those of ``test_markdown`` (a throwaway repository, an in-memory lock); the
 Pandoc tests are skipped when Pandoc is missing.
@@ -27,7 +33,7 @@ from unittest import mock
 from tbook import check, config, lean, mdscan, model, render
 from test_core import FakeLedger
 from test_markdown import GID_DEF, GID_MISSING, GID_OK, SOURCE_DEF, SOURCE_OK, Repo, make_lock, write
-from test_pandoc import have_pandoc, run_filters
+from test_pandoc import fixture_site, have_pandoc, have_typst, make_book, run_filters
 
 FIG = "_book/assets/fig.svg"
 
@@ -315,6 +321,203 @@ class StrayLeanLinkTests(unittest.TestCase):
         html = run_filters(f"[a\nb](lean:{GID_OK}) ![c](lean:{GID_DEF})\n\n[x][d]\n\n[d]:\n  lean:{GID_OK}\n", "html")
         self.assertNotIn("lean:", html)
         self.assertIn("a b", html)
+
+
+class AngleDestinationAcrossLinesTests(unittest.TestCase):
+    """``<lean:GID>`` that is the destination of a link or definition begun on an earlier line is that
+    link's destination (CommonMark), not an autolink. It was read as an autolink: check passed, HTML
+    shipped ``href="[GID](https://…)"`` and the EPUB build failed. Now it is a stray like any other."""
+
+    TEXT = (f"# 第一章\n\n"
+            f"见 [三值\n亏量定理](<lean:{GID_OK}>) 一行。\n\n"  # 3-4
+            f"见 [该定理][dt]。\n\n"  # 6
+            f"[dt]:\n  <lean:{GID_DEF}>\n\n"  # 8-9
+            f"[跨行\n标签]: <lean:{GID_OK}>\n\n"  # 11-12
+            f"[标题在下一行](<lean:{GID_DEF}>\n \"T\")\n\n"  # 14-15
+            f"> [引文\n> 链接](<lean:{GID_OK}>)\n\n"  # 17-18
+            f"段落\n<lean:{GID_MISSING}> 是自动链接，foo](<lean:{GID_DEF}>) 也是。\n")  # 20-21
+    STRAYS = [4, 9, 12, 14, 18]
+
+    def test_found_and_not_read_as_autolinks(self):
+        lines = self.TEXT.split("\n")
+        self.assertEqual([s.line + 1 for s in mdscan.stray_lean_links(lines)], self.STRAYS)
+        cited = [(n, g) for n, line in mdscan.iter_text_lines(mdscan.parse_blocks(self.TEXT))
+                 for g in mdscan.lean_link_gids(line)]
+        self.assertEqual(cited, [(21, GID_MISSING), (21, GID_DEF)], "only the real autolinks")
+
+    def test_check_reports_them(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            m = model.load_edition(repo.edition)
+            self.assertEqual([(i.severity, i.line, i.message) for i in m.issues],
+                             [("error", n, model.STRAY_LEAN) for n in self.STRAYS])
+            self.assertEqual(m.chapters[1].lean_links, [(21, GID_MISSING), (21, GID_DEF)])
+
+    def test_builds_drop_the_destination(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                self.assertNotIn("lean:", out, target)
+                self.assertNotIn("](<", out, target)
+                self.assertNotIn("]([", out[:out.index("段落")], target)
+                self.assertIn("见 三值\n亏量定理 一行。", out)
+                self.assertIn("[dt]: #\n", out)
+                self.assertIn("[跨行\n标签]: #\n", out)
+                self.assertIn("标题在下一行\n", out)
+                self.assertIn("> 引文\n> 链接\n", out)
+                self.assertIn(f"段落\n{mdscan.escape_markdown(GID_MISSING)} 是自动链接，"
+                              f"foo]([{mdscan.escape_markdown(GID_DEF)}]({SOURCE_DEF})) 也是。", out)
+                self.assertEqual(len(ctx.issues), len(self.STRAYS), ctx.issues)
+                self.assertTrue(all("loses its lean: destination" in i for i in ctx.issues))
+                self.assertFalse(any("\ue000" in i for i in ctx.issues))
+
+    @unittest.skipUnless(have_pandoc(), "pandoc not installed")
+    def test_pandoc_reads_plain_text(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            out, _ = repo.render("ch01.md", target="pandoc")
+        html = run_filters(out, "html")
+        self.assertNotIn("lean:", html)
+        self.assertNotIn('href="[', html)
+        self.assertNotIn('href="%5B', html)
+
+
+# --------------------------------------------------------------------------- indented code
+
+
+class IndentedCodeTests(unittest.TestCase):
+    """Indented code is shown as written by every target and neither checked nor cited: at the top
+    level, in a list item (also a nested one), a block quote or a footnote, or indented with a tab."""
+
+    CODE = ("[1]: Knuth, TAOCP.", "[fig]: ../assets/fig.svg", f'<a href="lean:{GID_OK}">x</a>', "[跨行的",
+            f"链接](lean:{GID_OK})", f"见 <lean:{GID_MISSING}> 与 [@nope] 与 ![坏](../assets/missing.svg)")
+
+    BLOCKS = (("段落：\n", "    "), ("- 项目\n", "        "), ("- a\n  - b\n", "        "), ("> 引文\n>", ">     "),
+              ("脚注[^c]。\n\n[^c]: 正文\n", "        "), ("制表符：\n", "\t"))
+
+    @classmethod
+    def text(cls) -> tuple[str, list[str]]:
+        parts, code = ["# 第一章\n"], []
+        for lead, indent in cls.BLOCKS:
+            lines = [indent + line for line in cls.CODE]
+            code += lines
+            parts.append(lead + "\n" + "\n".join(lines) + "\n\n结束。\n")
+        return "\n".join(parts), code
+
+    def test_not_checked(self):
+        text, _ = self.text()
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", text)
+            m = model.load_edition(repo.edition)
+            self.assertEqual(m.issues, [])
+            doc = m.chapters[1]
+            self.assertEqual((doc.refs, doc.lean_links), ([], []))
+            issues: list[model.Issue] = []
+            check.check_links(m, config.load_site(), issues)
+            check.check_env_policy(m, issues)
+            self.assertEqual(issues, [])
+
+    def test_shown_as_written(self):
+        text, code = self.text()
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", text)
+            repo.model = model.load_edition(repo.edition)
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                for line in code:
+                    self.assertIn("\n" + line + "\n", out, (target, line))
+                self.assertEqual(ctx.issues, [], target)
+
+
+# --------------------------------------------------------------------------- empty destinations
+
+
+class EmptyDestinationTests(unittest.TestCase):
+    """A link or image with an empty destination: HTML (mdBook) links to the page itself or shows a
+    broken image, Typst refuses an empty URL and epubcheck an empty image source. PDF/EPUB show its
+    text, ``./tbook check`` warns. ``[x]:`` with no destination is text in every target."""
+
+    LINES = ("见 [甲]() 与 ![乙]() 与 [丙](<>) 与 [丁]( )。", "[空址]: <>")
+
+    def test_rendered_as_written_and_reported(self):
+        with Repo() as repo:
+            for target in ("mdbook", "pandoc"):
+                ctx, doc = repo.ctx(target=target), repo.doc("ch01.md")
+                for line in self.LINES:
+                    self.assertEqual(render.transform_line(line, doc, ctx), line, (target, line))
+                self.assertEqual(len(ctx.issues), 5, ctx.issues)
+                self.assertTrue(all("empty link destination" in i for i in ctx.issues), ctx.issues)
+
+    def test_check_warns(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", "# 第一章\n\n" + "\n\n".join(self.LINES) + "\n\n见 [空址]。\n")
+            m = model.load_edition(repo.edition)
+            issues: list[model.Issue] = []
+            check.check_links(m, config.load_site(), issues)
+            self.assertEqual([(i.severity, i.line) for i in issues], [("warning", 3)] * 4 + [("warning", 5)])
+
+    LABELS = (
+        ("[空]:", "", "\\[空]:"),  # a blank line: no destination
+        ("> [q]:  ", ">", "> \\[q]:  "),
+        ("- [l]:", "", "- \\[l]:"),
+        ("[h]:", "# 标题", "\\[h]:"),  # a heading is no destination
+        ("[w]:", "some text here", "\\[w]:"),  # nor are words
+        ("[d]:", "  ../assets/fig.svg 'T'", "[d]:"),  # the destination on the next line: a definition
+        ("> [e]:", "> <>", "> [e]:"),
+    )
+
+    def test_label_without_destination_is_text_for_pandoc(self):
+        with Repo() as repo:
+            for line, after, want in self.LABELS:
+                write(repo.edition.dir / "ch01.md", f"# 第一章\n\n{line}\n{after}\n")
+                repo.model = model.load_edition(repo.edition)
+                for target in ("mdbook", "pandoc"):
+                    out, _ = repo.render("ch01.md", target=target)
+                    self.assertEqual(out.split("\n")[2], want if target == "pandoc" else line, (target, line, after))
+            write(repo.edition.dir / "ch01.md", "# 第一章\n\n[末]:")
+            repo.model = model.load_edition(repo.edition)
+            self.assertTrue(repo.render("ch01.md", target="pandoc")[0].endswith("\n\\[末]:"))
+
+    @unittest.skipUnless(have_pandoc(), "pandoc not installed")
+    def test_pandoc_shows_the_label_like_mdbook(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", "# 第一章\n\n[空]:\n\n见 [空]。\n\n> [q]:\n>\n> 见 [q]。\n")
+            repo.model = model.load_edition(repo.edition)
+            out, _ = repo.render("ch01.md", target="pandoc")
+        plain = pandoc_plain(out)
+        for text in ("[空]:", "见 [空]。", "[q]:", "见 [q]。"):
+            self.assertIn(text, plain)
+
+    @unittest.skipUnless(have_pandoc(), "pandoc not installed")
+    def test_filter_turns_them_into_text(self):
+        md = "见 [甲]() 与 ![乙]() 与 [丙](<>)。\n\n见 [空址]。\n\n[空址]: <>\n"
+        for fmt in ("typst", "html"):
+            out = run_filters(md, fmt)
+            self.assertNotIn('link("")', out, fmt)
+            self.assertNotIn('href=""', out, fmt)
+            self.assertNotIn('src=""', out, fmt)
+            for text in ("甲", "乙", "丙", "空址"):
+                self.assertIn(text, out, fmt)
+
+    @unittest.skipUnless(have_pandoc() and have_typst(), "pandoc or typst not available")
+    def test_pdf_builds(self):
+        """A real PDF build of a book whose chapter has every form (Typst failed: URL must not be empty)."""
+        from tbook import pandoc
+
+        with tempfile.TemporaryDirectory(prefix="tbook-test-empty-") as tmp:
+            book = make_book(Path(tmp))
+            ed = book.edition("en")
+            with (ed.dir / "b.md").open("a", encoding="utf-8") as f:
+                f.write("\nSee [a]() and ![b]() and [c](<>).\n\n[x]:\n\nSee [x].\n\n[y]: <>\n\nSee [y].\n")
+            out = pandoc.build_pdf(fixture_site(), book, ed, model.load_edition(ed), None, "screen",
+                                   Path(tmp) / "book.pdf", stage_dir=Path(tmp) / "stage")
+            self.assertTrue(out.read_bytes().startswith(b"%PDF-"))
+            main = (Path(tmp) / "stage" / "main.typ").read_text(encoding="utf-8")
+            self.assertNotIn('link("")', main)
+            self.assertIn("\\[x\\]:", main)
 
 
 # --------------------------------------------------------------------------- the PDF/EPUB stager
