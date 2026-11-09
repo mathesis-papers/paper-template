@@ -1,0 +1,49 @@
+{
+  "schema": "trureturing-books.lock.v1",
+  "repo": "the-omega-institute/trureturing",
+  "branch": "dev",
+  "commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
+  "pinned_at": "2026-11-08T12:32:04Z",
+  "declarations": {
+    "D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result": {
+      "module": "D5/S0/Certificates/GreathouseLogTwoFloorRefutation",
+      "name": "D5.S0.Certificates.GreathouseLogTwoFloorRefutation.result",
+      "kind": "theorem",
+      "statement_id": "sha256:feb0a692ff0b7728d70c666c100329f31d178733d7cab938432f7aecfb7edd6d",
+      "line": 37,
+      "signature": "theorem result : ¬ claim"
+    },
+    "D5/S1/Deficit/DeficitInteger.deficit": {
+      "module": "D5/S1/Deficit/DeficitInteger",
+      "name": "D5.S1.Deficit.deficit",
+      "kind": "def",
+      "statement_id": "sha256:65be18ff970d1515bc36bb21c3a1ccf3d20e9ab632605fad77806ffaeeef482c",
+      "line": 243,
+      "signature": "noncomputable def deficit (v₁ v₂ : ℕ) : ℝ"
+    },
+    "D5/S1/Deficit/DeficitInteger.deficit_integer": {
+      "module": "D5/S1/Deficit/DeficitInteger",
+      "name": "D5.S1.Deficit.deficit_integer",
+      "kind": "theorem",
+      "statement_id": "sha256:65be18ff970d1515bc36bb21c3a1ccf3d20e9ab632605fad77806ffaeeef482c",
+      "line": 291,
+      "signature": "theorem deficit_integer (v₁ v₂ : ℕ) : deficit v₁ v₂ = deficitContraction v₁ v₂ ∧ (∃ z : ℤ, deficit v₁ v₂ = (z : ℝ)) ∧ deficit v₁ v₂ = (carrySignedCount (toRaw (Z v₁) + toRaw (Z v₂)) : ℝ)"
+    },
+    "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued": {
+      "module": "D5/S1/Deficit/DeficitThreeValued",
+      "name": "D5.S1.Deficit.deficit_three_valued",
+      "kind": "theorem",
+      "statement_id": "sha256:a18c73d6f977137b4ea75d8a7f4d4d973a4c07659a11b78922c6ca4361c7f0bd",
+      "line": 264,
+      "signature": "theorem deficit_three_valued (v₁ v₂ : ℕ) : deficit v₁ v₂ = -1 ∨ deficit v₁ v₂ = 0 ∨ deficit v₁ v₂ = 1"
+    },
+    "D5/S3/ConceptDynamics/Restoration/TargetRecoveryCriterion.target_recovery_criterion": {
+      "module": "D5/S3/ConceptDynamics/Restoration/TargetRecoveryCriterion",
+      "name": "D5.S3.ConceptDynamics.Restoration.TargetRecoveryCriterion.target_recovery_criterion",
+      "kind": "theorem",
+      "statement_id": "sha256:b00b35b9fad01258b563836e879dfb6cd8370b8d8d4f8c83cfafb011a2cc3a56",
+      "line": 37,
+      "signature": "theorem target_recovery_criterion {X ProcessState Target : Type*} [Nonempty X] (process : Concept X ProcessState) (target : Concept X Target) : ((∃ recover : ProcessState → Target, target = recover ∘ process) ↔ ∀ ⦃x y : X⦄, process x = process y → target x = target y) ∧ ((∀ ⦃x y : X⦄, process x = process y → target x = target y) ↔ defectRelation process target = ∅) ∧ (defectRelation process target = ∅ ↔ ∃ recover : ProcessState → Target, target = recover ∘ process) ∧ ((¬∃ recover : ProcessState → Target, target = recover ∘ process) ↔ (defectRelation process target).Nonempty)"
+    }
+  }
+}

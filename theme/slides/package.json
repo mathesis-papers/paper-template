@@ -1,0 +1,36 @@
+{
+  "name": "slidev-theme-trureturing",
+  "private": true,
+  "version": "0.1.0",
+  "description": "trureturing cyberpunk Slidev theme: 1920x1080 canvas, void background, neon cyan/magenta, Lean-verification badges. Decks at books/<slug>/slides/<deck>/ use it with theme: ../../../../theme/slides",
+  "license": "Apache-2.0",
+  "keywords": [
+    "slidev-theme",
+    "slidev"
+  ],
+  "engines": {
+    "slidev": ">=53.0.0"
+  },
+  "slidev": {
+    "colorSchema": "dark",
+    "defaults": {
+      "canvasWidth": 1920,
+      "aspectRatio": "16/9",
+      "colorSchema": "dark",
+      "routerMode": "hash",
+      "fonts": {
+        "provider": "none"
+      },
+      "transition": "none",
+      "drawings": {
+        "enabled": false
+      },
+      "download": false,
+      "record": false,
+      "presenter": true,
+      "selectable": true,
+      "favicon": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3C!-- fallback copy of tokens void/cyan --%3E%3Crect width='32' height='32' fill='%2303060c'/%3E%3Cpath d='M4 4h8v2H6v6H4zM28 28h-8v-2h6v-6h2z' fill='%2319f0ff'/%3E%3Ctext x='16' y='22' font-size='15' font-weight='700' font-family='monospace' text-anchor='middle' fill='%2319f0ff'%3ET%3C/text%3E%3C/svg%3E",
+      "titleTemplate": "%s"
+    }
+  }
+}

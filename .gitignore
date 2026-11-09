@@ -1,0 +1,28 @@
+# Build outputs
+/build/
+/_site/
+/.cache/
+# Toolchains
+/node_modules/
+/.venv/
+__pycache__/
+*.pyc
+# Media produced by film/slides pipelines (published as release assets, not committed)
+/books/*/films/*/out/
+/books/*/films/*/frames/
+/books/*/films/*/*.mp4
+/books/*/films/*/*.wav
+/books/*/films/*/tts/
+/books/*/films/*/models/
+/books/*/films/*/fonts/
+# Slidev writes import-glob proxies into the deck directory
+/books/*/slides/*/node_modules/
+# Lean deep-verification workspace
+/build/lean-verify/
+.lake/
+# OS / editor
+.DS_Store
+*.swp
+
+# Temporary git worktrees created by agent tooling
+/.claude/worktrees/

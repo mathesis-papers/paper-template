@@ -1,0 +1,16 @@
+# Pinned SHA-256 checksums for tools/fetch-fonts.sh ("<sha256>  <file name>", one per line).
+# A fetched file whose checksum differs is rejected; files without a line here are accepted
+# with a warning and their computed sums are written to .cache/fonts/SHA256SUMS.
+#
+# JetBrains Mono — JetBrains/JetBrainsMono tag v2.304, fonts/ttf/
+a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f  JetBrainsMono-Regular.ttf
+5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb  JetBrainsMono-Bold.ttf
+9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4  JetBrainsMono-Italic.ttf
+# Chakra Petch — google/fonts ofl/chakrapetch/ as served on 2026-11-08 (GOOGLE_FONTS_REF=main).
+# TODO: pin GOOGLE_FONTS_REF in tools/fetch-fonts.sh to the google/fonts commit that serves these.
+98fcd638baa5c81ff0316b7538ce330ee3b23b1302726de3526d5933a8ecf986  ChakraPetch-Regular.ttf
+d480f4f97405fac3600652e2e14fd0b14339031c0af4da11582994878f04d919  ChakraPetch-Medium.ttf
+45264de3204ddbd5fb3e14a2402acd5c630d16650ae5fc221d2c52da46a6734b  ChakraPetch-SemiBold.ttf
+65fbf76d95651697275e19db4d717c0e95a789ddd3476478b05292104db278a0  ChakraPetch-Bold.ttf
+# Noto Sans SC / Noto Serif SC (notofonts/noto-cjk SubsetOTF/SC) — TODO: not pinned yet; run
+# tools/fetch-fonts.sh once from a trusted network and copy the lines from .cache/fonts/SHA256SUMS.

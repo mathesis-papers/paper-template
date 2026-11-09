@@ -1,0 +1,373 @@
+/* theme/epub/book.css — EPUB 3 stylesheet (Apple Books first, other EPUB 3 readers fine).
+ *
+ * tools/tbook/pandoc.py prepends a palette generated from theme/tokens.json:
+ *   :root                         paper tokens (--tr-*): good contrast on White / Sepia
+ *   prefers-color-scheme: dark    screen tokens (neon) for dark reading modes
+ *   Apple Books Night / Gray      screen tokens via :root[__ibooks_internal_theme*=…]
+ * and, when [epub] embed_fonts is set, @font-face rules for fonts from .cache/fonts.
+ *
+ * Reading-system themes own the page: no page background and no body text colour are set
+ * here; only accents (links, environment frames, badges, tables) use the palette.
+ * Colour semantics (shared with theme/mdbook/tr-book.css): --tr-ok = Lean-verified only
+ * (badge and frame of formal results); --tr-warn = open; --tr-dim = informal remarks and
+ * proofs; --tr-cyan = labels, structure and links.
+ */
+
+@namespace epub "http://www.idpf.org/2007/ops";
+
+/* ------------------------------------------------------------------ base */
+
+body {
+  margin: 0 3%;
+  line-height: 1.62;
+  text-align: justify;
+  widows: 2;
+  orphans: 2;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  font-kerning: normal;
+}
+
+:root:lang(zh) body, :root:lang(ja) body {
+  line-height: 1.8;
+  -webkit-hyphens: manual;
+  hyphens: manual;
+  line-break: strict;
+  text-autospace: normal; /* space between Han and Latin/digits where supported */
+}
+
+p {
+  margin: 0;
+  text-indent: 0;
+}
+
+/* English: indented paragraphs, none after headings and blocks */
+p + p { text-indent: 1.3em; }
+
+/* Chinese: every paragraph indented by two characters (blocks below reset it with
+   ":root …" selectors, which outrank ":root:lang(zh) p") */
+:root:lang(zh) p, :root:lang(ja) p { text-indent: 2em; margin: 0 0 0.35em 0; }
+
+a {
+  color: var(--tr-cyan);
+  text-decoration: none;
+}
+
+img { max-width: 100%; height: auto; }
+
+sup, sub { line-height: 0; }
+
+hr {
+  border: 0;
+  height: 1px;
+  width: 30%;
+  margin: 1.6em auto;
+  background: var(--tr-line-hot);
+}
+
+/* ------------------------------------------------------------------ headings */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--tr-font-display);
+  line-height: 1.3;
+  text-align: left;
+  text-indent: 0;
+  -webkit-hyphens: none;
+  hyphens: none;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+h1 {
+  font-size: 1.65em;
+  font-weight: 700;
+  margin: 1.8em 0 1.3em 0;
+}
+
+/* chapter openers: the kicker (§ 01, LEAN ✓ N, book code) rides on the heading */
+h1[data-tr-kicker]::before, section[data-tr-kicker] > h1::before {
+  display: block;
+  content: attr(data-tr-kicker);
+  font-family: var(--tr-font-data);
+  font-size: 0.42em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--tr-cyan);
+  border-bottom: 1px solid var(--tr-line-hot);
+  padding-bottom: 0.45em;
+  margin-bottom: 0.9em;
+}
+section[data-tr-kicker] > h1::before { content: attr(data-tr-kicker); }
+section[data-tr-section="back"] > h1::before, h1[data-tr-section="back"]::before { color: var(--tr-ok); }
+section[data-tr-section="prefix"] > h1::before, h1[data-tr-section="prefix"]::before { color: var(--tr-dim); }
+
+h1::after {
+  display: block;
+  content: "";
+  width: 2.2em;
+  height: 3px;
+  margin-top: 0.45em;
+  background: var(--tr-magenta);
+  border-right: 0.5em solid var(--tr-cyan);
+}
+
+h2 {
+  font-size: 1.22em;
+  font-weight: 700;
+  margin: 1.8em 0 0.75em 0;
+  padding-left: 0.55em;
+  border-left: 3px solid var(--tr-magenta);
+}
+
+h3 { font-size: 1.06em; margin: 1.5em 0 0.6em 0; }
+h4, h5, h6 { font-size: 1em; margin: 1.3em 0 0.5em 0; color: var(--tr-dim); }
+
+/* ------------------------------------------------------------------ environments */
+
+section.tr-env {
+  margin: 1.4em 0;
+  padding: 0.65em 0.9em 0.7em 0.9em;
+  border: 1px solid var(--tr-panel-edge);
+  border-left: 3px solid var(--tr-cyan);
+  /* the cut-corner tick of the trureturing panels */
+  background-image: linear-gradient(225deg, transparent 0, transparent 6px, var(--tr-line-hot) 6px, var(--tr-line-hot) 7px, transparent 7px);
+  background-repeat: no-repeat;
+  background-position: top right;
+  background-size: 14px 14px;
+  text-align: left;
+}
+:root section.tr-env p { text-indent: 0; margin: 0 0 0.45em 0; }
+:root section.tr-env p:last-child { margin-bottom: 0; }
+
+section.tr-status-lean { border-left-color: var(--tr-ok); }
+section.tr-status-definition { border-left-color: var(--tr-cyan); }
+section.tr-status-open { border-left-color: var(--tr-warn); }
+section.tr-status-informal {
+  border: 0;
+  border-left: 3px solid var(--tr-dim);
+  background-image: none;
+}
+
+header.tr-env-head {
+  display: block;
+  font-family: var(--tr-font-display);
+  margin: 0 0 0.45em 0;
+  line-height: 1.45;
+}
+.tr-env-label {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--tr-cyan);
+}
+/* labels stay cyan; green marks only the LEAN ✓ badge and frame (as in theme/mdbook) */
+.tr-status-open .tr-env-label { color: var(--tr-warn); }
+.tr-status-informal .tr-env-label { color: var(--tr-dim); }
+.tr-env-title { font-weight: 600; }
+
+.tr-badge {
+  float: right;
+  margin: 0.1em 0 0.2em 0.6em;
+  padding: 0.08em 0.45em;
+  border: 1px solid currentColor;
+  font-family: var(--tr-font-data);
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tr-badge-lean { color: var(--tr-ok); }
+.tr-badge-open { color: var(--tr-warn); }
+
+footer.tr-env-lean {
+  display: block;
+  clear: both;
+  margin: 0.6em 0 0 0;
+  padding: 0.35em 0 0 0;
+  border-top: 1px dotted var(--tr-panel-edge);
+  font-size: 0.74em;
+  line-height: 1.5;
+  color: var(--tr-dim);
+  text-align: left;
+}
+.tr-lean-label {
+  font-family: var(--tr-font-data);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.tr-lean-label::after { content: " ›"; }
+a.tr-lean-decl code, .tr-lean-decl code { color: var(--tr-cyan); overflow-wrap: anywhere; }
+
+/* proofs: unboxed, a dashed rule, label in front and ∎ at the end */
+section.tr-proof {
+  margin: 1em 0 1.3em 0;
+  padding: 0 0 0 0.85em;
+  border: 0;
+  border-left: 1px dashed var(--tr-faint);
+  background-image: none;
+  text-align: justify;
+}
+:root section.tr-proof p { text-indent: 0; margin: 0 0 0.45em 0; }
+.tr-proof-label {
+  font-family: var(--tr-font-display);
+  font-weight: 600;
+  color: var(--tr-dim);
+  margin-right: 0.35em;
+}
+.tr-proof-label::after { content: "."; }
+:root:lang(zh) .tr-proof-label::after, :root:lang(ja) .tr-proof-label::after { content: none; }
+.tr-qed { float: right; color: var(--tr-dim); margin-left: 0.5em; }
+
+/* media panels (viz / film / slides) */
+section.tr-media, div.tr-media {
+  margin: 1.4em 0;
+  padding: 0.6em;
+  border: 1px solid var(--tr-panel-edge);
+  text-align: center;
+}
+:root section.tr-media p, :root div.tr-media p { text-indent: 0; }
+
+/* ------------------------------------------------------------------ blocks */
+
+blockquote {
+  margin: 1em 0;
+  padding: 0 0 0 0.9em;
+  border-left: 2px solid var(--tr-line-hot);
+}
+:root blockquote p { text-indent: 0; }
+
+ul, ol { margin: 0.6em 0 0.8em 0; padding-left: 1.6em; text-align: left; }
+li { margin: 0.15em 0; }
+:root li p { text-indent: 0; }
+ul > li::marker { color: var(--tr-cyan); }
+ol > li::marker { color: var(--tr-cyan); font-family: var(--tr-font-data); font-size: 0.9em; }
+
+figure {
+  margin: 1.4em 0;
+  text-align: center;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+figure img { border: 1px solid var(--tr-panel-edge); }
+figcaption {
+  margin-top: 0.5em;
+  font-size: 0.85em;
+  line-height: 1.45;
+  color: var(--tr-dim);
+  text-align: center;
+  text-indent: 0;
+}
+
+code, kbd, samp, pre {
+  font-family: var(--tr-font-data);
+  -webkit-hyphens: none;
+  hyphens: none;
+}
+code { font-size: 0.88em; }
+pre {
+  margin: 1em 0;
+  padding: 0.7em 0.9em;
+  border: 1px solid var(--tr-panel-edge);
+  border-left: 3px solid var(--tr-line-hot);
+  font-size: 0.8em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-align: left;
+}
+pre code { font-size: 1em; }
+
+/* display math */
+math[display="block"] { margin: 0.6em 0; }
+
+/* ------------------------------------------------------------------ tables (the ledger) */
+
+table {
+  width: 100%;
+  margin: 1.2em 0;
+  border-collapse: collapse;
+  font-size: 0.82em;
+  line-height: 1.45;
+  text-align: left;
+}
+th {
+  font-family: var(--tr-font-display);
+  font-weight: 700;
+  color: var(--tr-cyan);
+  border-bottom: 2px solid var(--tr-line-hot);
+  padding: 0.35em 0.45em;
+  vertical-align: bottom;
+}
+td {
+  border-bottom: 1px solid var(--tr-panel-edge);
+  padding: 0.35em 0.45em;
+  vertical-align: top;
+}
+td code { overflow-wrap: anywhere; font-size: 0.92em; }
+table caption { caption-side: top; font-size: 0.9em; color: var(--tr-dim); margin-bottom: 0.4em; }
+
+/* ------------------------------------------------------------------ footnotes */
+
+a.footnote-ref, a[epub|type~="noteref"] { font-size: 0.75em; vertical-align: super; line-height: 0; color: var(--tr-magenta); }
+aside[epub|type~="footnote"], section.footnotes { font-size: 0.85em; color: var(--tr-dim); }
+section.footnotes hr { width: 20%; margin: 1.5em 0 0.8em 0; }
+
+/* ------------------------------------------------------------------ front matter */
+
+section.titlepage, section[epub|type~="titlepage"] {
+  text-align: left;
+  margin-top: 18%;
+}
+section.titlepage h1.main, section.titlepage h1.title {
+  font-size: 1.9em;
+  margin: 0 0 0.4em 0;
+}
+section.titlepage h1.main::after, section.titlepage h1.title::after { margin-top: 0.6em; }
+section.titlepage .subtitle, section.titlepage h1.subtitle {
+  font-family: var(--tr-font-display);
+  font-size: 1.05em;
+  font-weight: 400;
+  color: var(--tr-dim);
+  margin: 0 0 2.5em 0;
+}
+section.titlepage h1.subtitle::after { display: none; }
+section.titlepage .author { font-family: var(--tr-font-display); font-weight: 600; font-size: 1.05em; text-indent: 0; }
+section.titlepage .publisher, section.titlepage .date, section.titlepage .rights {
+  font-family: var(--tr-font-data);
+  font-size: 0.75em;
+  letter-spacing: 0.06em;
+  color: var(--tr-dim);
+  text-indent: 0;
+  margin-top: 0.3em;
+}
+
+/* colophon (copyright page) */
+:root section.tr-colophon p { text-indent: 0; }
+.tr-colophon-table { margin: 1.2em 0; text-align: left; }
+:root .tr-colophon-table p { text-indent: 0; line-height: 1.9; }
+.tr-k {
+  display: inline-block;
+  min-width: 7.5em;
+  font-family: var(--tr-font-data);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tr-dim);
+}
+.tr-verified {
+  margin: 1.4em 0 1em 0;
+  padding: 0.5em 0 0.5em 0.9em;
+  border-left: 3px solid var(--tr-ok);
+  text-align: left;
+}
+:root .tr-verified p { text-indent: 0; }
+
+/* table of contents */
+nav#toc ol, nav[epub|type~="toc"] ol { list-style: none; padding-left: 0; margin: 0.3em 0; }
+nav#toc ol ol, nav[epub|type~="toc"] ol ol { padding-left: 1.4em; font-size: 0.92em; }
+nav#toc li, nav[epub|type~="toc"] li { margin: 0.35em 0; }
+nav#toc a, nav[epub|type~="toc"] a { color: inherit; }
+nav#toc > h1::after { display: none; }
+
+.tr-dangling { text-decoration: none; }

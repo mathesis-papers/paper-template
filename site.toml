@@ -1,0 +1,28 @@
+# 书库站点配置（下游仓库所有；模板更新不会覆盖本文件）。
+# Site configuration (owned by the downstream repository; template updates never overwrite it).
+
+[site]
+# GitHub 仓库 owner/name。留空时 CI 用 GITHUB_REPOSITORY，本地用 git remote 推断。
+repo = ""
+# Pages 根地址（PDF/EPUB 中的外链用它拼绝对地址）。留空则由 repo 推断为 https://<owner>.github.io/<name>/。
+base_url = ""
+# 站点界面语言；第一个为默认语言。每本书可以只启用其中一部分。
+languages = ["zh", "en"]
+
+[site.title]
+zh = "trureturing 书库"
+en = "trureturing Books"
+
+[site.tagline]
+zh = "每一条定理都经 Lean 内核验证的专著"
+en = "Monographs whose every theorem is kernel-verified in Lean"
+
+[trureturing]
+# 形式化代码所在仓库。书中所有定理都必须引用这里已冻结的 Lean 声明。
+repo = "the-omega-institute/trureturing"
+# `./tbook pin` 不带参数时跟随的分支。所钉的确切提交记录在 trureturing.lock.json。
+branch = "dev"
+
+[books]
+# 书库首页的排列顺序；未列出的书按目录名排在后面。
+order = ["example-monograph"]

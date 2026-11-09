@@ -1,0 +1,50 @@
+# trureturing-books-template 的版本与托管范围。本文件本身由模板托管：`./tbook template update` 会整体替换它。
+# Template version and the set of paths the template manages. This file is itself managed.
+
+[template]
+name = "trureturing-books-template"
+repo = "the-omega-institute/trureturing-books-template"
+version = "0.1.0"
+# 模板发布 tag 的格式（`v<version>`）。
+tag_prefix = "v"
+
+[managed]
+# 这些路径归模板所有：更新时整体同步（新增、修改、删除）。不要在下游直接改它们；
+# 需要改动时，用 skills/template-update 把改进回馈到模板仓库。
+paths = [
+  "tools/",
+  "theme/",
+  "templates/",
+  "skills/",
+  "docs/",
+  ".github/workflows/",
+  ".github/actions/",
+  ".claude/",
+  "CLAUDE.md",
+  "AGENTS.md",
+  "tbook",
+  "template.toml",
+  "template-manifest.json",
+  "requirements.txt",
+  "package.json",
+  "package-lock.json",
+  ".gitignore",
+  ".editorconfig",
+]
+# 下游所有、模板更新永不触碰的路径（仅作说明，并由 `./tbook template status` 展示）。
+owned = [
+  "site.toml",
+  "trureturing.lock.json",
+  "books/",
+  "i18n/",
+  "PROJECT.md",
+  "README.md",
+  "LICENSE",
+]
+# 托管路径中的例外：即使位于托管目录内，也属于下游。
+exclude = [
+  # 下游自己的 skill 放在 skills/local-<name>/（前缀匹配），模板更新不会触碰。
+  "skills/local-",
+  # 下游自己的文档放在 docs/project/。
+  "docs/project/",
+]
