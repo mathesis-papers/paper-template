@@ -37,16 +37,13 @@ This directory is the starting point of `./tbook film new`. Every film follows t
   "subject_commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
   "released": "2026-11-08",
   "duration": "0:50",
-  "resolution": "1920x1080@30",
+  "resolution": "1280x720@30",
   "style": "trureturing cyberpunk · …",
   "narration": {"language": "en", "engine": "Kokoro-82M v1.0 (onnx)", "voice": "af_heart"},
   "subtitles": ["zh", "en"],
   "lean": ["D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"],
   "outputs": {
-    "narrated": "example-monograph_001_narrated_EN_subs_ZH-EN.mp4",
-    "music_only": "example-monograph_001_music_only_subs_ZH-EN.mp4",
     "narrated_720p": "example-monograph_001_720p_narrated.mp4",
-    "music_only_720p": "example-monograph_001_720p_music_only.mp4",
     "cover": "example-monograph_001_cover.jpg"
   }
 }
@@ -59,10 +56,10 @@ This directory is the starting point of `./tbook film new`. Every film follows t
 | `summary`, `summary_zh` | 可选，一段简介（落地页与视频页） · optional one-paragraph blurbs |
 | `subject_commit` | 制作时依据的 trureturing 提交，应等于 `trureturing.lock.json` 所钉提交；不等时 `./tbook check` 警告 · the trureturing commit the film was made against; should equal the pinned commit (a warning otherwise) |
 | `released`, `duration` | `YYYY-MM-DD`，`m:ss`：旁白版的实际时长（`tts` 步骤与构建在不一致时提示） · the narrated length; the `tts` step and the build warn when it differs |
-| `resolution` | 固定 `1920x1080@<fps>` · always 1920×1080 |
+| `resolution` | 发布的视频尺寸与帧率：默认 `1280x720@<fps>`，`outputs` 列出 1080p 视频时为 `1920x1080@<fps>`（引擎总按 1920×1080 绘制，720p 由构建缩放） · the size of the published video: `1280x720@<fps>`, or `1920x1080@<fps>` when `outputs` lists a 1080p video (the engine always draws 1920×1080; the build scales to 720p) |
 | `narration`, `subtitles` | 旁白语言/引擎/声音；字幕只支持 `zh`、`en` · subtitles are `zh` and/or `en` |
 | `lean` | 片中引用的定理 GID，必须都在锁文件中且种类为 `theorem`；片中与视频页都以 LEAN ✓ 链接到所钉提交 · theorems cited by the film; each must be in the lock with kind `theorem` |
-| `outputs` | 成片文件名：`narrated`、`music_only`（1080p）、`narrated_720p`、`music_only_720p`（可省略，取默认名）、`cover`；站点地址为 `<slug>/films/<id>/<文件名>`，播放器播放 `narrated_720p` · the video file names; the site serves `<slug>/films/<id>/<file>` and the players play `narrated_720p` |
+| `outputs` | 构建产出的文件，键为输出、值为文件名；列出什么就构建、托管、链接什么。必需：`narrated_720p`（720p 旁白版，播放器播放它）与 `cover`（1920×1080 封面）；可选，列出才构建：`narrated`（1080p 旁白版）、`music_only`（1080p 纯配乐）、`music_only_720p`（720p 纯配乐）。其他键是错误。站点地址为 `<slug>/films/<id>/<文件名>` · what the build makes, by file name: what is listed is built, hosted and linked, nothing else. Required: `narrated_720p` (the 720p narrated video the players play) and `cover` (1920×1080); optional, built only when listed: `narrated` (1080p), `music_only` (1080p), `music_only_720p`; any other key is an error. The site serves `<slug>/films/<id>/<file>` |
 
 旧的 `release_tag`、`published_tag`（逐片 Release）不再使用，`./tbook check` 给出警告，删除即可。The former `release_tag` and `published_tag` (per-film releases) are no longer used: `./tbook check` warns; remove them.
 
@@ -109,21 +106,24 @@ theme/film/film.sh $F shot 2 8 14 --poster   # 单帧截图 → out/shots/
 theme/film/film.sh $F serve        # 浏览器预览 index.html?play
 theme/film/film.sh $F clip 30 3 960x540      # 3 秒无声低清片段 → out/clip.mp4
 theme/film/film.sh $F poster       # out/<cover>.jpg 与提交入库的 poster.jpg（只有这一步写它）
-theme/film/film.sh $F all          # tts → music → mix → frames → mux → small → cover（构建运行的就是这一步）
+theme/film/film.sh $F all          # tts → music → mix → frames → mux → cover，只做 outputs 所列（构建运行的就是这一步）
+theme/film/film.sh $F all narrated narrated_720p cover   # 手工指定要做的输出（也可设 FILM_OUTPUTS）
 ```
+
+`all` 只做所需的编码：Chromium 每帧按 1920×1080 截取一次，各渲染进程在同一遍中编码——720p 视频由帧直接缩放（lanczos，CRF 19），不先做 1080p 母版；只有 `outputs` 列出 1080p 视频时才另编码 1080p 母版（CRF 17）；只有列出纯配乐视频时才做纯配乐混音。默认（720p 旁白版与封面）渲染 50 秒的示例视频约 80 秒，成片约 6 MB。`all` frames are captured once at 1920×1080 and each worker encodes, in the same pass, only what the outputs need: the 720p videos straight from the frames (lanczos, CRF 19), a 1080p master (CRF 17) only for a 1080p video, the music-only mix only for a music-only video. The default (the 720p narrated video and the cover) renders the 50-second example in about 80 s, about 6 MB.
 
 Python 包钉在 `theme/film/requirements.txt`，`setup.sh` 装进独立的视频 venv（Python 3.12 或 3.13；设置 `PYTHON` 时装进该解释器），tbook 的 `.venv` 不受影响；`film.sh` 与构建在未设置 `PYTHON` 时使用这个 venv。Chromium：设置 `PW_CHROMIUM_PATH` 使用已有浏览器，否则用 Playwright 自带的（`npx playwright install chromium`）。ffmpeg 来自系统：`$FFMPEG` 或 `PATH`（`apt-get install ffmpeg`）。
 
 ## 构建与发布 · Build and publish
 
 1. `./tbook check` 无错误；提交 `film.json`、`script.json`、`scenes.js`、`poster.jpg`。
-2. `./tbook build films --book <slug>`（`build site`、`build all` 同样）：每部视频是一个构建单元。键覆盖视频依赖的全部输入——git 列出的视频目录文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、`package-lock.json` 中 @fontsource 字体与 Playwright 的版本、Kokoro 模型版本与 Node 主版本；不含站点地址，也不含探测到的 ffmpeg、Chromium 与视频 Python。键未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链的贡献者可用它取得视频）；都没有时以 `FILM_STRICT=1` 运行 `film.sh <dir> all` 并把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`。
+2. `./tbook build films --book <slug>`（`build site`、`build all` 同样）：每部视频是一个构建单元。键覆盖视频依赖的全部输入——git 列出的视频目录文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、`package-lock.json` 中 @fontsource 字体与 Playwright 的版本、Kokoro 模型版本与 Node 主版本；不含站点地址，也不含探测到的 ffmpeg、Chromium 与视频 Python。键未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链的贡献者可用它取得视频）；都没有时以 `FILM_STRICT=1` 运行 `film.sh <dir> all <outputs 的键…>` 并把这些文件复制到 `build/films/<slug>/<id>/`。改动 `outputs` 会重新渲染（`film.json` 在键中）。
 3. `TBOOK_FILMS`：`auto`（默认）缓存未命中且工具链齐全时渲染，否则警告，站点只显示海报与“视频未构建”；`require` 缺工具链时失败；`skip` 从不渲染（命中缓存仍恢复）。
 4. 站点把视频放在 `<slug>/films/<id>/<文件名>`（同源，Content-Type 与按字节范围请求正确，iOS Safari 可以播放）；整站 Release 附带构建缓存，没有缓存的构建设置 `TBOOK_CACHE_REMOTE=1` 时可以从中恢复。
 5. 在章节中嵌入：`::: {.film src="<NNN>-<name>"}` 或 `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`，块内文字为图注。
 
 1. `./tbook check` passes; commit `film.json`, `script.json`, `scenes.js`, `poster.jpg`.
-2. `./tbook build films --book <slug>` (or `build site`, `build all`): each film is a build unit. Its key covers everything the videos depend on: the film's files as git lists them (not `out/`, `poster.jpg` or `README.md`), `theme/film/` (not `site/`), `theme/generated/tokens.mjs`, `tools/tbook/film.py`, the data the engine draws (the book's code, version and titles, the pinned commit, the cited declarations and their statement digests, the in-frame strings), the `package-lock.json` versions of the @fontsource fonts and Playwright, the Kokoro model release and Node's major version; not the site's address, nor the probed ffmpeg, Chromium or film Python. An unchanged film is restored from the local cache, and with `TBOOK_CACHE_REMOTE=1` also from the published whole-site releases (the way for contributors without the film toolchain to get the videos); otherwise it is rendered with `film.sh <dir> all` (`FILM_STRICT=1`) and the five `outputs` files are copied to `build/films/<slug>/<id>/`.
+2. `./tbook build films --book <slug>` (or `build site`, `build all`): each film is a build unit. Its key covers everything the videos depend on: the film's files as git lists them (not `out/`, `poster.jpg` or `README.md`), `theme/film/` (not `site/`), `theme/generated/tokens.mjs`, `tools/tbook/film.py`, the data the engine draws (the book's code, version and titles, the pinned commit, the cited declarations and their statement digests, the in-frame strings), the `package-lock.json` versions of the @fontsource fonts and Playwright, the Kokoro model release and Node's major version; not the site's address, nor the probed ffmpeg, Chromium or film Python. An unchanged film is restored from the local cache, and with `TBOOK_CACHE_REMOTE=1` also from the published whole-site releases (the way for contributors without the film toolchain to get the videos); otherwise it is rendered with `film.sh <dir> all <the outputs keys…>` (`FILM_STRICT=1`) and those files are copied to `build/films/<slug>/<id>/`. Changing `outputs` renders again (`film.json` is in the key).
 3. `TBOOK_FILMS`: `auto` (default) renders a film the cache does not hold when the toolchain is complete, and otherwise warns and the site shows only the poster and "Video not built"; `require` fails without the toolchain; `skip` never renders (a cached film is still restored).
 4. The site serves the videos at `<slug>/films/<id>/<file>`, same origin with the right Content-Type and byte-range responses, which iOS Safari needs; whole-site releases carry the build cache, from which a build without a cache can restore them with `TBOOK_CACHE_REMOTE=1`.
 5. Embed a film in a chapter with `::: {.film src="<NNN>-<name>"}` or `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`; the text inside the block is the caption.

@@ -152,7 +152,7 @@ HTML 注释 `<!-- … -->` 不出现在任何输出中：其中的图片、链�
 
 外部资源：`src="trureturing-visualize:<id>"`、`src="trureturing-film:film-001-v1"`。HTML 中为交互嵌入或播放器；PDF/EPUB 中为缩略图/海报加在线地址。媒体块在各语言版本中也必须一一对应。
 
-本书的视频是构建产物：`./tbook build films|site|all` 渲染（输入未变时从缓存恢复），站点托管在 `<slug>/films/<id>/`。章节中的播放器播放 720p 旁白版、附下载链接；站点没有该视频时（缺少视频工具链且缓存未命中）显示海报与“视频未构建”。PDF/EPUB 显示提交的 `poster.jpg`，有 `base_url` 时加视频页地址。编写与构建见 `skills/book-film`。
+本书的视频是构建产物：`./tbook build films|site|all` 渲染（输入未变时从缓存恢复），站点托管在 `<slug>/films/<id>/`。章节中的播放器播放 720p 旁白版、附 `film.json` 的 `outputs` 所列视频的下载链接（默认只构建 720p 旁白版与封面，1080p 与纯配乐版本列出才构建）；站点没有该视频时（缺少视频工具链且缓存未命中）显示海报与“视频未构建”。PDF/EPUB 显示提交的 `poster.jpg`，有 `base_url` 时加视频页地址。编写与构建见 `skills/book-film`。
 
 ## 6. 多语言流程
 

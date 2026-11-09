@@ -34,15 +34,17 @@ Source layout (``books/<slug>/films/``)::
       "subject_commit": "<sha>",                  trureturing commit the film was made against (= the lock commit)
       "released": "YYYY-MM-DD",
       "duration": "m:ss",                         the narrated cut (the build warns when the render differs)
-      "resolution": "1920x1080@30",
+      "resolution": "1280x720@30",                the published video: 1280x720, or 1920x1080 when outputs
+                                                  lists a 1080p video; the engine always draws 1920x1080 frames
       "style": "…",
       "narration": {"language": "en", "engine": "Kokoro-82M v1.0 (onnx)", "voice": "af_heart"},
       "subtitles": ["zh", "en"],
       "lean": ["D5/S1/Deficit/DeficitThreeValued.deficit_three_valued", …],   theorems cited (LEAN ✓): GIDs of
                                                   trureturing.lock.json with kind "theorem"
-      "outputs": {"narrated": "<file>.mp4", "music_only": "<file>.mp4", "cover": "<file>.jpg",
-                  "narrated_720p": "<file>.mp4", "music_only_720p": "<file>.mp4"}     file names of the
-                                                  videos (720p names default to <slug>_<NNN>_720p_*.mp4)
+      "outputs": {"narrated_720p": "<file>.mp4", "cover": "<file>.jpg"}   what the build makes, by file name:
+                                                  the 720p narrated video the players play and the cover
+                                                  (required); "narrated" (1080p), "music_only" (1080p) and
+                                                  "music_only_720p" only when listed
     }
 
 ``release_tag`` and ``published_tag`` (per-film releases) are no longer used; ``./tbook check`` warns.
@@ -57,12 +59,13 @@ Source layout (``books/<slug>/films/``)::
 Embedding in a chapter: ``::: {.film src="001-golden-deficit"}`` (a film of this book) or
 ``src="trureturing-film:film-<NNN>-v<k>"`` (a release of the-omega-institute/trureturing-film).
 HTML gets a ``<video>`` playing ``films/<id>/<outputs.narrated_720p>`` of the site with the committed poster
-and download links; the site marks the figure of a film it did not build (:func:`tbook.site.mark_films`),
-which then shows the poster and a note instead. PDF/EPUB get the poster, the caption and the address of
-the films page when the site has one (:func:`render_embed`). :func:`build` publishes ``_site/<slug>/films/``.
+and download links of the videos film.json lists; the site marks the figure of a film it did not build
+(:func:`tbook.site.mark_films`), which then shows the poster and a note instead. PDF/EPUB get the poster, the
+caption and the address of the films page when the site has one (:func:`render_embed`). :func:`build`
+publishes ``_site/<slug>/films/``.
 
 The render pipeline lives in ``theme/film/`` (``film.sh <film-dir> <step>``); it imports this
-module for the provisional timeline and the engine data.
+module for the provisional timeline, the engine data and what to encode for the outputs (:func:`render_plan`).
 """
 
 from __future__ import annotations
@@ -97,10 +100,19 @@ SCENE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 ASSET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:mp4|jpg)$")
 LANG_CODE_RE = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]+)*$")
 DATA_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.json$")
-REQUIRED_OUTPUTS = ("narrated", "music_only", "cover")
-OPTIONAL_OUTPUTS = ("narrated_720p", "music_only_720p")  # in film.json; the build always writes them
-VIDEO_OUTPUTS = ("narrated", "music_only", "narrated_720p", "music_only_720p", "cover")  # what a render writes
+# film.json "outputs" lists what the build makes: what it lists is rendered, hosted and linked, nothing else.
+REQUIRED_OUTPUTS = ("narrated_720p", "cover")  # the players' video and the cover (films page, landing page)
+OPTIONAL_OUTPUTS = ("narrated", "music_only", "music_only_720p")  # 1080p narrated, 1080p and 720p music only
+VIDEO_OUTPUTS = ("narrated", "music_only", "narrated_720p", "music_only_720p", "cover")  # every output, in order
 PLAYER_OUTPUT = "narrated_720p"  # the file the <video> players play
+# Download links of the videos (chapter embeds, the films page), in this order: (output key, label key).
+DOWNLOADS = (("narrated", "hd"), (PLAYER_OUTPUT, "small"), ("music_only", "music_only"),
+             ("music_only_720p", "music_only_small"))
+OUTPUT_ROLES = {"narrated": "1080p narrated video", "music_only": "1080p music-only video",
+                "narrated_720p": "720p narrated video the players play", "music_only_720p": "720p music-only video",
+                "cover": "1920x1080 cover image"}
+HD_OUTPUTS = ("narrated", "music_only")  # 1080p videos: listing one makes the render keep a 1080p master
+HD_SIZE, SMALL_SIZE = "1920x1080", "1280x720"
 SOURCE_FILES = ("film.json", "script.json", "scenes.js", "poster.jpg", "README.md")
 SOURCE_DIRS = ("data", "out")
 POSTER = "poster.jpg"
@@ -142,7 +154,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "page": "视频页",
         "hd": "1080p",
         "small": "720p",
-        "music_only": "纯配乐",
+        "music_only": "纯配乐 1080p",
+        "music_only_small": "纯配乐 720p",
         "cover": "封面",
         "duration": "时长",
         "released": "发布",
@@ -172,7 +185,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "page": "Film page",
         "hd": "1080p",
         "small": "720p",
-        "music_only": "Music only",
+        "music_only": "Music only 1080p",
+        "music_only_small": "Music only 720p",
         "cover": "Cover",
         "duration": "Length",
         "released": "Released",
@@ -259,11 +273,18 @@ class Film:
         return zh if lang.startswith("zh") else en
 
     def output(self, key: str) -> str:
+        """The file name of output ``key``: film.json's, else the default name (:func:`default_outputs`)."""
         outputs = (self.meta or {}).get("outputs") or {}
         value = outputs.get(key) if isinstance(outputs, dict) else None
         if isinstance(value, str) and value:
             return value
         return default_outputs(self.book.slug, self.number).get(key, "")
+
+    def listed(self, key: str) -> bool:
+        """Whether the build makes output ``key``: the required outputs always, the others when film.json's
+        ``outputs`` lists them."""
+        outputs = (self.meta or {}).get("outputs")
+        return key in REQUIRED_OUTPUTS or isinstance(outputs, dict) and key in outputs and key in VIDEO_OUTPUTS
 
     @property
     def lean(self) -> list[str]:
@@ -271,8 +292,13 @@ class Film:
         return [str(g) for g in gids] if isinstance(gids, list) else []
 
     def videos(self) -> dict[str, str]:
-        """{output key: file name} of everything a render writes (:data:`VIDEO_OUTPUTS`)."""
-        return {key: self.output(key) for key in VIDEO_OUTPUTS}
+        """{output key: file name} of what the build makes: the outputs film.json lists (:meth:`listed`), in
+        the order of :data:`VIDEO_OUTPUTS`. A render writes these, the site hosts and links these only."""
+        return {key: self.output(key) for key in VIDEO_OUTPUTS if self.listed(key)}
+
+    def download(self) -> str:
+        """The output key of the narrated video to download: the 1080p one when listed, else the 720p one."""
+        return "narrated" if self.listed("narrated") else PLAYER_OUTPUT
 
     @property
     def build_dir(self) -> Path:
@@ -360,6 +386,35 @@ def default_outputs(slug: str, num: str, narration: str = "en", subtitles: list[
         "music_only_720p": f"{stem}_720p_music_only.mp4",
         "cover": f"{stem}_cover.jpg",
     }
+
+
+def published_size(outputs: Any) -> str:
+    """The size of the largest published video (film.json ``resolution``): 1920x1080 when ``outputs`` lists a
+    1080p video (:data:`HD_OUTPUTS`), else 1280x720."""
+    hd = isinstance(outputs, dict) and any(key in outputs for key in HD_OUTPUTS)
+    return HD_SIZE if hd else SMALL_SIZE
+
+
+def render_plan(keys: list[str] | tuple[str, ...]) -> dict[str, Any]:
+    """What the pipeline (theme/film/plan.py) makes for the requested output keys.
+
+    ``renditions``: the encodes of the captured 1920x1080 frames, made in one pass by every frames worker:
+    ``master`` (the frames as captured, CRF 17: the 1080p videos) when a 1080p output is requested, ``720p``
+    (scaled to 1280x720 with lanczos, CRF 19: the 720p videos) when a 720p output is. ``music``: whether the
+    music-only mix is needed. Raises :class:`FilmError` for an unknown key or an empty request.
+    """
+    unknown = [k for k in keys if k not in VIDEO_OUTPUTS]
+    if unknown:
+        raise FilmError(f"unknown output {', '.join(unknown)}; outputs are {', '.join(VIDEO_OUTPUTS)}")
+    if not keys:
+        raise FilmError("no outputs requested")
+    renditions = []
+    if any(k in HD_OUTPUTS for k in keys):
+        renditions.append("master")
+    if any(k in ("narrated_720p", "music_only_720p") for k in keys):
+        renditions.append("720p")
+    return {"outputs": [k for k in VIDEO_OUTPUTS if k in keys], "renditions": renditions,
+            "music": any(k in ("music_only", "music_only_720p") for k in keys)}
 
 
 def external_ref(src: str) -> dict[str, str] | None:
@@ -498,12 +553,16 @@ def validate_meta(meta: dict, film_dir: Path, book: config.Book, lock: lean.Lock
     duration = meta.get("duration")
     if not isinstance(duration, str) or not DURATION_RE.match(duration):
         err("film.json: duration must look like m:ss (e.g. 0:52)")
-    res = meta.get("resolution", "1920x1080@30")
+    outputs = meta.get("outputs")
+    size = published_size(outputs)
+    res = meta.get("resolution", f"{size}@30")
     rm = RESOLUTION_RE.match(res) if isinstance(res, str) else None
     if not rm:
-        err("film.json: resolution must look like 1920x1080@30")
-    elif (rm.group("w"), rm.group("h")) != ("1920", "1080"):
-        err("film.json: the engine draws 1920x1080 frames; resolution must be 1920x1080@<fps>")
+        err(f"film.json: resolution must look like {size}@30")
+    elif f"{rm.group('w')}x{rm.group('h')}" != size:
+        why = ("outputs lists a 1080p video" if size == HD_SIZE else
+               "outputs lists no 1080p video; the engine draws 1920x1080 frames and the build scales them to 1280x720")
+        err(f"film.json: resolution is the size of the published video: {size}@<fps> ({why})")
     narration = meta.get("narration")
     if not isinstance(narration, dict):
         err("film.json: narration must be an object {language, engine, voice}")
@@ -544,18 +603,26 @@ def validate_meta(meta: dict, film_dir: Path, book: config.Book, lock: lean.Lock
         if key in meta:
             warn(f"film.json: {key} is no longer used: the videos are built with the site (./tbook build films) "
                  "and hosted on it, not published as per-film releases; remove it")
-    outputs = meta.get("outputs")
     if not isinstance(outputs, dict):
-        err("film.json: outputs must be an object {narrated, music_only, cover, narrated_720p?, music_only_720p?}")
+        err("film.json: outputs must be an object {narrated_720p, cover, narrated?, music_only?, music_only_720p?}")
     else:
         names: list[str] = []
-        for key in REQUIRED_OUTPUTS + OPTIONAL_OUTPUTS:
-            v = outputs.get(key)
-            if v is None and key in OPTIONAL_OUTPUTS:
-                v = default_outputs(book.slug, num or "000")[key]
-            elif not isinstance(v, str) or not ASSET_RE.match(v) or v == POSTER:
+        for key in outputs:
+            if key not in VIDEO_OUTPUTS:
+                err(f"film.json: outputs.{key} is not an output; outputs lists {', '.join(REQUIRED_OUTPUTS)} and may "
+                    f"add {', '.join(OPTIONAL_OUTPUTS)}")
+        defaults = default_outputs(book.slug, num or "000")
+        for key in VIDEO_OUTPUTS:
+            if key not in outputs:
+                if key in REQUIRED_OUTPUTS:
+                    err(f"film.json: outputs.{key} is required (the file name of the {OUTPUT_ROLES[key]}), "
+                        f"e.g. {defaults[key]!r}")
+                continue
+            v = outputs[key]
+            if not isinstance(v, str) or not ASSET_RE.match(v) or v == POSTER:
                 err(f"film.json: outputs.{key} must be a file name (letters, digits, . _ -; "
-                    f"{'.jpg' if key == 'cover' else '.mp4'}; not {POSTER})")
+                    f"{'.jpg' if key == 'cover' else '.mp4'}; not {POSTER})"
+                    + ("" if key in REQUIRED_OUTPUTS else "; leave the key out to not build this video"))
                 continue
             if key == "cover" and not v.endswith(".jpg") or key != "cover" and not v.endswith(".mp4"):
                 err(f"film.json: outputs.{key} has the wrong extension: {v}")
@@ -813,9 +880,10 @@ def items(book) -> list[dict]:
     Each item: ``kind`` ("film"), ``id``, ``number``, ``code`` ("FILM 001"), ``title`` and ``summary``
     ({lang: text}; summary may be empty), ``duration``, ``released``, and, relative to the landing page:
     ``href`` ("films/index.html#<id>"), ``hub`` ("films/"), ``poster`` ("films/<id>/poster.jpg", "" when
-    missing), ``watch_url`` (the 720p narrated video the players play), ``download_url`` (the 1080p narrated
-    video) and ``cover_url``. The videos exist only when the build rendered or restored them: the site shows
-    ``note`` ({lang: "video not built"}) instead of a Watch button when ``watch_url`` is not published.
+    missing), ``watch_url`` (the 720p narrated video the players play), ``download_url`` (the narrated video
+    to download: the 1080p one when film.json lists it, else the 720p one) and ``cover_url``. The videos
+    exist only when the build rendered or restored them: the site shows ``note`` ({lang: "video not
+    built"}) instead of a Watch button when ``watch_url`` is not published.
     Also ``poster_file`` (absolute source path or None), ``narration``, ``subtitles`` and ``lean``
     ([{gid, name, short, kind, url}]).
     """
@@ -840,7 +908,7 @@ def items(book) -> list[dict]:
             "poster_file": film.poster if film.poster.is_file() else None,
             "note": {lang: t(lang, "unbuilt") for lang in langs},
             "watch_url": film.site_path(PLAYER_OUTPUT),
-            "download_url": film.site_path("narrated"),
+            "download_url": film.site_path(film.download()),
             "cover_url": film.site_path("cover"),
             "narration": dict(film.meta.get("narration") or {}),
             "subtitles": list(film.meta.get("subtitles") or []),
@@ -983,9 +1051,11 @@ def render_embed(env, ctx, inner: str, doc) -> str:
 def _local_player(film: Film, lang: str, title: str, up: str) -> tuple[str, str, str]:
     """(player, download links, fallback) of a local film for a page at ``up`` below the book (``<slug>/``).
 
-    The player plays the 720p narrated video with the committed poster. ``data-tr-poster`` / ``data-tr-src``
-    carry the targets relative to the book: mdBook's print.html copies chapters of every depth to ``<lang>/``
-    without rewriting video posters and sources, and :func:`tbook.site.fix_print_media` repairs them from these.
+    The player plays the 720p narrated video with the committed poster; the download links are the videos
+    film.json lists (:data:`DOWNLOADS`), so none names a file the build does not make. ``data-tr-poster`` /
+    ``data-tr-src`` carry the targets relative to the book: mdBook's print.html copies chapters of every depth to
+    ``<lang>/`` without rewriting video posters and sources, and :func:`tbook.site.fix_print_media` repairs them
+    from these.
     The fallback (the poster, or a placeholder without one) shows when the site did not build the video.
     """
     poster = f"films/{film.id}/{POSTER}" if film.poster.is_file() else ""
@@ -994,7 +1064,7 @@ def _local_player(film: Film, lang: str, title: str, up: str) -> tuple[str, str,
     player = (f'<video class="tr-film-player" controls preload="metadata" playsinline{poster_attr} title="{esc(title)}">\n'
               f'<source src="{esc(up + video)}" data-tr-src="{esc(video)}" type="video/mp4">\n</video>')
     files = "".join(f'<a href="{esc(up + film.site_path(key))}" download>⬇ {esc(t(lang, label))}</a>'
-                    for key, label in (("narrated", "hd"), (PLAYER_OUTPUT, "small"), ("music_only", "music_only")))
+                    for key, label in DOWNLOADS if film.listed(key))
     if poster:
         fallback = f'<img class="tr-film-poster tr-film-fallback" src="{esc(up + poster)}" alt="{esc(title)}" loading="lazy">'
     else:
@@ -1061,10 +1131,13 @@ def _film_card(site: config.Site, film: Film, lock: lean.Lock | None, built: boo
     if refs:
         lean_block = (f'<div class="lean"><h4>{_pair("lean_title")}</h4><ul>{"".join(refs)}</ul></div>')
     links = []
-    if built:
-        links.append(f'<a class="btn primary" href="{esc(video("narrated"))}" download>⬇ {_pair("hd")}</a>')
-        for key, label in ((PLAYER_OUTPUT, "small"), ("music_only", "music_only"), ("cover", "cover")):
-            links.append(f'<a class="btn" href="{esc(video(key))}" download>{_pair(label)}</a>')
+    if built:  # the videos film.json lists, the narrated one to download first (1080p when listed), then the cover
+        primary = film.download()
+        links.append(f'<a class="btn primary" href="{esc(video(primary))}" download>⬇ {_pair(dict(DOWNLOADS)[primary])}</a>')
+        for key, label in DOWNLOADS:
+            if key != primary and film.listed(key):
+                links.append(f'<a class="btn" href="{esc(video(key))}" download>{_pair(label)}</a>')
+        links.append(f'<a class="btn" href="{esc(video("cover"))}" download>{_pair("cover")}</a>')
     else:
         links.append(f'<span class="note">{_pair("unbuilt")}</span>')
     commit = str(meta.get("subject_commit", ""))
@@ -1333,11 +1406,11 @@ def video_unit(site: config.Site, film: Film) -> buildcache.Unit:
     """The build unit of a film's videos (target ``films``, outputs ``build/films/<slug>/<id>/``).
 
     Its key covers what the videos depend on: the film's files (not ``out/``, the committed poster or its
-    README), ``theme/film/`` (not the films page assets in ``site/``), ``theme/generated/tokens.mjs``,
-    ``tools/tbook/film.py``, the data the engine draws (:func:`engine_data`: the book's code, version and
-    titles, the cited Lean declarations and the pinned commit, the in-frame strings), the npm packages of
-    the fonts and of Playwright (which fixes its Chromium), the Kokoro model release and Node's major
-    version. ``theme/film/requirements.txt`` pins the Python packages. Not the site's address: the videos
+    README; film.json is one, so listing another output renders again), ``theme/film/`` (not the films page
+    assets in ``site/``), ``theme/generated/tokens.mjs``, ``tools/tbook/film.py``, the data the engine draws
+    (:func:`engine_data`: the book's code, version and titles, the cited Lean declarations and the pinned
+    commit, the in-frame strings), the npm packages of the fonts and of Playwright (which fixes its
+    Chromium), the Kokoro model release and Node's major version. ``theme/film/requirements.txt`` pins the Python packages. Not the site's address: the videos
     are the same wherever the site is served. Not the probed ffmpeg, Chromium or film Python either
     (:func:`tbook.buildcache.series`): a build without the film toolchain (``TBOOK_FILMS=auto|skip``) must
     find the same key to restore the videos, and a new ffmpeg package revision on the runner does not
@@ -1393,13 +1466,18 @@ def toolchain_missing() -> list[str]:
 
 
 def render_videos(film: Film, dest: Path) -> None:
-    """Render the film with ``theme/film/film.sh <dir> all`` (``FILM_STRICT=1``: narrated timing only) in its
-    ``out/`` and copy the videos (:meth:`Film.videos`) into ``dest``. Writes no committed file: the cover goes
-    to ``out/``, the committed ``poster.jpg`` is only written by the ``poster`` step, by hand."""
+    """Render the film with ``theme/film/film.sh <dir> all <output key>…`` (``FILM_STRICT=1``: narrated timing
+    only) in its ``out/`` and copy the videos into ``dest``. The keys are the outputs film.json lists
+    (:meth:`Film.videos`), passed explicitly; the pipeline encodes only what they need (:func:`render_plan`:
+    no 1080p master without a 1080p video, no music-only mix without a music-only video). Writes no
+    committed file: the cover goes to ``out/``, the committed ``poster.jpg`` is only written by the
+    ``poster`` step, by hand."""
     env = dict(os.environ, FILM_STRICT="1", PYTHON=film_python())
+    env.pop("FILM_OUTPUTS", None)
     if ffmpeg_path():
         env["FFMPEG"] = ffmpeg_path()
-    r = subprocess.run([str(THEME_FILM / "film.sh"), str(film.dir), "all"], cwd=paths.ROOT, env=env)
+    keys = list(film.videos())
+    r = subprocess.run([str(THEME_FILM / "film.sh"), str(film.dir), "all", *keys], cwd=paths.ROOT, env=env)
     if r.returncode != 0:
         raise FilmError(f"{film.book.slug}/{film.id}: theme/film/film.sh all exited with {r.returncode} (see above)")
     names = list(film.videos().values())
@@ -1457,6 +1535,10 @@ def build_videos(site: config.Site, book: config.Book, *, mode: str | None = Non
                 raise _NotRendered(why)
             print(f"  film {label}: rendering (key {unit.key[:12]})", flush=True)
             render_videos(film, unit.outputs[0])
+            # the cache stores the directory: refuse it unless it holds every output film.json lists
+            absent = [n for n in film.videos().values() if not (unit.outputs[0] / n).is_file()]
+            if absent:
+                raise buildcache.MissingOutput(f"{unit.label}: the render did not write {', '.join(absent)}")
 
         try:
             status[film.id] = buildcache.run(unit, render, repo=site.repo or None)
