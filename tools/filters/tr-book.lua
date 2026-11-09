@@ -14,12 +14,15 @@ SUMMARY.md become `# Part {.tr-part}` headings. This filter:
   (theme/typst/book.typ draws the openers and keeps a real `heading` for the outline
   and running headers); replaces images Typst cannot load (remote URLs, missing files)
   with a link or their description; gives the verification-ledger tables fixed column
-  widths; adds line-break opportunities to long inline code (Lean names);
+  widths; adds line-break opportunities to long inline code (Lean names); writes formulas whose symbol
+  names the pinned Typst renamed (typst-compat.lua) as raw Typst with the new names;
   renders `.tr-media` divs as framed media panels;
 * html / epub — marks media divs as figures for the stylesheet (theme/epub/book.css).
 ]]
 
 local stringify = pandoc.utils.stringify
+-- Symbol names the pinned Typst renamed (tools/filters/typst-compat.lua).
+local compat = dofile(pandoc.path.join({ pandoc.path.directory(PANDOC_SCRIPT_FILE), "typst-compat.lua" }))
 
 local function warn(msg)
   io.stderr:write("[tr-book] " .. msg .. "\n")
@@ -42,7 +45,7 @@ local function typst_label(id)
 end
 
 local function typst_content(inlines)
-  local out = pandoc.write(pandoc.Pandoc({ pandoc.Plain(inlines) }), "typst")
+  local out = pandoc.write(pandoc.Pandoc({ pandoc.Plain(compat.inlines(inlines)) }), "typst")
   out = out:gsub("%s+$", "")
   return "[" .. out .. "]"
 end
@@ -314,6 +317,7 @@ function Pandoc(doc)
     doc = doc:walk({
       Image = typst_image,
       Code = typst_code,
+      Math = compat.math,
       Div = function(div)
         if div.classes:includes("tr-media") then return media_block(div) end
         return nil

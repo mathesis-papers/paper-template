@@ -37,6 +37,8 @@ tr-punct-open, tr-punct-close, tr-lean-label, tr-badge-lean-title, tr-badge-open
 tr-tex-macros (the book's \newcommand definitions, applied to math in titles).
 ]]
 
+-- Symbol names the pinned Typst renamed (tools/filters/typst-compat.lua).
+local compat = dofile(pandoc.path.join({ pandoc.path.directory(PANDOC_SCRIPT_FILE), "typst-compat.lua" }))
 local stringify = pandoc.utils.stringify
 
 local META = {}
@@ -92,7 +94,7 @@ end
 
 local function typst_content(inlines)
   if #inlines == 0 then return "none" end
-  local out = pandoc.write(pandoc.Pandoc({ pandoc.Plain(inlines) }), "typst")
+  local out = pandoc.write(pandoc.Pandoc({ pandoc.Plain(compat.inlines(inlines)) }), "typst")
   out = out:gsub("%s+$", "")
   return "[" .. out .. "]"
 end

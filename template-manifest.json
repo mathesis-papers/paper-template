@@ -476,11 +476,15 @@
       "mode": "100755"
     },
     "tools/filters/tr-book.lua": {
-      "sha256": "58b23100393ca458632a18d8c20df8d913d2ab34e06d02186d80782a8ecfa29e",
+      "sha256": "f78c1a00a08e514ac6ddcaa1b775c1e28755081f5895d0eb352d26a634dd547a",
       "mode": "100644"
     },
     "tools/filters/tr-env.lua": {
-      "sha256": "da248b8cbbe3f91e790bc5ceadb4da74da2ecf035dc8cf04bd90db7228000e43",
+      "sha256": "e906c2f802502df6ca69cb19a8fa9ce31fa236fed990c65c703dd320aca01028",
+      "mode": "100644"
+    },
+    "tools/filters/typst-compat.lua": {
+      "sha256": "318962993917a91a6b7b2eed538b2c011bfa2052d2f028e3d80d3288ac0a1db7",
       "mode": "100644"
     },
     "tools/migrations/README.md": {
@@ -700,7 +704,7 @@
       "mode": "100644"
     },
     "tools/tests/test_pandoc.py": {
-      "sha256": "2212c98e619f15c4c6b66e6c5f39a8de3dc7cc4f330856f57e19457c956c102c",
+      "sha256": "ad68e05ce123eff1dff4afb4a7cf77866017bab93e7dc44cf1c3afcf0e33948e",
       "mode": "100644"
     },
     "tools/tests/test_serve.py": {
