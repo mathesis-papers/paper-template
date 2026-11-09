@@ -16,7 +16,8 @@
 //     code blocks (citations and stripCode in slides-lib.mjs: complete tags as Slidev's Markdown reads them,
 //     Slidev's own Markdown block rules; a component tag that is not complete is reported) is a GID
 //     present in trureturing.lock.json and a Lean theorem unless kind="definition" (only theorems get the
-//     green LEAN ✓); status="open" cites no GID;
+//     green LEAN ✓); status="open" cites no GID. The gid is the one Vue passes the component: the first of
+//     gid, :gid and v-bind:gid (a string literal); a gid bound otherwise, or a v-bind object, is reported;
 //   - no root-relative or file: links outside code blocks (the site is served under /<repo>/), no
 //     index.html in the deck;
 //   - no class name or attribute on an HTML element that UnoCSS (bundled with Slidev) would turn into

@@ -1308,6 +1308,13 @@ _NAME_RE = re.compile(r"<([A-Za-z][A-Za-z0-9\-]*)(?=[\t\n\f\r />]|\Z)")
 COMPONENTS = ("LeanBadge", "TheoremCard")
 _ATTR_RE = re.compile(rf"{_S}+([a-zA-Z_:@][a-zA-Z0-9:._-]*)"  # one attribute of _ATTR: name, unquoted, '…', "…"
                       rf"(?:{_S}*={_S}*(?:([^\"'=<>`\x00-\x20]+)|'([^']*)'|\"([^\"]*)\"))?")
+# The gid prop as Vue's compiler passes it: of the attributes that may set gid (gid, :gid and v-bind:gid with or
+# without modifiers, v-model:gid) the first in the tag wins; citations() reads gid and a string literal in :gid or
+# v-bind:gid and reports the others (also .prop and .attr, which set no prop) when they come first. A v-bind without
+# an argument (v-bind="{…}", :="…", v-bind.prop=…) merges an object whose gid wins over the attributes before it:
+# always reported.
+_GID_ATTR_RE = re.compile(r"gid|(?::|v-bind:|v-model:)gid(?:\..*)?")
+_SPREAD_RE = re.compile(r"(?::|v-bind:?)(?:\..*)?")
 _ABS_LINK_RES = (
     re.compile(r"\b(?:href|src|poster|data)\s*=\s*[\"'](/(?!/)[^\"']*|file:[^\"']*)[\"']", re.I),
     re.compile(r"\]\((/(?!/)[^)\s]*|file:[^)\s]*)\)"),
@@ -1332,7 +1339,8 @@ def component(tag: str) -> str:
 def citations(content: str) -> tuple[list[Citation], list[str]]:
     """``<LeanBadge>`` / ``<TheoremCard>`` tags of a slide (in any spelling Vue accepts, e.g.
     ``<lean-badge>``) outside code blocks (:func:`code_lines`), in order, and problems found (see the
-    comment above ``_TAG_RE``). ``Citation.tag`` is the PascalCase name."""
+    comment above ``_TAG_RE``). ``Citation.tag`` is the PascalCase name, ``Citation.gid`` the gid as Vue passes it
+    (``_GID_ATTR_RE``), "" where it cannot be read."""
     out: list[Citation] = []
     problems: list[str] = []
     text = strip_code(content)
@@ -1349,16 +1357,26 @@ def citations(content: str) -> tuple[list[Citation], list[str]]:
         if tag not in COMPONENTS:
             continue
         attrs: dict[str, Any] = {}
+        first = None  # the attribute Vue takes gid from (_GID_ATTR_RE): name, value
         for a in _ATTR_RE.finditer(m.group(2)):
-            attrs[a.group(1)] = next((v for v in a.group(2, 3, 4) if v is not None), True)
-        gid = attrs.get("gid")
-        if ":gid" in attrs:
-            expr = "true" if attrs[":gid"] is True else attrs[":gid"]  # as JavaScript's String() writes it
-            lit = re.fullmatch(rf"{_S}*(['\"`])({_DOT}*)\1{_S}*", expr)
+            name = a.group(1)
+            attrs[name] = next((v for v in a.group(2, 3, 4) if v is not None), True)
+            if _SPREAD_RE.fullmatch(name):
+                problems.append(f"<{m.group(1)} {name}=…>: an object bound with v-bind can set gid, which cannot be "
+                                "checked; bind each prop on its own")
+            elif first is None and _GID_ATTR_RE.fullmatch(name):
+                first = name, attrs[name]
+        gid = first[1] if first and first[0] == "gid" else ""
+        if first and first[0] != "gid":
+            name, expr = first[0], "true" if first[1] is True else first[1]  # as JavaScript's String() writes it
+            lit = re.fullmatch(rf"{_S}*(['\"`])({_DOT}*)\1{_S}*", expr) if name in (":gid", "v-bind:gid") else None
             if lit:
                 gid = lit.group(2)
+            elif name in (":gid", "v-bind:gid"):
+                problems.append(f"<{m.group(1)} {name}=\"{expr}\">: write gid as a literal string so it can be checked")
             else:
-                problems.append(f"<{m.group(1)} :gid=\"{expr}\">: write gid as a literal string so it can be checked")
+                problems.append(f"<{m.group(1)} {name}=\"{expr}\">: write gid=\"<GID>\" (or :gid with a literal "
+                                "string, without modifiers) so it can be checked")
         out.append(Citation(tag, _js_trim(gid) if isinstance(gid, str) else "", attrs))
     return out, problems
 
