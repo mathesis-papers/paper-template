@@ -6,7 +6,7 @@
   "subject_commit": "@@COMMIT@@",
   "released": "@@RELEASED@@",
   "duration": "0:30",
-  "resolution": "1920x1080@30",
+  "resolution": "1280x720@30",
   "style": "trureturing cyberpunk · deterministic canvas",
   "narration": {
     "language": "en",
@@ -19,10 +19,7 @@
   ],
   "lean": [],
   "outputs": {
-    "narrated": "@@OUT_NARRATED@@",
-    "music_only": "@@OUT_MUSIC_ONLY@@",
     "narrated_720p": "@@OUT_NARRATED_720P@@",
-    "music_only_720p": "@@OUT_MUSIC_ONLY_720P@@",
     "cover": "@@OUT_COVER@@"
   }
 }

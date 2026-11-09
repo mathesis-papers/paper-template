@@ -3,7 +3,8 @@
 Usage: python3 theme/film/mix.py <film dir> [--allow-silent]
 
   out/mix_voice.wav   narration over the score, the bed ducked ~12 dB under speech, -17 dB RMS
-  out/mix_music.wav   the score alone (for the music-only cut)
+  out/mix_music.wav   the score alone, only when a music-only video is requested ($FILM_OUTPUTS, else
+                      film.json's outputs; theme/film/plan.py); otherwise a stale one is removed
 
 Without out/narration.wav the step fails, unless --allow-silent (local dry runs before TTS):
 then mix_voice.wav is the score alone. Adapted from trureturing-film films/*/mix.py
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import sys
 
-from common import fail, film_dir_arg
+from common import fail, film_dir_arg, load, plan
 
 SR = 48000
 
@@ -26,6 +27,7 @@ def main(argv: list[str]) -> int:
     except ImportError as exc:
         fail(f"{exc.name} is not installed; run theme/film/setup.sh")
     film_dir = film_dir_arg([a for a in argv if not a.startswith("--")])
+    music_only = plan(load(film_dir))["music"]
     out = film_dir / "out"
     if not (out / "music_bed.wav").is_file():
         fail("out/music_bed.wav is missing; run the music step first")
@@ -72,11 +74,16 @@ def main(argv: list[str]) -> int:
     mix *= 10 ** ((target - db(mix.mean(1))) / 20)
     mix = np.tanh(mix / 0.95) * 0.95
     sf.write(str(out / "mix_voice.wav"), mix.astype(np.float32), SR)
-    mo = bed * 10 ** ((target + 1 - db(bed.mean(1))) / 20)
-    mo = np.tanh(mo / 0.95) * 0.95
-    sf.write(str(out / "mix_music.wav"), mo.astype(np.float32), SR)
-    print(f"film: mixes → {out / 'mix_voice.wav'} (rms {db(mix.mean(1)):.1f} dB, peak {np.abs(mix).max():.3f}), "
-          f"{out / 'mix_music.wav'} (rms {db(mo.mean(1)):.1f} dB)")
+    said = f"film: mixes → {out / 'mix_voice.wav'} (rms {db(mix.mean(1)):.1f} dB, peak {np.abs(mix).max():.3f})"
+    if music_only:
+        mo = bed * 10 ** ((target + 1 - db(bed.mean(1))) / 20)
+        mo = np.tanh(mo / 0.95) * 0.95
+        sf.write(str(out / "mix_music.wav"), mo.astype(np.float32), SR)
+        said += f", {out / 'mix_music.wav'} (rms {db(mo.mean(1)):.1f} dB)"
+    else:
+        (out / "mix_music.wav").unlink(missing_ok=True)
+        said += " (no music-only video requested: no music-only mix)"
+    print(said)
     return 0
 
 

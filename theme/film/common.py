@@ -9,11 +9,14 @@ Environment:
   FILM_CACHE        the film venv, the Kokoro model and fallback fonts (default <repo>/.cache/film)
   KOKORO_MODEL_DIR  directory with kokoro-v1.0.onnx and voices-v1.0.bin (default $FILM_CACHE/models)
   FFMPEG            ffmpeg binary (default: ffmpeg on PATH)
+  FILM_OUTPUTS      the outputs to make, keys separated by spaces or commas (default: what film.json lists)
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -47,6 +50,20 @@ def film_dir_arg(argv: list[str]) -> Path:
 def load(film_dir: Path) -> tfilm.Film:
     book = tfilm.book_of(film_dir)
     return tfilm.load_film(book, film_dir)
+
+
+def requested_outputs(film: tfilm.Film) -> list[str]:
+    """The output keys to make: $FILM_OUTPUTS, or the outputs film.json lists when it is unset or empty."""
+    keys = [k for k in re.split(r"[\s,]+", os.environ.get("FILM_OUTPUTS", "")) if k]
+    return keys or list(film.videos())
+
+
+def plan(film: tfilm.Film) -> dict:
+    """:func:`tbook.film.render_plan` of :func:`requested_outputs` (fails on an unknown key)."""
+    try:
+        return tfilm.render_plan(requested_outputs(film))
+    except tfilm.FilmError as exc:
+        fail(f"{film.id}: {exc} (FILM_OUTPUTS or the arguments of `film.sh <dir> all`)")
 
 
 def out_dir(film_dir: Path) -> Path:

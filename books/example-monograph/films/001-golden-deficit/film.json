@@ -8,7 +8,7 @@
   "subject_commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
   "released": "2026-11-08",
   "duration": "0:50",
-  "resolution": "1920x1080@30",
+  "resolution": "1280x720@30",
   "style": "trureturing cyberpunk · Zeckendorf digits, golden carries, a three-valued deficit",
   "narration": {
     "language": "en",
@@ -24,10 +24,7 @@
     "D5/S1/Deficit/DeficitInteger.deficit_integer"
   ],
   "outputs": {
-    "narrated": "example-monograph_001_narrated_EN_subs_ZH-EN.mp4",
-    "music_only": "example-monograph_001_music_only_subs_ZH-EN.mp4",
     "narrated_720p": "example-monograph_001_720p_narrated.mp4",
-    "music_only_720p": "example-monograph_001_720p_music_only.mp4",
     "cover": "example-monograph_001_cover.jpg"
   }
 }
