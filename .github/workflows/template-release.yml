@@ -4,6 +4,12 @@
 # [template].version = "X.Y.Z", run ./tbook template manifest, merge to main, then
 #   git tag vX.Y.Z && git push origin vX.Y.Z
 # Books repositories pick the release up through template-sync.yml (./tbook template update).
+#
+# In this repository v* tags are template releases, so release.yml skips them; the example site's build
+# cache is attached here instead, as release.yml attaches a books repository's (docs/PUBLISHING.md §4): the
+# job "site" builds the whole site as release.yml's build job does and runs ./tbook cache export; publish
+# creates the release as a draft, uploads the tars and build-cache.json, then publishes it. The job repeats
+# those few steps rather than calling release.yml, whose plan, notes and downloads are about books releases.
 name: Template release
 
 on:
@@ -68,18 +74,81 @@ jobs:
   ci:
     name: CI
     needs: verify
+    # What ci.yml's jobs ask for (actions/configure-pages reads the Pages configuration); a called
+    # workflow gets no more than its caller grants.
+    permissions:
+      contents: read
+      pages: read
     uses: ./.github/workflows/ci.yml
+
+  site:
+    name: Build the example site and export the build cache
+    needs: verify
+    runs-on: ubuntu-24.04
+    # Rendering a film that no cache holds takes long (frames, narration, encoding).
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'true'
+          mdbook: 'true'
+          films: 'true'
+
+      - name: Configure Pages
+        # Build for the Pages URL, as pages.yml does, so that the exported entries carry the site's keys.
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Build everything
+        # ./tbook check runs in the job ci.
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          TBOOK_FILMS: require
+        run: ./tbook build all
+
+      - name: Export the build cache
+        run: ./tbook cache export "$RUNNER_TEMP/build-cache"
+
+      - name: Upload the build cache
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-cache
+          path: ${{ runner.temp }}/build-cache
+          if-no-files-found: error
+          retention-days: 7
 
   publish:
     name: Create the GitHub release
-    needs: [verify, ci]
+    needs: [verify, ci, site]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - name: Check out
         uses: actions/checkout@v5
+
+      - name: Download the build cache
+        uses: actions/download-artifact@v7
+        with:
+          name: build-cache
+          path: ${{ runner.temp }}/build-cache
 
       - name: Release notes from docs/CHANGELOG.md
         env:
@@ -123,7 +192,7 @@ jobs:
           print(body)
           PY
 
-      - name: Create or update the release
+      - name: Create the release as a draft, upload the build cache, publish it
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -132,10 +201,26 @@ jobs:
         run: |
           set -euo pipefail
           title="trureturing-books-template $VERSION"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
-          else
-            flags=()
-            if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); else flags+=(--latest); fi
-            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+          cache="$RUNNER_TEMP/build-cache"
+          if [ ! -f "$cache/build-cache.json" ]; then
+            echo "::error title=Template release::build-cache.json is missing (./tbook cache export)"
+            exit 1
           fi
+          mapfile -t files < <(find "$cache" -maxdepth 1 -type f | sort)
+          printf 'asset: %s\n' "${files[@]}"
+          if draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+            if [ "$draft" != "true" ]; then
+              # A published release is final (immutable where the repository enables it).
+              echo "::warning title=Template release::release $TAG is already published; its files are left as they are"
+              exit 0
+            fi
+            # The draft of an earlier attempt: replace its files.
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${files[@]}"
+          fi
+          # Published only now, with every file in place.
+          flags=(--draft=false)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); else flags+=(--latest); fi
+          gh release edit "$TAG" "${flags[@]}"

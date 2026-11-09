@@ -782,11 +782,12 @@ def plant_cache(commit: str, branch: str = "dev") -> None:
 
 
 def gha_if(expr: str, *, event: str, ref: str, default_branch: str | None = "main",
-           context: dict[str, str] | None = None, **outputs: str) -> bool:
+           context: dict[str, str] | None = None, cancelled: bool = False, **outputs: str) -> bool:
     """Evaluate a workflow step's ``if:`` written with the subset of GitHub's expression syntax used by the
-    cache steps: ``==``, ``!=``, ``!``, ``&&``, ``||``, parentheses, ``format``, ``startsWith``. ``context``
-    gives further names (``inputs.browsers``, ``steps.<id>.outputs.cache-hit``…)."""
+    cache steps: ``==``, ``!=``, ``!``, ``&&``, ``||``, parentheses, ``format``, ``startsWith``,
+    ``cancelled()``. ``context`` gives further names (``inputs.browsers``, ``steps.<id>.outputs.cache-hit``…)."""
     py = expr.strip().removeprefix("${{").removesuffix("}}")
+    py = py.replace("cancelled()", repr(cancelled))
     py = re.sub(r"format\(('[^']*'),\s*([\w.]+)\)", r"\1.format(\2)", py)
     py = re.sub(r"startsWith\(([\w.]+),\s*('[^']*')\)", r"\1.startswith(\2)", py)
     py = re.sub(r"!(?!=)", " not ", py.replace("&&", " and ").replace("||", " or "))
@@ -809,6 +810,80 @@ def trureturing_cache_steps(workflow: Path) -> list[str]:
             continue
         m = re.search(r"^(\s+)if:\s*(>-?)?\s*(.*?)$((?:\n\1\s+.*)*)", step, re.M)
         out.append(" ".join([m.group(3), *m.group(4).split()]).strip() if m else "")
+    return out
+
+
+GITHUB_DIR = Path(__file__).resolve().parents[2] / ".github"
+PR_EVENTS = ("pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment")
+
+
+def _unquote(value: str) -> str:
+    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"" else value
+
+
+def read_steps(text: str) -> list[dict]:
+    """The steps listed in ``text`` (a job's ``steps:`` or a composite action's ``runs.steps``), in order: each
+    a dict of its scalar keys (``name``, ``uses``, ``id``, ``if``, ``run``, ``continue-on-error``…; a folded
+    ``>-`` value joined into one line, a ``|`` block dedented) and of ``with`` and ``env`` as flat dicts.
+
+    A reader for the layout of these files (two-space indentation, block mappings), not general YAML."""
+    first = re.search(r"^( *)- name:", text, re.M)
+    if not first:
+        return []
+    indent = len(first.group(1))
+    steps = []
+    for part in re.split(rf"\n(?={' ' * indent}- )", text[first.start():]):
+        lines = part.splitlines()
+        lines[0] = lines[0].replace("- ", "  ", 1)
+        step: dict = {"with": {}, "env": {}}
+        i = 0
+        while i < len(lines):
+            m = re.match(rf"^ {{{indent + 2}}}([\w-]+):\s?(.*)$", lines[i])
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent + 2):
+                j += 1
+            if m:
+                key, value, block = m.group(1), m.group(2).split(" #")[0].strip(), lines[i + 1:j]
+                if key in ("with", "env"):
+                    for line in block:
+                        if (b := re.match(r"^\s+([\w-]+):\s*(.*)$", line)) and not line.lstrip().startswith("#"):
+                            step[key][b.group(1)] = _unquote(b.group(2).strip())
+                elif value in (">-", ">", "|", "|-"):
+                    body = textwrap.dedent("\n".join(block)).strip("\n")
+                    step[key] = " ".join(body.split()) if value.startswith(">") else body
+                else:
+                    step[key] = _unquote(value)
+            i = j
+        steps.append(step)
+    return steps
+
+
+def action_steps(name: str) -> list[dict]:
+    """The steps of the composite action ``.github/actions/<name>``."""
+    text = (GITHUB_DIR / "actions" / name / "action.yml").read_text(encoding="utf-8")
+    return read_steps(text.split("\n  steps:\n", 1)[1])
+
+
+def workflow_jobs(path: Path) -> dict[str, list[dict]]:
+    """``{job: steps}`` of a workflow (a job that calls a reusable workflow has no steps)."""
+    text = path.read_text(encoding="utf-8")
+    body = text.split("\njobs:\n", 1)[1]
+    jobs = {}
+    for m in re.finditer(r"^  ([\w-]+):\n((?:(?:    .*)?\n)*)", body, re.M):
+        steps = m.group(2).split("\n    steps:\n", 1)
+        jobs[m.group(1)] = read_steps(steps[1]) if len(steps) == 2 else []
+    return jobs
+
+
+def condition_values(cond: str) -> list[dict[str, str]]:
+    """Every assignment of the inputs and step outputs that ``cond`` reads to values they can take, as
+    ``gha_if`` contexts: what a step runs with in whatever way its action is used."""
+    names = sorted(set(re.findall(r"\b(?:inputs\.[\w-]+|steps\.[\w-]+\.outputs\.[\w-]+)", cond)))
+    choices = [("true", "false", "restore", "save", "") if n.startswith("inputs.") else ("", "true", "false")
+               for n in names]
+    out = [{}]
+    for name, values in zip(names, choices):
+        out = [{**ctx, name: v} for ctx in out for v in values]
     return out
 
 
@@ -937,20 +1012,12 @@ class PullRequestCacheTests(unittest.TestCase):
         self.assertEqual(trureturing_cache_steps(self.WORKFLOWS.parent / "actions" / "setup" / "action.yml"), [])
 
     def setup_steps(self) -> list[dict]:
-        """The steps of the setup action: ``uses``, ``id``, ``if``, ``run`` and some ``with`` values."""
-        steps = []
-        text = (self.WORKFLOWS.parent / "actions" / "setup" / "action.yml").read_text(encoding="utf-8")
-        for chunk in re.split(r"\n(?=    - name:)", text.split("\n  steps:\n", 1)[1]):
-            step = {k: m.group(1).strip() for k in ("uses", "id", "if", "run")
-                    if (m := re.search(rf"^      {k}:\s*(.*)$", chunk, re.M))}
-            step["with"] = {k: m.group(1).strip() for k in ("path", "key", "cache", "cache-dependency-path")
-                            if (m := re.search(rf"^        {k}:\s*(.*)$", chunk, re.M))}
-            steps.append(step)
-        return steps
+        """The steps of the setup action: ``uses``, ``id``, ``if``, ``run``, ``with``…"""
+        return action_steps("setup")
 
     def test_toolchain_caches_are_not_used_by_pull_requests(self):
-        """The same holds for the toolchain caches of the setup action (pip, Playwright's Chromium, fonts): a
-        pull request's runs neither restore nor save them. Its runs execute its own workflow files, so an earlier
+        """The same holds for the toolchain caches of the setup action (pip, Playwright's Chromium, fonts, the
+        film models): a pull request's runs neither restore nor save them. Its runs execute its own workflow files, so an earlier
         push of the pull request could save an entry in its cache scope (and drop the gate) for the next push to
         restore; skipping the restore, its runs download from the network (re-review 3, finding 0)."""
         steps = self.setup_steps()
@@ -961,14 +1028,14 @@ class PullRequestCacheTests(unittest.TestCase):
         self.assertNotIn("cache", python.get("with", {}), "setup-python's own cache saves in pull requests too")
         restores = {step["with"]["path"]: step for step in steps if step.get("uses", "").startswith("actions/cache/restore@")}
         saves = {step["with"]["path"]: step for step in steps if step.get("uses", "").startswith("actions/cache/save@")}
-        self.assertEqual(set(restores), {"~/.cache/pip", "~/.cache/ms-playwright", ".cache/fonts"})
+        self.assertEqual(set(restores), {"~/.cache/pip", "~/.cache/ms-playwright", ".cache/fonts", ".cache/film/models"})
         self.assertEqual(set(saves), set(restores))
         trusted = ("push", "schedule", "workflow_dispatch")
         pull_requests = ("pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment")
         for path, save in saves.items():
             restore = restores[path]
             self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
-            inputs = {"inputs.browsers": "true", "inputs.fonts": "true"}
+            inputs = {"inputs.browsers": "true", "inputs.fonts": "true", "inputs.films": "true"}
             conds = {name: re.sub(r"hashFiles\([^)]*\)", "'h'", step.get("if", ""))
                      for step, name in ((restore, "restore"), (save, "save"))}
             for name, cond in conds.items():
@@ -981,7 +1048,7 @@ class PullRequestCacheTests(unittest.TestCase):
                 for event in pull_requests:
                     self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=context),
                                      f"{path}: {name} on {event}")
-            for key in ("inputs.browsers", "inputs.fonts"):
+            for key in ("inputs.browsers", "inputs.fonts", "inputs.films"):
                 if key in conds["restore"]:
                     off = {**inputs, key: "false"}
                     self.assertFalse(gha_if(conds["restore"], event="push", ref="refs/heads/main", context=off), path)
@@ -1012,8 +1079,9 @@ class PullRequestCacheTests(unittest.TestCase):
         actions/cache steps are skipped, and no setup-* action caches anything but npm. A workflow runs in them
         when one triggers it, or when a workflow that one triggers calls it; and every workflow that can be called
         (workflow_call) is checked too, since a books repository may call it from its own pull-request workflow
-        (lean-verify.yml's Lake and pip caches, re-review 4, item 1)."""
-        pr_events = {"pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment"}
+        (lean-verify.yml's Lake and pip caches, re-review 4, item 1). So are the composite actions these workflows
+        use (.github/actions/setup, .github/actions/build-cache), for every value of their inputs."""
+        pr_events = set(PR_EVENTS)
         texts = {wf.name: wf.read_text(encoding="utf-8") for wf in self.WORKFLOWS.glob("*.yml")}
         todo = []
         for name, text in texts.items():
@@ -1023,13 +1091,14 @@ class PullRequestCacheTests(unittest.TestCase):
                 todo.append(name)
         self.assertIn("ci.yml", todo)
         self.assertIn("lean-verify.yml", todo, "callable (workflow_call)")
-        seen, caches = set(), 0
+        seen, caches, actions = set(), 0, set()
         while todo:
             name = todo.pop()
             if name in seen:
                 continue
             seen.add(name)
             todo += re.findall(r"uses:\s*\./\.github/workflows/([\w.-]+)", texts[name])
+            actions |= set(re.findall(r"uses:\s*\./\.github/actions/([\w.-]+)", texts[name]))
             for step in re.split(r"\n(?=\s+- )", texts[name]):
                 uses = re.search(r"^\s+-?\s*uses:\s*(\S+)", step, re.M)
                 uses = uses.group(1) if uses else ""
@@ -1048,6 +1117,24 @@ class PullRequestCacheTests(unittest.TestCase):
                     self.assertRegex(step, r"(?m)^\s+cache:\s*npm\s*$", name)
         self.assertIn("lean-verify.yml", seen)
         self.assertGreater(caches, 0, "ci.yml's .cache/trureturing step was examined")
+        self.assertEqual(actions, {"setup", "build-cache"})
+        action_caches = 0
+        for action in sorted(actions):
+            for step in action_steps(action):
+                uses = step.get("uses", "")
+                if re.match(r"actions/cache(/restore|/save)?@", uses):
+                    action_caches += 1
+                    self.assertNotRegex(uses, r"^actions/cache@", f"{action}: saves in its post step")
+                    cond = re.sub(r"hashFiles\([^)]*\)", "'h'", step.get("if", ""))
+                    self.assertTrue(cond, f"{action}: {step['name']} needs an if:")
+                    for ctx in condition_values(cond):
+                        for event in pr_events:
+                            self.assertFalse(gha_if(cond, event=event, ref="refs/pull/7/merge", context=ctx),
+                                             f"{action}: {step['name']} on {event} with {ctx}")
+                elif re.match(r"actions/setup-\w+@", uses) and "cache" in step["with"]:
+                    self.assertTrue(uses.startswith("actions/setup-node@"), f"{action}: {uses} caches")
+                    self.assertEqual(step["with"]["cache"], "npm", action)
+        self.assertEqual(action_caches, 2 * 4 + 2, "pip, Chromium, fonts, film models; the build cache")
 
     def test_lean_verify_caches_outside_pull_requests(self):
         """lean-verify.yml restores and saves its pip and Lake caches (built .olean files, which the axiom check
@@ -1086,6 +1173,248 @@ class PullRequestCacheTests(unittest.TestCase):
         build = next(i for i, s in enumerate(steps) if "lake build BookVerify" in s)
         self.assertLess(build, fields.index(saves["build/lean-verify/.lake"]), "saved after the build succeeded")
         self.assertNotIn("always()", saves["build/lean-verify/.lake"]["if"])
+
+
+# --------------------------------------------------------------------------- the build cache in the workflows
+
+
+def run_bash(script: str, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
+    """Run a workflow step's ``run:`` script the way GitHub's bash shell does."""
+    path = cwd / ".step.sh"
+    path.write_text(script + "\n", encoding="utf-8")
+    return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(path)], cwd=cwd,
+                          env={**os.environ, **env}, capture_output=True, text=True)
+
+
+FAKE_GH = """#!/usr/bin/env bash
+# gh stand-in: logs its arguments; `gh release view` answers as a release in state $FAKE_STATE would.
+printf '%s\\n' "$*" >> "$GH_LOG"
+if [ "$1 $2" = "release view" ]; then
+  case "$FAKE_STATE" in
+    none) echo "release not found" >&2; exit 1 ;;
+    draft) echo true ;;
+    published) echo false ;;
+  esac
+fi
+"""
+
+
+class BuildCacheWorkflowTests(unittest.TestCase):
+    """The build cache store (.cache/artifacts) in GitHub Actions: who restores and who saves it, the builds
+    that use it, and the releases that carry it (docs/PUBLISHING.md §4, docs/VERIFICATION.md §2)."""
+
+    WORKFLOWS = GITHUB_DIR / "workflows"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="tbook-build-cache-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_store_is_restored_outside_pull_requests_and_saved_by_the_default_branch(self):
+        steps = action_steps("build-cache")
+        restore, = [s for s in steps if s.get("uses", "").startswith("actions/cache/restore@")]
+        save, = [s for s in steps if s.get("uses", "").startswith("actions/cache/save@")]
+        prune = next(s for s in steps if s.get("id") == "prune")
+        self.assertFalse([s for s in steps if re.match(r"actions/cache@", s.get("uses", ""))])
+        self.assertEqual(restore["with"], {"path": ".cache/artifacts", "key": "build-cache-v1-${{ github.run_id }}",
+                                           "restore-keys": "build-cache-v1-"})
+        self.assertEqual(save["with"], {"path": ".cache/artifacts", "key": "${{ steps.prune.outputs.key }}"})
+        self.assertLess(steps.index(prune), steps.index(save))
+        default = [dict(event="push", ref="refs/heads/main"), dict(event="workflow_dispatch", ref="refs/heads/main"),
+                   dict(event="schedule", ref="refs/heads/main", default_branch=None)]
+        other = [dict(event="push", ref="refs/heads/feature"), dict(event="push", ref="refs/tags/v1.0.0"),
+                 dict(event="workflow_dispatch", ref="refs/heads/feature"),
+                 dict(event="repository_dispatch", ref="refs/heads/main"), dict(event="release", ref="refs/tags/v1.0.0")]
+        pull_requests = [dict(event=e, ref="refs/pull/7/merge") for e in PR_EVENTS] + [
+            dict(event="pull_request_target", ref="refs/heads/main")]
+        for mode in ("restore", "save"):
+            ctx = {"inputs.mode": mode, "steps.prune.outputs.changed": "true"}
+            for run in default + other:
+                self.assertEqual(gha_if(restore["if"], **run, context=ctx), mode == "restore", (mode, run))
+            for run in default:
+                for step in (prune, save):
+                    self.assertEqual(gha_if(step["if"], **run, context=ctx), mode == "save", (step["name"], run))
+            for run in other + pull_requests:
+                for step in (prune, save):
+                    self.assertFalse(gha_if(step["if"], **run, context=ctx), (step["name"], mode, run))
+            for run in pull_requests:
+                self.assertFalse(gha_if(restore["if"], **run, context=ctx), (mode, run))
+        main = dict(event="push", ref="refs/heads/main",
+                    context={"inputs.mode": "save", "steps.prune.outputs.changed": "true"})
+        self.assertTrue(gha_if(save["if"], **main))
+        self.assertFalse(gha_if(save["if"], **main, cancelled=True))
+        for changed in ("false", ""):
+            self.assertFalse(gha_if(save["if"], event="push", ref="refs/heads/main",
+                                    context={"inputs.mode": "save", "steps.prune.outputs.changed": changed}))
+
+    def test_an_unchanged_store_is_not_saved_again(self):
+        """save compares the key of the pruned store with the key restore matched (kept in the environment)."""
+        steps = action_steps("build-cache")
+        remember = next(s for s in steps if "TBOOK_BUILD_CACHE_RESTORED" in s.get("run", "") and s.get("id") != "prune")
+        self.assertEqual(remember["env"], {"MATCHED": "${{ steps.restore.outputs.cache-matched-key }}"})
+        prune = next(s for s in steps if s.get("id") == "prune")
+        (self.tmp / "tbook").write_text("#!/usr/bin/env bash\n"
+                                        "printf '%s\\n' \"$*\" >> calls.txt\n"
+                                        "if [ \"$*\" = 'cache key' ]; then echo build-cache-v1-abc; fi\n",
+                                        encoding="utf-8")
+        (self.tmp / "tbook").chmod(0o755)
+        for restored, changed in (("build-cache-v1-abc", "false"), ("build-cache-v1-old", "true"), ("", "true")):
+            out = self.tmp / "output.txt"
+            out.write_text("", encoding="utf-8")
+            r = run_bash(prune["run"], self.tmp, {"GITHUB_OUTPUT": str(out), "TBOOK_BUILD_CACHE_RESTORED": restored})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            outputs = dict(line.split("=", 1) for line in out.read_text(encoding="utf-8").splitlines())
+            self.assertEqual(outputs, {"key": "build-cache-v1-abc", "changed": changed}, restored)
+        calls = (self.tmp / "calls.txt").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(calls[:2], ["cache prune", "cache key"], "pruned before the key is taken")
+
+    def building_jobs(self) -> dict[tuple[str, str], list[dict]]:
+        return {(wf.name, job): steps for wf in sorted(self.WORKFLOWS.glob("*.yml"))
+                for job, steps in workflow_jobs(wf).items()
+                if any(re.search(r"^\./tbook build\b", s.get("run", ""), re.M) for s in steps)}
+
+    def test_builds_go_through_the_cache(self):
+        """Every job that builds restores the store first (outside pull requests: the action decides), looks
+        missing units up in releases, and builds for the Pages URL as pages.yml does, so that all of them share
+        keys; jobs that build films install the film toolchain and fail when a film cannot be rendered; only
+        pages.yml saves the store, after its build ran."""
+        jobs = self.building_jobs()
+        self.assertEqual(set(jobs), {("ci.yml", "build"), ("ci.yml", "media"), ("pages.yml", "build"),
+                                     ("release.yml", "build"), ("template-release.yml", "site")})
+        for (wf, job), steps in jobs.items():
+            where = f"{wf}, job {job}"
+            builds = [i for i, s in enumerate(steps) if re.search(r"^\./tbook build\b", s.get("run", ""), re.M)]
+            cache = [(i, s["with"].get("mode")) for i, s in enumerate(steps) if s.get("uses") == "./.github/actions/build-cache"]
+            restores = [i for i, mode in cache if mode == "restore"]
+            saves = [i for i, mode in cache if mode == "save"]
+            self.assertEqual(len(restores), 1, where)
+            self.assertLess(restores[0], builds[0], where)
+            pages = [i for i, s in enumerate(steps) if s.get("uses", "").startswith("actions/configure-pages@")]
+            self.assertEqual(len(pages), 1, where)
+            self.assertEqual(steps[pages[0]].get("id"), "pages", where)
+            self.assertLess(pages[0], restores[0], where)
+            self.assertEqual(steps[restores[0]]["with"].get("pages-url"), "${{ steps.pages.outputs.base_url }}", where)
+            if wf != "pages.yml":  # pages.yml asks only when its probe found Pages enabled
+                self.assertEqual(steps[pages[0]].get("continue-on-error"), "true", where)
+            films = False
+            for i in builds:
+                env, run = steps[i]["env"], steps[i]["run"]
+                self.assertEqual(env.get("TBOOK_CACHE_REMOTE"), "1", f"{where}: {run}")
+                self.assertEqual(env.get("GITHUB_TOKEN"), "${{ github.token }}", f"{where}: {run}")
+                self.assertNotIn("TBOOK_CACHE", env, where)
+                if re.search(r"^\./tbook build\b.*\b(all|films)\b", run, re.M):
+                    films = True
+                    self.assertEqual(env.get("TBOOK_FILMS"), "require", f"{where}: {run}")
+            setup = next(s for s in steps if s.get("uses") == "./.github/actions/setup")
+            self.assertEqual(setup["with"].get("films", "false"), "true" if films else "false", where)
+            if films:
+                self.assertEqual(setup["with"].get("browsers"), "true", where)
+            if wf == "pages.yml":
+                self.assertEqual(len(saves), 1, where)
+                self.assertGreater(saves[0], max(builds), where)
+                self.assertEqual(steps[builds[0]].get("id"), "build", where)
+                cond = steps[saves[0]]["if"]
+                for outcome, want in (("success", True), ("failure", True), ("skipped", False)):
+                    self.assertEqual(gha_if(cond, event="push", ref="refs/heads/main",
+                                            context={"steps.build.outcome": outcome}), want, outcome)
+                self.assertFalse(gha_if(cond, event="push", ref="refs/heads/main", cancelled=True,
+                                        context={"steps.build.outcome": "failure"}))
+            else:
+                self.assertEqual(saves, [], f"{where}: only pages.yml saves the store")
+
+    def test_pages_runs_one_at_a_time(self):
+        """The workflow that saves the store and renders films for it runs one run at a time; a later run
+        restores what the earlier one saved instead of rendering the same film again."""
+        text = (self.WORKFLOWS / "pages.yml").read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^concurrency:\n  group: pages\n  cancel-in-progress: false$")
+
+    def publish_step(self, workflow: str) -> dict:
+        steps = workflow_jobs(self.WORKFLOWS / workflow)["publish"]
+        return next(s for s in steps if "gh release create" in s.get("run", ""))
+
+    def run_publish(self, workflow: str, state: str, env: dict[str, str]) -> tuple[subprocess.CompletedProcess, list[str]]:
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / "gh").write_text(FAKE_GH, encoding="utf-8")
+        (bin_dir / "gh").chmod(0o755)
+        log = self.tmp / f"gh-{state}.log"
+        log.write_text("", encoding="utf-8")
+        summary = self.tmp / "summary.md"
+        r = run_bash(self.publish_step(workflow)["run"], self.tmp, {
+            **env, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "GH_LOG": str(log), "FAKE_STATE": state,
+            "GH_TOKEN": "t", "GH_REPO": "o/r", "GITHUB_REPOSITORY": "o/r", "GITHUB_STEP_SUMMARY": str(summary),
+            "RUNNER_TEMP": str(self.tmp / "runner")})
+        return r, log.read_text(encoding="utf-8").splitlines()
+
+    def check_publish(self, workflow: str, env: dict[str, str], files: list[str], publish_flags: str) -> None:
+        """Created as a draft with every file, published after; an earlier attempt's draft gets its files
+        replaced, then published; a published release keeps its files."""
+        r, calls = self.run_publish(workflow, "none", env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        create = next(c for c in calls if c.startswith("release create "))
+        self.assertIn(" --draft ", create)
+        self.assertTrue(create.endswith(" ".join(files)), create)
+        self.assertEqual(calls[-1], f"release edit {env['TAG']} --draft=false{publish_flags}")
+        self.assertLess(calls.index(create), len(calls) - 1)
+        self.assertFalse([c for c in calls if c.startswith("release upload")])
+
+        r, calls = self.run_publish(workflow, "draft", env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        upload = next(c for c in calls if c.startswith("release upload "))
+        self.assertEqual(upload, f"release upload {env['TAG']} {' '.join(files)} --clobber")
+        self.assertEqual(calls[-1], f"release edit {env['TAG']} --draft=false{publish_flags}")
+        self.assertFalse([c for c in calls if c.startswith("release create")])
+
+        r, calls = self.run_publish(workflow, "published", env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("already published", r.stdout)
+        self.assertFalse([c for c in calls if re.match(r"release (create|upload)|.*--draft=false", c)], calls)
+
+    def test_release_attaches_the_build_cache_and_publishes_a_complete_draft(self):
+        jobs = workflow_jobs(self.WORKFLOWS / "release.yml")
+        runs = [s.get("run", "") for s in jobs["build"]]
+        build = runs.index("./tbook build all")
+        export = runs.index("./tbook cache export release/cache")
+        self.assertLess(build, export)
+        upload = next(s for s in jobs["build"] if s.get("uses", "").startswith("actions/upload-artifact@"))
+        self.assertLess(export, jobs["build"].index(upload))
+        self.assertEqual((upload["with"]["name"], upload["with"]["path"]), ("release", "release"))
+        download = next(s for s in jobs["publish"] if s.get("uses", "").startswith("actions/download-artifact@"))
+        self.assertEqual((download["with"]["name"], download["with"]["path"]), ("release", "release"))
+        for d in ("release/assets", "release/cache"):
+            (self.tmp / d).mkdir(parents=True)
+        files = ["release/assets/demo-1.0.0-zh-screen.pdf", "release/cache/build-cache.json",
+                 "release/cache/cache-films-demo-001-x-0123456789abcdef.tar"]
+        for f in files:
+            (self.tmp / f).write_text("x", encoding="utf-8")
+        (self.tmp / "release" / "notes.md").write_text("notes\n", encoding="utf-8")
+        env = {"TAG": "demo-v1.0.0", "TITLE": "Demo 1.0.0", "PRERELEASE": "false"}
+        self.check_publish("release.yml", env, files, "")
+        self.check_publish("release.yml", {**env, "PRERELEASE": "true"}, files, " --prerelease")
+        (self.tmp / "release" / "cache" / "build-cache.json").unlink()
+        r, calls = self.run_publish("release.yml", "none", env)
+        self.assertNotEqual(r.returncode, 0, "a release without its build cache is not created")
+        self.assertEqual(calls, [])
+
+    def test_template_release_attaches_the_example_site_cache(self):
+        jobs = workflow_jobs(self.WORKFLOWS / "template-release.yml")
+        runs = [s.get("run", "") for s in jobs["site"]]
+        self.assertLess(runs.index("./tbook build all"), runs.index('./tbook cache export "$RUNNER_TEMP/build-cache"'))
+        upload = next(s for s in jobs["site"] if s.get("uses", "").startswith("actions/upload-artifact@"))
+        download = next(s for s in jobs["publish"] if s.get("uses", "").startswith("actions/download-artifact@"))
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/build-cache")
+        self.assertEqual((download["with"]["name"], download["with"]["path"]),
+                         (upload["with"]["name"], "${{ runner.temp }}/build-cache"))
+        text = (self.WORKFLOWS / "template-release.yml").read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^  publish:\n(?:    .*\n)*?    needs: \[verify, ci, site\]$")
+        cache = self.tmp / "runner" / "build-cache"
+        cache.mkdir(parents=True)
+        files = [str(cache / "build-cache.json"), str(cache / "cache-html-example-zh-0123456789abcdef.tar")]
+        for f in files:
+            Path(f).write_text("x", encoding="utf-8")
+        (self.tmp / "runner" / "notes.md").write_text("notes\n", encoding="utf-8")
+        env = {"TAG": "v0.2.0", "VERSION": "0.2.0", "PRERELEASE": "false"}
+        self.check_publish("template-release.yml", env, files, " --latest")
+        self.check_publish("template-release.yml", {**env, "PRERELEASE": "true"}, files, " --prerelease")
 
 
 # --------------------------------------------------------------------------- re-review 1: a committed .cache symlink

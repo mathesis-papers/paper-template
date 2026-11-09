@@ -5,13 +5,16 @@
 #       browsers: 'true'   # Playwright Chromium: viz browser tests, slide export, thumbnails
 #       fonts: 'true'      # CJK / mono system fonts + tools/fetch-fonts.sh into .cache/fonts (PDF)
 #       mdbook: 'true'     # mdBook 0.5.4 (HTML)
+#       films: 'true'      # film toolchain (needs browsers): ffmpeg, fallback fonts, theme/film/setup.sh
 #
-# Python packages come from requirements.txt (pandoc via pypandoc_binary, typst, epubcheck);
-# Node packages from package-lock.json (KaTeX, Slidev, Playwright). Java, needed by epubcheck,
-# is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
+# Python packages come from requirements.txt (pandoc via pypandoc_binary, typst, epubcheck), and with
+# films from theme/film/requirements.txt too; Node packages from package-lock.json (KaTeX, Slidev,
+# Playwright). Java, needed by epubcheck, is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
+# Films: ffmpeg and fallback fonts for math glyphs come from apt; theme/film/setup.sh installs the
+# Python packages (already installed here) and downloads the Kokoro model into .cache/film/models.
 #
-# Caches. The pip cache, Playwright's Chromium and the fetched fonts are restored and saved only
-# outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
+# Caches. The pip cache, Playwright's Chromium, the fetched fonts and the film models are restored and
+# saved only outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
 # request's runs download them from PyPI, the Playwright CDN and GitHub. Not saving is not enough:
 # a pull request's runs execute its own copy of this file, so one push can drop the save gate and
 # leave a planted package or Chromium binary in the pull request's cache scope, and the next push,
@@ -38,6 +41,10 @@ inputs:
     description: Install mdBook 0.5.4.
     required: false
     default: 'true'
+  films:
+    description: Install the film toolchain (ffmpeg, fallback fonts, theme/film/setup.sh with the Kokoro model). Needs browsers 'true'.
+    required: false
+    default: 'false'
   python-version:
     description: Python version for ./tbook (>= 3.11).
     required: false
@@ -46,6 +53,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check the inputs
+      if: inputs.films == 'true' && inputs.browsers != 'true'
+      shell: bash
+      run: |
+        echo "::error title=tbook setup::films: 'true' renders frames in Chromium; set browsers: 'true' as well"
+        exit 1
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -57,11 +71,18 @@ runs:
       uses: actions/cache/restore@v5
       with:
         path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ hashFiles('requirements.txt') }}
+        # Jobs with and without films keep separate entries: an entry is saved once, by the first job of its key.
+        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-films-${{ inputs.films }}-${{ hashFiles('requirements.txt', 'theme/film/requirements.txt') }}
 
     - name: Install Python packages
       shell: bash
-      run: python -m pip install -r requirements.txt
+      env:
+        FILMS: ${{ inputs.films }}
+      run: |
+        python -m pip install -r requirements.txt
+        if [ "$FILMS" = "true" ] && [ -f theme/film/requirements.txt ]; then
+          python -m pip install -r theme/film/requirements.txt
+        fi
 
     - name: Save the pip cache
       if: steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
@@ -110,13 +131,23 @@ runs:
       with:
         tool: mdbook@0.5.4
 
-    - name: Install system fonts
-      if: inputs.fonts == 'true'
+    - name: Install system fonts and ffmpeg
+      if: inputs.fonts == 'true' || inputs.films == 'true'
       shell: bash
+      env:
+        FONTS: ${{ inputs.fonts }}
+        FILMS: ${{ inputs.films }}
       run: |
+        packages=()
+        if [ "$FONTS" = "true" ]; then
+          packages+=(fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core)
+        fi
+        if [ "$FILMS" = "true" ]; then
+          # ffmpeg encodes the films; DejaVu and FreeFont cover math glyphs the @fontsource fonts lack.
+          packages+=(ffmpeg fonts-dejavu-core fonts-freefont-ttf)
+        fi
         sudo apt-get update -qq
-        sudo apt-get install -y -qq --no-install-recommends \
-          fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core
+        sudo apt-get install -y -qq --no-install-recommends "${packages[@]}"
         fc-cache -f >/dev/null
 
     - name: Restore fetched fonts
@@ -141,10 +172,34 @@ runs:
         path: .cache/fonts
         key: ${{ steps.fonts-cache.outputs.cache-primary-key }}
 
+    - name: Restore the film models
+      id: film-models-cache
+      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != '' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/restore@v5
+      with:
+        path: .cache/film/models
+        # setup.sh names the model version (and its download URL): a new model means a new setup.sh.
+        key: film-models-${{ hashFiles('theme/film/setup.sh') }}
+
+    - name: Install the film toolchain
+      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != ''
+      shell: bash
+      env:
+        PYTHON: python
+      run: bash theme/film/setup.sh
+
+    - name: Save the film models
+      if: inputs.films == 'true' && hashFiles('theme/film/setup.sh') != '' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/save@v5
+      with:
+        path: .cache/film/models
+        key: ${{ steps.film-models-cache.outputs.cache-primary-key }}
+
     - name: Toolchain versions
       shell: bash
       run: |
         python --version
         node --version
         if command -v mdbook >/dev/null; then mdbook --version; fi
+        if command -v ffmpeg >/dev/null; then ffmpeg -version | head -n 1; fi
         if command -v java >/dev/null; then java -version 2>&1 | head -n 1; else echo "::warning::java not found: EPUB validation (epubcheck) will be skipped or fail"; fi
