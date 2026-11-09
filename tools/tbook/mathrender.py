@@ -14,9 +14,11 @@ read the same sources with Pandoc, so all targets agree on what is a formula):
 * ``$$…$$`` is display math and may span lines;
 * neither crosses a blank line (or a line of only ``>``); a formula that goes on over lines
   keeps them in its paragraph: Pandoc reads it before the block rules, and
-  :func:`tbook.mdscan.scan_blocks` pairs ``$`` the same way (:func:`tbook.mdscan._formula_end`),
+  :func:`tbook.mdscan.scan_blocks` pairs ``$`` the same way (:class:`tbook.mdscan._Formulas`),
   so a line inside it such as
-  ``+      89 \\\\`` or ``=`` starts no list item, code block or heading for any target;
+  ``+      89 \\\\`` or ``=`` starts no list item, code block or heading for any target; a line
+  that opens a fenced code block does, so no formula runs over one (the fence is masked as
+  code; Pandoc pairs such a ``$`` and ``./tbook check`` warns);
   ``\\$`` (a ``$`` after an odd number of backslashes) is a
   literal dollar; ``\\|`` inside a formula stays ``\\|`` (the norm bar), in table rows too:
   Pandoc keeps it, and the formula is rendered before mdBook splits the row into cells;
@@ -205,24 +207,37 @@ def _mask(text: str) -> tuple[bytearray, list[bool]]:
     return mask, html_lines
 
 
-def _find_close(text: str, mask: bytearray, start: int, display: bool) -> int | None:
-    """Offset of the closing delimiter of a formula whose body starts at ``start``."""
-    n = len(text)
-    blank = BLANK_LINE_RE.search(text, start)
-    limit = blank.start() if blank else n
-    k = start
-    while k < limit:
-        if mask[k]:
+class _Closers:
+    """Where a formula whose body starts at a given offset closes (:meth:`find`), by bisection over
+    offsets found once: the ``$`` that can close ``$…$`` or ``$$…$$``, the masked runs and the blank
+    lines. Many ``$`` left unpaired in one paragraph cost no more than the text."""
+
+    def __init__(self, text: str, mask: bytearray):
+        n = len(text)
+        dollars = [k for k in (m.start() for m in re.finditer(r"\$", text)) if not mask[k] and not _escaped(text, k)]
+        self.inline = [k for k in dollars
+                       if k and not text[k - 1].isspace() and not (k + 1 < n and text[k + 1].isdigit())]
+        self.display = [k for k in dollars if k + 1 < n and text[k + 1] == "$" and not mask[k + 1]]
+        self.masked = [m.start() for m in re.finditer(rb"\x01+", mask)]  # where each masked run starts
+        self.blanks = [m.start() for m in _BLANK_AT_RE.finditer(text)]  # where BLANK_LINE_RE matches
+        self.mask = mask
+
+    def find(self, start: int, display: bool) -> int | None:
+        """Offset of the closing delimiter of a formula whose body starts at ``start``: the first ``$``
+        (``$$``) that can close it before a blank line and before any masked character."""
+        limits = [len(self.mask)]
+        if start < len(self.mask) and self.mask[start]:
             return None
-        if text[k] == "$" and not _escaped(text, k):
-            if display:
-                if k + 1 < n and text[k + 1] == "$" and not mask[k + 1]:
-                    return k
-            else:
-                if not text[k - 1].isspace() and not (k + 1 < n and text[k + 1].isdigit()):
-                    return k
-        k += 1
-    return None
+        for found in (self.masked, self.blanks):
+            k = bisect.bisect_left(found, start)
+            if k < len(found):
+                limits.append(found[k])
+        found = self.display if display else self.inline
+        k = bisect.bisect_left(found, start)
+        return found[k] if k < len(found) and found[k] < min(limits) else None
+
+
+_BLANK_AT_RE = re.compile(r"\n(?=[ \t>]*\n)")
 
 
 def find_math(text: str) -> tuple[list[MathSpan], list[tuple[int, str]]]:
@@ -235,27 +250,28 @@ def find_math(text: str) -> tuple[list[MathSpan], list[tuple[int, str]]]:
 
     spans: list[MathSpan] = []
     notes: list[tuple[int, str]] = []
+    closers = _Closers(text, mask)
     n = len(text)
-    i = 0
-    while i < n:
-        if text[i] != "$" or mask[i] or _escaped(text, i):
-            i += 1
+    i = text.find("$")
+    while 0 <= i < n:
+        if mask[i] or _escaped(text, i):
+            i = text.find("$", i + 1)
             continue
         display = i + 1 < n and text[i + 1] == "$" and not mask[i + 1]
         width = 2 if display else 1
         if not display and (i + 1 >= n or text[i + 1].isspace()):
-            i += 1
+            i = text.find("$", i + 1)
             continue
-        close = _find_close(text, mask, i + width, display)
+        close = closers.find(i + width, display)
         if close is None:
             if display:
                 notes.append((line_of(i), "unpaired $$ left as text"))
-            i += width
+            i = text.find("$", i + width)
             continue
         body = text[i + width:close]
         end = close + width
         if not body.strip():
-            i = end
+            i = text.find("$", end)
             continue
         line = line_of(i)
         if html_lines[line - 1]:
@@ -275,7 +291,7 @@ def find_math(text: str) -> tuple[list[MathSpan], list[tuple[int, str]]]:
                 # Continuation lines of a formula inside a block quote carry the markers.
                 body = re.sub(r"\n[ \t]*(?:>[ \t]?)+", "\n", body)
         spans.append(MathSpan(i, end, body.strip() if display else body, display, block, line, prefix))
-        i = end
+        i = text.find("$", end)
     return spans, notes
 
 

@@ -248,16 +248,17 @@ def load_edition(edition: config.Edition) -> EditionModel:
             else:
                 doc.envs.append(env)
         # As the builds read them: not in code, not in HTML comments; Lean links inline
-        # (``(lean:…)``, ``(<lean:…>)``, ``<lean:…>``) or in reference definitions (``[x]: lean:…``).
-        for lineno, line in mdscan.iter_text_lines(blocks):
+        # (``(lean:…)``, ``(<lean:…>)``, ``<lean:…>``) or in reference definitions (``[x]: lean:…``),
+        # which cannot interrupt a paragraph (mdscan.definition_roles).
+        for lineno, line, role in mdscan.iter_text(blocks):
             for m in mdscan.find_outside_code(mdscan.REF_RE, line):
                 doc.refs.append((lineno, m.group("id")))
-            for gid in mdscan.lean_link_gids(line):
+            for gid in mdscan.lean_link_gids(line, role):
                 doc.lean_links.append((lineno, gid))
         # A Lean link the line scanner cannot read cites a declaration nothing checks; the builds drop it.
         for node in mdscan.walk(blocks):
             if isinstance(node, mdscan.Text):
-                for stray in mdscan.stray_lean_links(node.lines):
+                for stray in mdscan.stray_lean_links(node.lines, node.cont):
                     issues.append(Issue("error", path, node.start + stray.line, STRAY_LEAN))
         model.chapters.append(doc)
     for ch in model.chapters:

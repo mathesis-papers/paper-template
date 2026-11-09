@@ -16,7 +16,8 @@ It understands just enough of Pandoc Markdown for the book conventions:
   nested by stack, as in Pandoc;
 * inline code spans, so that ``[@ref]``, ``lean:`` links and math inside code are ignored;
 * cross references ``[@id]``, links and images (:data:`LINK_RE`), link reference
-  definitions (:data:`REFDEF_RE`, also in block quotes and list items) and Lean links
+  definitions (:data:`REFDEF_RE`, also in block quotes and list items, only where one may begin:
+  :func:`definition_roles`) and Lean links
   ``[text](lean:GID)`` in every one-line form (:func:`lean_link_gids`), and those it cannot read
   because they run across lines (:func:`stray_lean_links`; a ``<lean:GID>`` destination of one is
   no autolink, :func:`hide_lean_destinations`);
@@ -25,6 +26,7 @@ It understands just enough of Pandoc Markdown for the book conventions:
 
 from __future__ import annotations
 
+import bisect
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Iterator
@@ -74,8 +76,10 @@ LEAN_AUTOLINK_RE = re.compile(r"<lean:(?P<gid>[^\s<>]*)>")
 # destination only an optional title ("…", '…' or (…), with backslash escapes; it may continue on
 # the next line). ``[注]: 见 [图](a.svg)`` or ``[1]: Knuth, TAOCP.`` is a paragraph, not a
 # definition, and so is a footnote ``[^x]:``. REFDEF_DEST is what follows the label: the destination
-# and the optional title, to the end of the line.
-REFDEF_DEST = (r"""(?P<url><[^<>\n]*>|\S+)"""
+# and the optional title, to the end of the line. A plain destination cannot start with "<": in
+# ``[3]: <lean:GID>，文字`` the line is a paragraph and ``<lean:GID>`` an autolink. A definition cannot
+# interrupt a paragraph: :func:`definition_roles` says on which lines one may begin.
+REFDEF_DEST = (r"""(?P<url><[^<>\n]*>|(?!<)\S+)"""
                r"""(?P<rest>(?:[ \t]+(?:"(?:[^"\\]|\\.)*+"?|'(?:[^'\\]|\\.)*+'?|\((?:[^()\\]|\\.)*+\)?))?[ \t]*)$""")
 REFDEF_RE = re.compile(r"""^(?P<lead>""" + CONTAINER + r"""\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*)""" + REFDEF_DEST)
 ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:_-]*$")
@@ -153,6 +157,8 @@ class Text:
     # Per line: an inline HTML comment is open at its start / at its end (:attr:`BlockScan.carry`);
     # read the lines through :func:`text_views` / :func:`map_text`.
     carry: list[tuple[bool, bool]] = field(default_factory=list)
+    # Per line: it goes on with the paragraph of the line before (:attr:`BlockScan.cont`; :func:`text_roles`).
+    cont: list[bool] = field(default_factory=list)
 
 
 @dataclass
@@ -200,7 +206,9 @@ class ScanIssue:
 # (pulldown-cmark) and Pandoc share for these constructs. Tabs count to the next multiple of
 # 4 columns. Where the two read the same text differently, it follows one of them and records
 # a warning (:attr:`BlockScan.notes`): a fenced code block that ends without its closing fence
-# (mdBook), a definition list term (Pandoc) and a GFM table (mdBook, for inline comments).
+# (mdBook), a definition list term and a definition whose body follows its empty ':' line after a
+# blank line (Pandoc), a GFM table (mdBook, for inline comments) and a formula that would run over
+# a line opening a fenced code block (mdBook: the HTML edition renders formulas around code).
 # Not modelled: the inside of raw HTML blocks (Pandoc reads Markdown there, mdBook does not),
 # link reference definitions over several lines, and Pandoc-only list markers (``a.``,
 # ``(1)``, ``#.``).
@@ -213,7 +221,9 @@ _FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,}) *$")
 _HR_RE = re.compile(r"(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
 _SETEXT_RE = re.compile(r"(?:=+|-+) *$")
 _LIST_RE = re.compile(r"(?:[-+*]|([0-9]{1,9})[.)])(?= |$)")
-_DEFINITION_RE = re.compile(r"[:~](?= )")  # a definition (Pandoc; pulldown-cmark only ':'): its body is a container
+# A definition (Pandoc; pulldown-cmark only ':'): its body is a container. On a ':' line that holds nothing
+# else, the body starts in the column after the ':' (both renderers).
+_DEFINITION_RE = re.compile(r"[:~](?= |$)")
 _FOOTNOTE_START_RE = re.compile(r"\[\^[^\]\s]+\]:")  # a footnote definition: its body is indented 4 columns
 _ATX_RE = re.compile(r"#{1,6}(?= |$)")
 # HTML blocks that may interrupt a paragraph (CommonMark types 1 and 3-6; type 2 is a comment).
@@ -226,7 +236,7 @@ _HTML_BLOCK_RE = re.compile(
 # A formula never runs over a line of only spaces, tabs and '>' (tbook.mathrender.BLANK_LINE_RE).
 _MATH_BREAK_RE = re.compile(r"[ \t>]*$")
 # Besides code spans and HTML comments, no formula reaches into raw code-like elements, HTML tags
-# (attribute values), autolinks or link destinations (tbook.mathrender._mask, _formula_end).
+# (attribute values), autolinks or link destinations (tbook.mathrender._mask, _Formulas).
 MATH_OPAQUE = (
     re.compile(r"<(code|pre|script|style|textarea|kbd|samp|math|svg)\b[^>]*>.*?</\1\s*>", re.S | re.I),
     re.compile(r"""</?[A-Za-z][A-Za-z0-9-]*"""
@@ -249,6 +259,13 @@ _TERM = ("mdBook (HTML) reads this ':' line as a definition of the paragraph bef
          "Pandoc; write the term on one line above the definition, or write '\\:' if this is no definition")
 _TILDE = ("'~' starts a definition for Pandoc (PDF/EPUB) but not for mdBook (HTML), which shows the line as "
           "text; write ':' instead")
+_EMPTY_DEF = ("this definition's ':' line holds nothing and a blank line follows it: mdBook (HTML) ends the "
+              "definition there, while Pandoc (PDF/EPUB) reads the indented lines after the blank line as its "
+              "body. The tools follow Pandoc; write the first line of the definition on the ':' line")
+_FORMULA_CUT = ("the '{dollar}' at column {col} is not closed before the fenced code block on line {fence}: the "
+                "HTML edition shows the code block, while Pandoc (PDF/EPUB) pairs this '{dollar}' with the one on "
+                "line {close} and reads everything between, the fence included, as a formula; write '\\$' for a "
+                "dollar sign")
 
 
 class _Def(int):
@@ -270,6 +287,9 @@ class BlockScan:
     unclosed: list[tuple[int, int]] = field(default_factory=list)
     # (line, message): where mdBook and Pandoc read the text differently (``parse_blocks`` warns).
     notes: list[tuple[int, str]] = field(default_factory=list)
+    # Per line: a text line that goes on with the paragraph of the line before (lazily, or inside a
+    # formula; not a table row). A link reference definition cannot begin there (:func:`definition_roles`).
+    cont: list[bool] = field(default_factory=list)
 
     @property
     def hidden(self) -> list[bool]:
@@ -300,15 +320,21 @@ def scan_blocks(lines: list[str]) -> BlockScan:
     * anything else is text: headings, thematic breaks, ``:::`` div fences and HTML blocks end
       the paragraph before them, other lines start or go on with one.
 
-    A formula (``$…$`` or ``$$…$$``, paired as :func:`_formula_end` says) that begins on a line
+    A formula (``$…$`` or ``$$…$$``, paired as :class:`_Formulas` says) that begins on a line
     of a paragraph and ends on a later line takes the lines up to its end into the paragraph:
     Pandoc reads it before the block rules, and the HTML edition renders it before mdBook runs,
-    so no list item, heading, code or comment starts inside it.
+    so no list item, heading, code or comment starts inside it. It never runs over a line that
+    would open a fenced code block in the paragraph's containers: a ``$`` left unpaired before
+    a code block (``$PATH：`` above ``export PATH=$HOME``) would otherwise take the code into a
+    formula, and its closing fence would open a code block to the end of the text. Pandoc
+    does pair such a ``$``: noted.
 
     A definition follows its term (Pandoc's rule): a paragraph of one line in the same
     container, right before it or before one blank line; or a definition of the same term,
     after any blank lines. mdBook takes any paragraph of the container as the term, with any
-    blank lines between, and does not know ``~``: those cases are noted.
+    blank lines between, and does not know ``~``: those cases are noted. A ``:`` line that holds
+    nothing else starts a definition whose body starts in the next column; a blank line after
+    it ends the definition for mdBook, not for Pandoc: noted when the body goes on.
 
     The rows of a GFM table (a line with ``|`` followed by a delimiter row such as
     ``| --- | :-: |`` with as many cells, as pulldown-cmark reads it) are each a paragraph of
@@ -330,27 +356,22 @@ def scan_blocks(lines: list[str]) -> BlockScan:
     last: list[int] = []  # the containers of the last non-blank line
     term: tuple[int, int] | None = None  # its paragraph (a term?): (container depth, lines)
     formula = (-1, 0)  # a formula goes on to (line, column just past it): the lines up to it are its paragraph's
+    formulas = _Formulas(lines, notes)
     comment = False  # an inline comment is open at the end of the paragraph's last line
     empty_item = 0  # len(stack) after a list item whose first line is blank, on the next line
     code = -1  # first line of the indented code block a code line after blank lines would go on with
+    bare = (-1, 0)  # a definition whose ':' line holds nothing: (that line, len(stack) in it)
     for i, raw in enumerate(lines):
         if i and kinds[i - 1] != BLANK:
             last = stack[:]
             term = (depth, i - para) if leaf == "p" and para >= 0 and not table else None
         line = raw.expandtabs(4)
-        pos = keep = 0  # keep: containers this line continues
+        keep, pos = _continued(line, stack)  # keep: containers this line continues
         fresh, empty_item = empty_item, 0
-        for col in stack:
-            if col < 0:
-                m = _QUOTE_MARK_RE.match(line, pos)
-                if not m:
-                    break
-                pos = m.end() + (line[m.end():m.end() + 1] == " ")
-            elif line[pos:].strip(" "):
-                if len(line) - pos - len(line[pos:].lstrip(" ")) < col:
-                    break
-                pos += col
-            keep += 1
+        if bare[0] >= 0 and line[pos:].strip(" "):
+            if i > bare[0] + 1 and keep >= bare[1]:  # the body goes on after a blank line
+                notes.append((bare[0], _EMPTY_DEF))
+            bare = (-1, 0)
         if fresh and keep >= fresh and not line[pos:].strip(" "):
             keep = fresh - 1  # a list item can begin with at most one blank line
         if isinstance(leaf, tuple):
@@ -468,6 +489,8 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                 stack.append(_Def(ind + m.end() + (1 if gap > 4 else gap)))
                 keep = len(stack)
                 leaf, code = None, -1
+                if not after.strip(" "):
+                    bare = (i, keep)
                 pos += stack[-1]
                 continue
             m = _FOOTNOTE_START_RE.match(body)
@@ -500,7 +523,7 @@ def scan_blocks(lines: list[str]) -> BlockScan:
             lead = comment and cont[i]
             if not lead or "-->" in raw:
                 comment = _open_comment(close_comments(raw, (lead, False))) is not None
-                end = _formula_end(lines, i, formula[1] if i == formula[0] else 0, (lead, comment))
+                end = formulas.end(i, formula[1] if i == formula[0] else 0, (lead, comment), tuple(stack))
                 if end is not None:
                     formula = end
         if kinds[i] not in (CODE, BLANK):
@@ -522,82 +545,229 @@ def scan_blocks(lines: list[str]) -> BlockScan:
         if opened is not None:
             unclosed.append((i + opened[0], opened[1]))
         i = j
-    return BlockScan(list(lines), kinds, blocks, carry, unclosed, notes)
+    cont = [c and k == TEXT for c, k in zip(cont, kinds)]
+    return BlockScan(list(lines), kinds, blocks, carry, unclosed, notes, cont)
 
 
 def _escaped(line: str, k: int) -> bool:
     """True if ``line[k]`` follows an odd number of backslashes."""
-    return (k - len(line[:k].rstrip("\\"))) % 2 == 1
+    j = k
+    while j and line[j - 1] == "\\":
+        j -= 1
+    return (k - j) % 2 == 1
 
 
-def _formula_end(lines: list[str], i: int, start: int, carry: tuple[bool, bool]) -> tuple[int, int] | None:
-    """Where the first formula that begins on line ``i`` at or after column ``start`` and ends on a
-    later line ends: (that line, the column just past its closing ``$`` or ``$$``); None if no
-    formula from there goes on over lines.
-
-    ``$`` pairs as :func:`tbook.mathrender.find_math` pairs it: not escaped and not in a code span, an
-    HTML comment (``carry`` is the line's :attr:`BlockScan.carry`) or a :data:`MATH_OPAQUE` match;
-    ``$$…$$`` is display math; ``$…$`` has no space after the opening ``$`` or before the closing one,
-    which is not followed by a digit; a formula does not go on over a line of only spaces, tabs and
-    ``>``, or past any of those. Unlike ``find_math``, which reads the whole text, this reads them line
-    by line: an HTML tag or element that runs over lines is not seen."""
-    line = lines[i]
-    spans = _math_spans(line, carry)
-    k = start
-    while k < len(line):
-        skip = next((b for a, b in spans if a <= k < b), None)
-        if skip is not None:
-            k = skip
-            continue
-        if line[k] != "$" or _escaped(line, k):
-            k += 1
-            continue
-        display = line.startswith("$$", k) and not _inside(k + 1, spans)
-        if not display and (k + 1 == len(line) or line[k + 1].isspace()):
-            k += 1
-            continue
-        width = 2 if display else 1
-        close = _formula_close(lines, i, k + width, display, spans)
-        if close is None:
-            k += width
-        elif close[0] > i:
-            return close[0], close[1] + width
-        else:
-            k = close[1] + width
-    return None
+def _continued(line: str, stack: list[int] | tuple[int, ...]) -> tuple[int, int]:
+    """How many containers of ``stack`` (:func:`scan_blocks`) ``line`` (tabs expanded) goes on with, and
+    the column where its text starts inside them."""
+    pos = keep = 0
+    for col in stack:
+        if col < 0:
+            m = _QUOTE_MARK_RE.match(line, pos)
+            if not m:
+                break
+            pos = m.end() + (line[m.end():m.end() + 1] == " ")
+        elif line[pos:].strip(" "):
+            if len(line) - pos - len(line[pos:].lstrip(" ")) < col:
+                break
+            pos += col
+        keep += 1
+    return keep, pos
 
 
-def _formula_close(lines: list[str], i: int, k: int, display: bool,
-                   spans: list[tuple[int, int]]) -> tuple[int, int] | None:
-    """(line, column) of the delimiter that closes a formula whose body starts on line ``i`` at
-    column ``k`` (``spans``: the code spans and comments of that line), or None (:func:`_formula_end`)."""
-    while True:
-        line = lines[i]
-        while k < len(line):
-            if _inside(k, spans):
+def _opens_fence(line: str, stack: tuple[int, ...]) -> bool:
+    """True if ``line``, after a line of a paragraph in the containers ``stack``, opens a fenced code block
+    (in those containers, or outside the ones it does not go on with)."""
+    line = line.expandtabs(4)
+    _, pos = _continued(line, stack)
+    body = line[pos:].lstrip(" ")
+    return len(line) - pos - len(body) < 4 and bool(_FENCE_OPEN_RE.match(body))
+
+
+class _Dollars:
+    """One line as a formula delimiter reads it (:class:`_Formulas`): the parts no formula reaches into
+    (:func:`_math_spans`, merged and in order), the unescaped ``$`` outside them (``opens``), and of those
+    the ones that can close ``$…$`` (``inline``: not after a space, not before a digit, not in column 0)
+    or start a ``$$`` that can close ``$$…$$`` (``display``). Searched by bisection."""
+
+    def __init__(self, line: str, carry: tuple[bool, bool]):
+        self.line = line
+        spans = _math_spans(line, carry)
+        self.starts = [a for a, _ in spans]
+        self.ends = [b for _, b in spans]
+        self.opens = [k for k in _dollar_columns(line) if not self.inside(k) and not _escaped(line, k)]
+        self.inline = [k for k in self.opens if k and not line[k - 1].isspace() and not line[k + 1:k + 2].isdigit()]
+        self.display = [k for k in self.opens if line.startswith("$$", k) and not self.inside(k + 1)]
+
+    def inside(self, k: int) -> bool:
+        j = bisect.bisect_right(self.starts, k) - 1
+        return j >= 0 and k < self.ends[j]
+
+    def close(self, k: int, display: bool) -> int | None:
+        """The column of the first delimiter at or after ``k`` that closes a formula (display or not);
+        -1 if a part no formula reaches into comes first, so the formula does not close; None if
+        neither is on the line."""
+        j = bisect.bisect_right(self.starts, k) - 1
+        limit = k if j >= 0 and k < self.ends[j] else self.starts[j + 1] if j + 1 < len(self.starts) else None
+        found = self.display if display else self.inline
+        n = bisect.bisect_left(found, k)
+        if n < len(found) and (limit is None or found[n] < limit):
+            return found[n]
+        return None if limit is None else -1
+
+
+def _dollar_columns(line: str) -> list[int]:
+    out = []
+    k = line.find("$")
+    while k >= 0:
+        out.append(k)
+        k = line.find("$", k + 1)
+    return out
+
+
+class _Formulas:
+    """Pairs ``$`` over the lines of a text for :func:`scan_blocks`, as :func:`tbook.mathrender.find_math`
+    pairs it, in time linear in the text.
+
+    A ``$`` is a delimiter when it is not escaped and not in a code span, an HTML comment or a
+    :data:`MATH_OPAQUE` match; ``$$…$$`` is display math; ``$…$`` has no space after the opening ``$``
+    or before the closing one, which is not followed by a digit (a closer that fails is skipped). A
+    formula does not go on over a line of only spaces, tabs and ``>``, nor over a line that opens a
+    fenced code block, nor past any of the parts above. Unlike ``find_math``, which reads the whole
+    text, this reads them line by line: an HTML tag or element that runs over lines is not seen.
+
+    Where a formula goes on from the start of a line is worked out once per line (``ahead``), so
+    many ``$`` left unpaired in one paragraph or table cost no more than the text."""
+
+    def __init__(self, lines: list[str], notes: list[tuple[int, str]]):
+        self.lines = lines
+        self.notes = notes
+        self.cont: dict[int, _Dollars] = {}  # lines read as the continuation of a formula
+        self.raws: dict[int, tuple[list[int], list[int]]] = {}  # lines as Pandoc reads them (:meth:`_raw`)
+        # (display, the containers of the paragraph; "pandoc" for Pandoc's reading) → line → where it closes
+        self.ahead: dict[tuple[bool, object], dict[int, tuple[int, int] | None]] = {}
+
+    def end(self, i: int, start: int, carry: tuple[bool, bool], stack: tuple[int, ...]) -> tuple[int, int] | None:
+        """Where the first formula that begins on line ``i`` at or after column ``start`` and ends on a
+        later line ends: (that line, the column just past its closing ``$`` or ``$$``); None if no
+        formula from there goes on over lines. ``carry`` is the line's :attr:`BlockScan.carry`,
+        ``stack`` the containers of its paragraph. A formula cut by a fenced code block that Pandoc
+        pairs over it is noted."""
+        d = _Dollars(self.lines[i], carry)
+        line = d.line
+        k, noted = start, False
+        while True:
+            n = bisect.bisect_left(d.opens, k)
+            if n == len(d.opens):
                 return None
-            if line[k] == "$" and not _escaped(line, k):
-                if display:
-                    if line.startswith("$$", k) and not _inside(k + 1, spans):
-                        return i, k
-                elif k and not line[k - 1].isspace() and not line[k + 1:k + 2].isdigit():
-                    return i, k
-            k += 1
-        i += 1
-        if i == len(lines) or _MATH_BREAK_RE.match(lines[i]):
-            return None
-        spans = _math_spans(lines[i], (False, True))  # a "<!--" left open hides the rest of the line
-        k = 0
+            k = d.opens[n]
+            display = line.startswith("$$", k) and not d.inside(k + 1)
+            width = 2 if display else 1
+            if not display and (k + 1 == len(line) or line[k + 1].isspace()):
+                k += 1
+                continue
+            col = d.close(k + width, display)
+            if col is not None:
+                k = k + width if col < 0 else col + width
+                continue
+            close = self._ahead(i + 1, display, stack)
+            if close is not None and close[0] >= 0:
+                return close[0], close[1] + width
+            if close is not None and not noted:  # cut by a fence: does Pandoc pair it over the fence?
+                over = self._pandoc(i, k + width, display)
+                if over is not None and over[0] >= close[1]:
+                    noted = True
+                    self.notes.append((i, _FORMULA_CUT.format(dollar="$" * width, col=k + 1, fence=close[1] + 1,
+                                                                close=over[0] + 1)))
+            k += width
+
+    def _ahead(self, j: int, display: bool, stack: object) -> tuple[int, int] | None:
+        """For a formula that goes on at the start of line ``j``: (line, column) of its closing delimiter,
+        (-1, line) of the line that opens a fenced code block in the containers ``stack`` first, or None
+        if it does not close. With ``stack`` "pandoc", the first ``$`` (``$$``) it meets, however the
+        lines read as blocks (:meth:`_pandoc`)."""
+        memo = self.ahead.setdefault((display, stack), {})
+        walked = []
+        while j not in memo:
+            walked.append(j)
+            if j == len(self.lines) or _MATH_BREAK_RE.match(self.lines[j]):
+                result = None
+                break
+            line = self.lines[j]
+            if stack == "pandoc":
+                found = self._raw(j)[display]
+                if found:
+                    result = (j, found[0])
+                    break
+                j += 1
+                continue
+            if _opens_fence(line, stack):
+                result = (-1, j)
+                break
+            d = self.cont.get(j)
+            if d is None:  # a "<!--" left open hides the rest of the line
+                d = self.cont[j] = _Dollars(line, (False, True))
+            col = d.close(0, display)
+            if col is not None:
+                result = (j, col) if col >= 0 else None
+                break
+            j += 1
+        else:
+            result = memo[j]
+        for w in walked:
+            memo[w] = result
+        return result
+
+    def _pandoc(self, i: int, k: int, display: bool) -> tuple[int, int] | None:
+        """Where Pandoc closes a formula whose body starts on line ``i`` at column ``k``, reading the text
+        before its block structure: at the first ``$$`` (display), or at the first unescaped ``$`` unless
+        a space or line end comes right before it or a digit right after it (then there is no formula);
+        no blank line between. (line, column), or None."""
+        cols = self._raw(i)[display]
+        n = bisect.bisect_left(cols, k)
+        found = (i, cols[n]) if n < len(cols) else self._ahead(i + 1, display, "pandoc")
+        if found is None or display:
+            return found
+        j, col = found
+        after = self.lines[j][col + 1:col + 2]
+        return None if col == 0 or self.lines[j][col - 1].isspace() or after.isdigit() else found
+
+    def _raw(self, j: int) -> tuple[list[int], list[int]]:
+        """The columns of line ``j`` where Pandoc may close a formula: unescaped ``$``, and ``$$``."""
+        raw = self.raws.get(j)
+        if raw is None:
+            line = self.lines[j]
+            cols = _dollar_columns(line)
+            raw = self.raws[j] = ([c for c in cols if not _escaped(line, c)],
+                                  [c for c in cols if line.startswith("$$", c)])
+        return raw
 
 
 def _math_spans(line: str, carry: tuple[bool, bool]) -> list[tuple[int, int]]:
-    """The parts of ``line`` no formula reaches into, as tbook.mathrender._mask finds them on one line:
-    code spans and comments (:func:`hidden_spans`), then each :data:`MATH_OPAQUE` match that does
-    not start inside an earlier part."""
+    """The parts of ``line`` no formula reaches into, as tbook.mathrender._mask finds them on one line,
+    merged and in order: code spans and comments (:func:`hidden_spans`), then each :data:`MATH_OPAQUE`
+    match that does not start inside an earlier part."""
     spans = hidden_spans(line, carry)
     for pattern in MATH_OPAQUE:
-        spans += [m.span() for m in pattern.finditer(line) if not _inside(m.start(), spans)]
+        starts = [a for a, _ in spans]
+        found = []
+        for m in pattern.finditer(line):
+            j = bisect.bisect_right(starts, m.start()) - 1
+            if j < 0 or m.start() >= spans[j][1]:
+                found.append(m.span())
+        if found:
+            spans = _merged(spans + found)
     return spans
+
+
+def _merged(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
 
 
 def _table_cols(row: str) -> int:
@@ -727,8 +897,9 @@ def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]
         if nodes and isinstance(nodes[-1], Text):
             nodes[-1].lines.append(line)
             nodes[-1].carry.append(scan.carry[lineno - 1])
+            nodes[-1].cont.append(scan.cont[lineno - 1])
         else:
-            nodes.append(Text([line], lineno, [scan.carry[lineno - 1]]))
+            nodes.append(Text([line], lineno, [scan.carry[lineno - 1]], [scan.cont[lineno - 1]]))
 
     for k, col in scan.unclosed:
         later = next((j for j in range(k + 1, len(lines)) if "-->" in lines[j]), None)
@@ -885,8 +1056,77 @@ def unangle(url: str) -> str:
 
 
 def refdef(line: str) -> re.Match | None:
-    """``line`` as a link reference definition (:data:`REFDEF_RE`), or None (also for footnotes)."""
+    """``line`` as a link reference definition (:data:`REFDEF_RE`), or None (also for footnotes). Only
+    on a line where a definition may begin (:data:`DEF_START`, :func:`definition_roles`)."""
     return REFDEF_RE.match(line)
+
+
+# What a text line is to the link reference definitions of its paragraph (:func:`definition_roles`).
+DEF_START, DEF_DEST = "start", "dest"
+# ``[label]:`` with nothing after the colon (``[^x]:`` is a footnote), the label as CommonMark has it.
+LABEL_ONLY_RE = re.compile(r"^(?P<indent>" + CONTAINER + r")\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*$")
+# The line after such a label: a destination and an optional title (after the label's block-quote markers).
+_NEXT_DEST_RE = re.compile(r"[ \t]*" + REFDEF_DEST)
+_NEXT_QUOTE_RE = re.compile(r"[ \t]*>")
+# A whole title, and the rest of one begun on an earlier line, by its closing quote or parenthesis.
+_TITLE_RE = {'"': re.compile(r'"(?:[^"\\]|\\.)*+"'), "'": re.compile(r"'(?:[^'\\]|\\.)*+'"),
+             ")": re.compile(r"\((?:[^()\\]|\\.)*+\)")}
+_TITLE_END_RE = {'"': re.compile(r'(?:[^"\\]|\\.)*+"'), "'": re.compile(r"(?:[^'\\]|\\.)*+'"),
+                 ")": re.compile(r"(?:[^()\\]|\\.)*+\)")}
+
+
+def definition_roles(lines: list[str], cont: list[bool] | None = None) -> list[str]:
+    """Per line of consecutive text lines, what it is to the link reference definitions of its paragraph,
+    as CommonMark (mdBook) and Pandoc read them: a definition cannot interrupt a paragraph.
+
+    :data:`DEF_START` where a definition may begin: the line starts a paragraph, or follows a definition
+    at the start of one (also one whose title goes on over lines); :data:`DEF_DEST` on the line after a
+    ``[label]:`` that begins one with nothing after the colon, when it holds the destination (and an
+    optional title); "" elsewhere, so ``para\\n[fig]: a.svg`` is text. ``cont`` is
+    :attr:`BlockScan.cont` for ``lines`` (by default as :func:`scan_blocks` reads them alone)."""
+    if cont is None or len(cont) != len(lines):
+        cont = scan_blocks(lines).cont
+    out: list[str] = []
+    state, quotes = "", 0  # "def": one may begin; "label": a destination may follow; ")", '"', "'": a title goes on
+    for line, goes_on in zip(lines, cont):
+        if not goes_on:
+            state = "def"
+        role, rest = "", None
+        if state in _TITLE_END_RE:
+            if _TITLE_END_RE[state].match(line):
+                state = "def"
+            out.append(role)
+            continue
+        if state == "def":
+            role, m = DEF_START, REFDEF_RE.match(line)
+            label = None if m else LABEL_ONLY_RE.match(line)
+            if label and not REF_RE.match(line, label.end("indent")):  # ``[@id]`` becomes a link anyway
+                state, quotes = "label", label.group("indent").count(">")
+                out.append(role)
+                continue
+            rest = m.group("rest") if m else None
+        elif state == "label":
+            pos = 0
+            for _ in range(quotes):  # the block quotes of the label's line go on
+                q = _NEXT_QUOTE_RE.match(line, pos)
+                if not q:
+                    break
+                pos = q.end()
+            m = _NEXT_DEST_RE.match(line, pos)
+            if m:
+                role, rest = DEF_DEST, m.group("rest")
+        state = ""
+        if rest is not None:  # a definition ends here, unless its title goes on
+            title = rest.strip(" \t")
+            close = {'"': '"', "'": "'", "(": ")"}.get(title[:1], "")
+            state = close if close and not _TITLE_RE[close].fullmatch(title) else "def"
+        out.append(role)
+    return out
+
+
+def text_roles(node: Text) -> list[str]:
+    """:func:`definition_roles` for the lines of a text node."""
+    return definition_roles(node.lines, _node_cont(node))
 
 
 def quoted_title(title: str) -> str:
@@ -913,14 +1153,15 @@ def _inline_lean_urls(text: str) -> list[tuple[int, str]]:
     return sorted((pos, url) for pos, url in found if url.startswith("lean:"))
 
 
-def lean_link_gids(line: str) -> list[str]:
+def lean_link_gids(line: str, role: str = DEF_START) -> list[str]:
     """The GIDs that ``lean:`` links on ``line`` cite, read as tbook.render reads links: inline
     ``[text](lean:GID)`` and ``[text](<lean:GID>)`` (also images, any title, links in link text)
     and autolinks ``<lean:GID>`` outside code spans and comments, or the destination of a reference
-    definition ``[label]: lean:GID`` (also in a block quote or list item). Links written across
-    lines are not read: :func:`stray_lean_links` finds them. Read a text node's lines through
-    :func:`text_views`, where the ``<lean:GID>`` destination of such a link is no autolink."""
-    rd = refdef(line)
+    definition ``[label]: lean:GID`` (also in a block quote or list item) on a line where one may
+    begin (``role``, :func:`definition_roles`). Links written across lines are not read:
+    :func:`stray_lean_links` finds them. Read a text node's lines through :func:`iter_text`, where
+    the ``<lean:GID>`` destination of such a link is no autolink."""
+    rd = refdef(line) if role == DEF_START else None
     urls = [unangle(rd.group("url"))] if rd else [url for _, url in _inline_lean_urls(line)]
     return [url[len("lean:"):] for url in urls if url.startswith("lean:")]
 
@@ -929,18 +1170,25 @@ def _node_carry(node: Text) -> list[tuple[bool, bool]]:
     return node.carry if len(node.carry) == len(node.lines) else [(False, False)] * len(node.lines)
 
 
+def _node_cont(node: Text) -> list[bool] | None:
+    return node.cont if len(node.cont) == len(node.lines) else None
+
+
 def text_views(node: Text) -> list[str]:
     """The lines of ``node`` as the per-line scanners must read them (:func:`close_comments`,
-    :func:`hide_lean_destinations`)."""
-    return [close_comments(line, carry) for line, carry in zip(hide_lean_destinations(node.lines), _node_carry(node))]
+    :func:`hide_lean_destinations`); :func:`text_roles` says where a definition may begin."""
+    lines = hide_lean_destinations(node.lines, _node_cont(node))
+    return [close_comments(line, carry) for line, carry in zip(lines, _node_carry(node))]
 
 
-def map_text(node: Text, fn: Callable[[str], str]) -> list[str]:
+def map_text(node: Text, fn: Callable[..., str], roles: list[str] | None = None) -> list[str]:
     """``fn`` applied to each line of ``node``, inline comments that span lines kept out of its reach
     (:func:`map_closed`), and so are the ``<lean:…>`` destinations of links written across lines
-    (:func:`hide_lean_destinations`; they come back as written)."""
-    lines = hide_lean_destinations(node.lines)
-    out = [map_closed(fn, line, carry) for line, carry in zip(lines, _node_carry(node))]
+    (:func:`hide_lean_destinations`; they come back as written). With ``roles`` (:func:`text_roles`),
+    ``fn(line, role)``."""
+    lines = hide_lean_destinations(node.lines, _node_cont(node))
+    fns = [fn] * len(lines) if roles is None else [lambda s, r=role: fn(s, r) for role in roles]
+    out = [map_closed(f, line, carry) for f, line, carry in zip(fns, lines, _node_carry(node))]
     return out if lines is node.lines else [line.replace(_HIDDEN_LT, "<") for line in out]
 
 
@@ -960,9 +1208,10 @@ _WS1 = r"[ \t]*+(?:\n[ \t>]*+)?"
 _STRAY_LINK_RE = re.compile(
     r"\]\(" + _WS1 + r"(?P<dest><lean:[^<>\n]*>|lean:(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))*+)"
     r"(?:(?:[ \t]++(?:\n[ \t>]*+)?|\n[ \t>]*+)" + LINK_TITLE + r")?" + _WS1 + r"\)")
+# A definition: its destination may be followed only by a title (it may go on over lines) and the line end.
 _STRAY_DEF_RE = re.compile(
     r"^" + CONTAINER + r"\[(?!\^)(?:[^\[\]\\\n]|\\.|\n(?![ \t>]*\n))+\]:(?P<gap>" + _WS1
-    + r")(?P<dest><lean:[^<>\n]*>|lean:\S*)", re.M)
+    + r")(?P<dest><lean:[^<>\n]*>|lean:\S*)(?=[ \t]*$|[ \t]+[\"'(])", re.M)
 _STRAY_HTML_RE = re.compile(r"""\b(?:href|src)[ \t]*=[ \t]*["']?(?P<dest>lean:[^"'\s>]*)""", re.I)
 _BLANK_LINE_RE = re.compile(r"\n[ \t>]*\n")
 _MASK = "\x00"
@@ -993,24 +1242,28 @@ def _link_opener(text: str, close: int) -> int | None:
     return None
 
 
-def stray_lean_links(lines: list[str]) -> list[StrayLean]:
+def stray_lean_links(lines: list[str], cont: list[bool] | None = None) -> list[StrayLean]:
     """The ``lean:`` destinations of a block of text lines that :func:`lean_link_gids` does not read.
 
     A link whose text, destination or title runs across lines (``[a\\nb](lean:GID)``), a reference
     definition whose label runs across lines or whose destination is on the next line
     (``[x]:\\n  lean:GID``), and an ``href``/``src`` attribute of raw HTML. The destination may be
     written ``<lean:GID>``: CommonMark reads it as the link's destination, not as an autolink (the
-    line scanners do not either, :func:`hide_lean_destinations`). Code spans and HTML comments (also
-    those that run across lines) and every link the line scanner reads are skipped. Each
-    :class:`StrayLean` says what to write instead so no target shows a ``lean:`` destination: a link
-    becomes its text, a definition gets the destination ``#`` (as an unresolved one does), an
-    attribute gets ``#``.
+    line scanners do not either, :func:`hide_lean_destinations`). A definition is one only where it
+    may begin (``cont``: :attr:`Text.cont`, :func:`definition_roles`) and when only a title follows
+    its destination: ``[1]: <lean:GID> 文字`` on one line, or after a line of its paragraph, is text
+    with an autolink. Code spans and HTML comments (also those that run across lines) and every
+    link the line scanner reads are skipped. Each :class:`StrayLean` says what to write instead so
+    no target shows a ``lean:`` destination: a link becomes its text, a definition gets the
+    destination ``#`` (as an unresolved one does), an attribute gets ``#``.
     """
     original = "\n".join(lines)
     if "lean:" not in original:
         return []
+    roles = definition_roles(lines, cont)
     chars = list(original)
     spans: list[tuple[int, int]] = []
+    starts: list[int] = []  # where each line starts
     offset = para = 0  # para: where the current paragraph starts
     for k, line in enumerate(lines + [""]):
         if not line.strip(" \t>"):  # a blank line (also in a block quote) ends a paragraph
@@ -1018,7 +1271,8 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
             para = offset + len(line) + 1
         if k == len(lines):
             break
-        if refdef(line):
+        starts.append(offset)
+        if roles[k] == DEF_START and refdef(line):
             spans.append((offset, offset + len(line)))
         else:  # not the autolinks: the patterns below find one only where it is a destination
             spans += [(offset + m.start(), offset + m.end()) for m in find_outside_code(LINK_RE, line)]
@@ -1026,21 +1280,25 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
     for a, b in spans:
         chars[a:b] = _MASK * (b - a)
     text = "".join(chars)
+
+    def line_of(pos: int) -> int:
+        return bisect.bisect_right(starts, pos) - 1
+
     out: list[StrayLean] = []
     for m in _STRAY_LINK_RE.finditer(text):
         opener = _link_opener(text, m.start())
         if opener is None:
             continue  # no "[" opens it: plain text, not a link
         start = opener - 1 if opener and text[opener - 1] == "!" else opener
-        out.append(StrayLean(text.count("\n", 0, m.start("dest")), start, m.end(),
-                             original[opener + 1:m.start()], m.start("dest")))
+        out.append(StrayLean(line_of(m.start("dest")), start, m.end(), original[opener + 1:m.start()],
+                             m.start("dest")))
     for m in _STRAY_DEF_RE.finditer(text):
+        if roles[line_of(m.start())] != DEF_START or "\n" not in text[m.start():m.start("dest")]:
+            continue  # it cannot begin a definition here; on one line, REFDEF_RE has read it
         # " #" right after the label: a "#" opening the next line would be an (empty) ATX heading.
-        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("gap"), m.end("dest"), " #",
-                             m.start("dest")))
+        out.append(StrayLean(line_of(m.start("dest")), m.start("gap"), m.end("dest"), " #", m.start("dest")))
     for m in _STRAY_HTML_RE.finditer(text):
-        out.append(StrayLean(text.count("\n", 0, m.start("dest")), m.start("dest"), m.end("dest"), "#",
-                             m.start("dest")))
+        out.append(StrayLean(line_of(m.start("dest")), m.start("dest"), m.end("dest"), "#", m.start("dest")))
     return sorted(out, key=lambda s: s.start)
 
 
@@ -1049,16 +1307,17 @@ def stray_lean_links(lines: list[str]) -> list[StrayLean]:
 _HIDDEN_LT = "\ue000"
 
 
-def hide_lean_destinations(lines: list[str]) -> list[str]:
-    """``lines`` (consecutive text lines) with the ``<`` of each ``<lean:…>`` that is the destination of
-    a link or definition written across lines (:func:`stray_lean_links`) replaced by U+E000, so that
-    the line scanners do not read it as an autolink; ``lines`` itself when there is none. The line
-    scanners see ``b](<lean:GID>)`` or ``<lean:GID>`` alone on its line, while CommonMark reads it as
-    the destination of the link or definition begun on an earlier line."""
+def hide_lean_destinations(lines: list[str], cont: list[bool] | None = None) -> list[str]:
+    """``lines`` (consecutive text lines; ``cont`` as for :func:`stray_lean_links`) with the ``<`` of each
+    ``<lean:…>`` that is the destination of a link or definition written across lines
+    (:func:`stray_lean_links`) replaced by U+E000, so that the line scanners do not read it as an
+    autolink; ``lines`` itself when there is none. The line scanners see ``b](<lean:GID>)`` or
+    ``<lean:GID>`` alone on its line, while CommonMark reads it as the destination of the link or
+    definition begun on an earlier line."""
     text = "\n".join(lines)
     if "<lean:" not in text or _HIDDEN_LT in text:
         return lines
-    marks = [s.dest for s in stray_lean_links(lines) if text.startswith("<lean:", s.dest)]
+    marks = [s.dest for s in stray_lean_links(lines, cont) if text.startswith("<lean:", s.dest)]
     if not marks:
         return lines
     chars = list(text)
@@ -1067,12 +1326,14 @@ def hide_lean_destinations(lines: list[str]) -> list[str]:
     return "".join(chars).split("\n")
 
 
-def without_stray_lean(lines: list[str]) -> tuple[list[str], list[StrayLean]]:
-    """``lines`` with each :func:`stray_lean_links` replaced, and the strays (as found in ``lines``).
+def without_stray_lean(lines: list[str], cont: list[bool] | None = None) -> tuple[list[str], list[StrayLean]]:
+    """``lines`` with each :func:`stray_lean_links` replaced (``cont`` as there), and the strays (as found
+    in ``lines``).
 
     A stray inside another (raw HTML in the text of a link written across lines) is replaced on a
     later pass, once the outer one no longer overlaps it."""
-    found = strays = stray_lean_links(lines)
+    count = len(lines)
+    found = strays = stray_lean_links(lines, cont)
     for _ in range(8):
         if not strays:
             break
@@ -1084,7 +1345,7 @@ def without_stray_lean(lines: list[str]) -> tuple[list[str], list[StrayLean]]:
             text = text[:s.start] + s.replacement + text[s.end:]
             bound = s.start
         lines = text.split("\n")
-        strays = stray_lean_links(lines)
+        strays = stray_lean_links(lines, cont if len(lines) == count else None)
     return lines, found
 
 
@@ -1105,12 +1366,19 @@ def strip_lean_links(text: str) -> str:
 def iter_text_lines(nodes: list[Node]) -> Iterator[tuple[int, str]]:
     """(line number, text) for every line outside code and comment blocks, including lines nested in
     divs; an inline comment that spans lines is closed on each of them (:func:`text_views`)."""
+    for lineno, line, _ in iter_text(nodes):
+        yield lineno, line
+
+
+def iter_text(nodes: list[Node]) -> Iterator[tuple[int, str, str]]:
+    """(line number, text, role) for the lines of :func:`iter_text_lines`; the role (:func:`text_roles`)
+    says where a link reference definition may begin."""
     for node in nodes:
         if isinstance(node, Text):
-            for k, line in enumerate(text_views(node)):
-                yield node.start + k, line
+            for k, (line, role) in enumerate(zip(text_views(node), text_roles(node))):
+                yield node.start + k, line, role
         elif isinstance(node, Div):
-            yield from iter_text_lines(node.children)
+            yield from iter_text(node.children)
 
 
 # --------------------------------------------------------------------------- titles as inline Markdown
