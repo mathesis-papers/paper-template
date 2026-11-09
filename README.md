@@ -79,7 +79,7 @@
    ./tbook build all && ./tbook serve
    ```
 
-6. 在 GitHub：Settings → Pages → Source 选 **GitHub Actions**。推送到 `main` 即构建（含视频）并部署；打 tag `<slug>-v<version>` 即发布 Release（PDF、EPUB、幻灯片 PDF 与构建缓存）。输入未变的产物不再重建：CI 从 Actions 缓存或最近的已发布 Release 恢复，PR 运行只从 Release 恢复；本地构建设置 `TBOOK_CACHE_REMOTE=1` 时也从 Release 恢复（[docs/PUBLISHING.md](docs/PUBLISHING.md) §5）。
+6. 在 GitHub：Settings → Pages → Source 选 **GitHub Actions**。推送到 `main` 即构建（含视频）并部署；打 tag `<slug>-v<version>` 并推送即发布 Release（PDF、EPUB、幻灯片 PDF 与构建缓存；tag 的原理与步骤见 [docs/PUBLISHING.md](docs/PUBLISHING.md) §6）。输入未变的产物不再重建：CI 从 Actions 缓存或最近的已发布 Release 恢复，PR 运行只从 Release 恢复；本地构建设置 `TBOOK_CACHE_REMOTE=1` 时也从 Release 恢复（[docs/PUBLISHING.md](docs/PUBLISHING.md) §5）。
 
 ## 目录
 
