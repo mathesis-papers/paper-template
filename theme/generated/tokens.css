@@ -34,6 +34,7 @@
   --tr-sem-accent: var(--tr-magenta);
   --tr-font-display: "Chakra Petch", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --tr-font-body: "Noto Sans SC", "Chakra Petch", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --tr-font-body-latin: "Source Sans 3", "Noto Sans SC", "Chakra Petch", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --tr-font-serif: "Noto Serif SC", "Songti SC", "STSong", serif;
   --tr-font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
   --tr-font-film-display: "Orbitron", "DejaVu Sans", sans-serif;

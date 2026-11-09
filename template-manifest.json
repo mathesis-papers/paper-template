@@ -60,7 +60,7 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "dbfc7b644f920d679e2986de1496cb738e3a40f4e34b6b9e9a109ef7dae34afc",
+      "sha256": "ce0781ec7be8f6c121988b8e3bd538b483355734a6d52a8e08114e027421c64d",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "26ddda7cb492ca4f9bddb43d8fc7f1aed3d936bb34fe626d7b8b00b2b1cad5f9",
+      "sha256": "3f19d12cbfaeb7efb384017eb564ff6a618fe5446671c70c5a9421b581233e5b",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -280,7 +280,7 @@
       "mode": "100644"
     },
     "theme/film/site/films.css": {
-      "sha256": "2f56e7033fc2ffdb3588ce4e6ff926ca64572c432409cbd61b3c1288c31f9a16",
+      "sha256": "d2d2a855cb8e715e1100e31fd31e5251c11e39d875ece85a36f02d060d44e194",
       "mode": "100644"
     },
     "theme/film/site/films.js": {
@@ -292,15 +292,15 @@
       "mode": "100644"
     },
     "theme/generated/tokens.css": {
-      "sha256": "788d97fa4f6b0deaa0fd3497a36ed45cd6e50bbda5f1231826e9be5f0e6f3df6",
+      "sha256": "e78851e9f62802e7b944e096340173ca67a5b6ce0485edd87792306b90f49037",
       "mode": "100644"
     },
     "theme/generated/tokens.mjs": {
-      "sha256": "d7ad1f01eab9160a6ad7d2fbcc8acc90698faad5e164d8e15ba952c05e9f6f71",
+      "sha256": "d588679c7218a503ca4a13105f4da397cd38206b4c8b32dd9c1007d21862020b",
       "mode": "100644"
     },
     "theme/generated/tokens.typ": {
-      "sha256": "6aaa9dca22a3a321ad8e5b8213f673e48fd8b763fb369d36642d4880fd2b4770",
+      "sha256": "94511e1b6090fb0080ff9f9791a2a7acc4ded3b7a22f6a8bd79ce2b2384527ee",
       "mode": "100644"
     },
     "theme/i18n/en.toml": {
@@ -320,7 +320,7 @@
       "mode": "100644"
     },
     "theme/mdbook/tr-book.css": {
-      "sha256": "de47d64ab10919c7bcb3dc3d375b243a30d464e83be06f4f4df2d43cd00e71ac",
+      "sha256": "9c4f6e9e6520244b8669c7b6faa6e149a44ae0bf0ab2d450e2e748e2a3212396",
       "mode": "100644"
     },
     "theme/mdbook/tr-book.js": {
@@ -332,7 +332,7 @@
       "mode": "100644"
     },
     "theme/site/site.css": {
-      "sha256": "a3178bba98d4b94912407cd13eb518a9b2335649a7f5da9e73f42cb736c30481",
+      "sha256": "24222889d1b8ddc71231b686376576aa65ccf171061dd5edf1ca465ffed26955",
       "mode": "100644"
     },
     "theme/site/site.js": {
@@ -432,7 +432,7 @@
       "mode": "100644"
     },
     "theme/tokens.json": {
-      "sha256": "5eb6117e4af3af8f71fd388fd0c7403d2fb820ac7af285a1bf8ae9e543f6a548",
+      "sha256": "7fd4bf81b8269d759ef6e43ca4ffb4686f5c2c247c7a8b8233c888825372eafd",
       "mode": "100644"
     },
     "theme/typst/book.typ": {
@@ -468,7 +468,7 @@
       "mode": "100644"
     },
     "theme/viz/theme.css": {
-      "sha256": "0dd6ef05f509bc85f8bb8db328e7c47ed26bf8e2f07d97218dc6a85b1d6368e5",
+      "sha256": "e021a3877219d84113f0c2b2444c216848a1dc7862ded7375e19470de6a70953",
       "mode": "100644"
     },
     "tools/fetch-fonts.sh": {
@@ -584,7 +584,7 @@
       "mode": "100644"
     },
     "tools/tbook/html.py": {
-      "sha256": "8d42ee7c9ad24f4e0e7420ff7366f376fd39dff48c2e911844aec7a83136ff80",
+      "sha256": "9938fe2e15cd9ef1075297008e82e889a26d9170a6cdd6bac04dbea3626d2bec",
       "mode": "100644"
     },
     "tools/tbook/lean.py": {
@@ -600,7 +600,7 @@
       "mode": "100644"
     },
     "tools/tbook/mathrender.py": {
-      "sha256": "1f08b65cc9d16a38b25274849560d8a55727c1ec332cb27583924f28bf95f4fd",
+      "sha256": "341356248d6b913cb34f20b2d1210595f68b44f21c455ca4d725a6a308df5015",
       "mode": "100644"
     },
     "tools/tbook/mdscan.py": {
@@ -636,7 +636,7 @@
       "mode": "100644"
     },
     "tools/tbook/site.py": {
-      "sha256": "933ee8075f141a86e41f88ddd14ddd7e950419cceec0db1f763955f3c117533d",
+      "sha256": "b23fc5a6aebd88ddd8a5430786234bbdde74159868d33a5e28a083b10d8031a0",
       "mode": "100644"
     },
     "tools/tbook/slides.py": {
@@ -672,11 +672,11 @@
       "mode": "100644"
     },
     "tools/tests/test_film.py": {
-      "sha256": "5d2414bfdc9901eda2e9e83f15f37039ab1fcc7cfa1d2872ba4826d782760393",
+      "sha256": "393abba5c528f60054a01dd661f24f07174bfe63cc8575b912f057fcf5b29f8d",
       "mode": "100644"
     },
     "tools/tests/test_followups_core.py": {
-      "sha256": "ea2ba855789f56c574d65e989bf6f968f69c7dc09c1ed1038dff9a929364908e",
+      "sha256": "2f272d062de4a8b61fb01ce0413dcc199aa9484aa5d91550ef21e201d84adb43",
       "mode": "100644"
     },
     "tools/tests/test_followups_pandoc.py": {
@@ -684,7 +684,7 @@
       "mode": "100644"
     },
     "tools/tests/test_hide.py": {
-      "sha256": "2df96ca22076b8e8711e0bf810531b5c10e4bae926ec2cf72373b0945ff5ade3",
+      "sha256": "9a23b5b83461f47363c014f93f1e26358f81794fdf6e25822ab588dec9109b39",
       "mode": "100644"
     },
     "tools/tests/test_html.py": {
@@ -712,7 +712,7 @@
       "mode": "100644"
     },
     "tools/tests/test_site.py": {
-      "sha256": "69a535bd02c2b89ac975886b4adb646aec1a378570fd870e1faaa2d0d87c67ad",
+      "sha256": "79e4d865a40d57913da6e2c68e6005430d6e7c17da6c83095ff4ca3f4eed2e83",
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {

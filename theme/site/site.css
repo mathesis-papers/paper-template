@@ -33,6 +33,9 @@ body {
   line-height: 1.65;
   overflow-x: hidden;
 }
+/* Text in a language other than Chinese, Japanese or Korean (the English interface, lang="en" elements): a Latin
+   face first, so curly quotes and apostrophes are not the full-width glyphs of the CJK face (Chinese keeps them). */
+:not(:lang(zh), :lang(ja), :lang(ko)) { --tr-font-body: var(--tr-font-body-latin); }
 /* subtle CRT scanlines over everything; never intercepts input */
 body::after {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
@@ -221,7 +224,10 @@ a.pill:hover { border-color: var(--tr-cyan); color: var(--tr-cyan); }
   display: block; position: relative; background: var(--tr-stage); border-right: 1px solid var(--edge); overflow: hidden;
   text-decoration: none; color: inherit;
 }
-.book .cover-link img { display: block; width: 100%; height: 100%; object-fit: cover; aspect-ratio: 5 / 8; transition: transform 0.6s ease, filter 0.6s ease; }
+/* the whole 5:8 cover at the top of its column (the column is as tall as the card's text, which may be taller
+   than the cover: the stage background fills the rest; a stretched image would be cropped) */
+.book .cover-link img { display: block; width: 100%; height: auto; object-fit: cover; aspect-ratio: 5 / 8; transition: transform 0.6s ease, filter 0.6s ease; }
+.book .cover-link .cover-css { height: auto; }
 .book:hover .cover-link img, .book:focus-within .cover-link img { transform: scale(1.025); filter: saturate(1.2) brightness(1.06); }
 .book .body { padding: 18px 20px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .book .code { margin: 0; font-family: var(--tr-font-data); font-size: 11.5px; letter-spacing: 0.12em; color: var(--tr-magenta); }
@@ -319,20 +325,21 @@ a.pill:hover { border-color: var(--tr-cyan); color: var(--tr-cyan); }
 .toc .ledger a { color: var(--tr-ok); }
 .toc .ledger a:hover { color: var(--tr-ink); }
 
-/* verification */
-.vlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.vlist li {
+/* verification (ul.vlist: KaTeX's own layout spans in the formulas of titles are .vlist too) */
+ul.vlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+ul.vlist li {
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; padding: 6px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--tr-panel-edge) 60%, transparent); font-size: 13.5px;
 }
-.vlist .ref { white-space: nowrap; font-weight: 600; text-decoration: none; }
-.vlist.lean .ref { color: var(--tr-ok); }
-.vlist.open .ref { color: var(--tr-warn); }
-.vlist .ref:hover { color: var(--tr-ink); }
-.vlist .ttl { color: var(--tr-ink); min-width: 0; }
-.vlist .decls { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 10px; }
-.vlist .decls a { color: var(--tr-dim); text-decoration: none; border-bottom: 1px dotted var(--hot); overflow-wrap: break-word; min-width: 0; }
-.vlist .decls a:hover { color: var(--tr-ok); border-bottom-color: var(--tr-ok); }
+ul.vlist .ref { white-space: nowrap; font-weight: 600; text-decoration: none; }
+ul.vlist.lean .ref { color: var(--tr-ok); }
+ul.vlist.open .ref { color: var(--tr-warn); }
+ul.vlist .ref:hover { color: var(--tr-ink); }
+ul.vlist .ttl { color: var(--tr-ink); min-width: 0; }
+ul.vlist .ttl .katex { font-size: 1.06em; } /* formulas of titles, rendered at build time (assets/katex/katex.min.css) */
+ul.vlist .decls { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+ul.vlist .decls a { color: var(--tr-dim); text-decoration: none; border-bottom: 1px dotted var(--hot); overflow-wrap: break-word; min-width: 0; }
+ul.vlist .decls a:hover { color: var(--tr-ok); border-bottom-color: var(--tr-ok); }
 details.more-items > summary { cursor: pointer; color: var(--tr-cyan); font-family: var(--tr-font-display); font-size: 12.5px; letter-spacing: 0.06em; padding: 6px 0; }
 .pin { margin: 0; font-size: 13px; color: var(--tr-dim); }
 .pin code { color: var(--tr-ink); }

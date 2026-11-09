@@ -923,29 +923,54 @@ class ToolchainTest(unittest.TestCase):
 class SiteHostingTest(unittest.TestCase):
     """tbook.site: chapter embeds of films the site does not host are marked; print.html sources repaired."""
 
+    # as mdBook writes the embed of tbook.film _local_player (attributes re-serialized), with its fallback poster
     FIGURE = ('<figure class="tr-media tr-film" data-film="001-x" data-tr-video="films/001-x/v720.mp4">\n'
-              '<video class="tr-film-player" controls="" poster="../films/001-x/poster.jpg" '
+              '<video class="tr-film-player" controls="" preload="metadata" playsinline="" poster="../films/001-x/poster.jpg" '
               'data-tr-poster="films/001-x/poster.jpg"><source src="../films/001-x/v720.mp4" '
-              'data-tr-src="films/001-x/v720.mp4" type="video/mp4"></video></figure>')
+              'data-tr-src="films/001-x/v720.mp4" type="video/mp4"></video>\n'
+              '<img class="tr-film-poster tr-film-fallback" src="../films/001-x/poster.jpg" alt="A > B"></figure>')
 
     def test_mark_films(self):
         from tbook import site
 
         bdir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, bdir)
-        marked = site.mark_films(self.FIGURE, bdir)
+        after = '\n<p>Text.</p>\n<video class="tr-film-player" preload="metadata"></video>'  # not in a film figure
+        marked = site.mark_films(self.FIGURE + after, bdir)
         self.assertIn('<figure class="tr-media tr-film tr-film-unbuilt" data-film="001-x"', marked)
+        # the hidden player does not request the missing video (a 404 in the console on every such page)
+        self.assertIn('<video class="tr-film-player" controls="" preload="none" playsinline=""', marked)
+        self.assertNotIn('preload="metadata" playsinline', marked)
+        self.assertTrue(marked.endswith(after), "only the film's figure is changed")
         self.assertEqual(site.mark_films(marked, bdir), marked)  # idempotent
         (bdir / "films" / "001-x").mkdir(parents=True)
         (bdir / "films" / "001-x" / "v720.mp4").write_bytes(b"mp4")
-        self.assertEqual(site.mark_films(marked, bdir), self.FIGURE)  # reversible once the video is there
-        external = '<figure class="tr-media tr-film" data-film="trureturing-film:film-001-v1"><video></video></figure>'
+        self.assertEqual(site.mark_films(marked, bdir), self.FIGURE + after)  # reversible once the video is there
+        external = ('<figure class="tr-media tr-film" data-film="trureturing-film:film-001-v1">'
+                    '<video class="tr-film-player" preload="none"></video></figure>')
         self.assertEqual(site.mark_films(external, bdir), external)
+
+    def test_mark_films_adds_missing_attributes(self):
+        from tbook import site
+
+        bdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bdir)
+        bare = '<figure data-tr-video="films/a.mp4"><video class="tr-film-player" controls/></figure>'
+        marked = site.mark_films(bare, bdir)
+        self.assertEqual(marked, '<figure data-tr-video="films/a.mp4" class="tr-film-unbuilt">'
+                                 '<video class="tr-film-player" controls preload="none"/></figure>')
+        (bdir / "films").mkdir()
+        (bdir / "films" / "a.mp4").write_bytes(b"mp4")
+        self.assertEqual(site.mark_films(marked, bdir), '<figure data-tr-video="films/a.mp4" class="">'
+                                                        '<video class="tr-film-player" controls preload="metadata"/></figure>')
+        unclosed = '<figure data-tr-video="films/b.mp4"><video class="tr-film-player" preload="metadata">'
+        self.assertIn('preload="none"', site.mark_films(unclosed, bdir), "a figure cut short is still marked")
 
     def test_print_page_sources(self):
         from tbook import site
 
-        nested = self.FIGURE.replace('"../films', '"../../films')
+        # a chapter one level down, copied into print.html: mdBook rewrites the <img> but not the <video>
+        nested = self.FIGURE.replace('"../films', '"../../films').replace('src="../../films/001-x/poster', 'src="../films/001-x/poster')
         printed = site.fix_print_media(nested)
         self.assertIn('<source src="../films/001-x/v720.mp4" data-tr-src=', printed)
         self.assertIn('poster="../films/001-x/poster.jpg" data-tr-poster=', printed)
@@ -968,7 +993,10 @@ class SiteHostingTest(unittest.TestCase):
             site.build(sb.site, [sb.book], out, build_root=build_root)
         chapter = (out / "bk" / "zh" / "index.html").read_text(encoding="utf-8")
         self.assertIn("tr-film tr-film-unbuilt", chapter)
-        self.assertIn("tr-film-unbuilt", (out / "bk" / "zh" / "print.html").read_text(encoding="utf-8"))
+        self.assertIn('preload="none"', chapter)
+        printed = (out / "bk" / "zh" / "print.html").read_text(encoding="utf-8")
+        self.assertIn("tr-film-unbuilt", printed)
+        self.assertIn('preload="none"', printed)
         landing = (out / "bk" / "index.html").read_text(encoding="utf-8")
         films_html = landing.split('id="films"', 1)[1].split("</section>", 1)[0]
         self.assertIn(film.t("zh", "unbuilt"), films_html)
@@ -990,6 +1018,8 @@ class SiteHostingTest(unittest.TestCase):
             site.build(sb.site, [sb.book], out, only={"films"}, build_root=build_root)
         chapter = (out / "bk" / "zh" / "index.html").read_text(encoding="utf-8")
         self.assertNotIn("tr-film-unbuilt", chapter)
+        self.assertIn('class="tr-film-player" controls="" preload="metadata"', chapter)
+        self.assertNotIn('preload="none"', chapter)
         self.assertTrue((out / "bk" / "films" / "001-golden-deficit" / v720).is_file())
         landing = (out / "bk" / "index.html").read_text(encoding="utf-8")
         films_html = landing.split('id="films"', 1)[1].split("</section>", 1)[0]

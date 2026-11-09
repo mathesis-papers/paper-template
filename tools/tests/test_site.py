@@ -14,7 +14,9 @@ from __future__ import annotations
 import html.parser
 import json
 import os
+import re
 import shutil
+import subprocess
 import stat
 import tempfile
 import threading
@@ -32,6 +34,8 @@ GID_3V = "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"
 GID_INT = "D5/S1/Deficit/DeficitInteger.deficit_integer"
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32  # enough for a file that exists; never decoded
 SITE_COMMIT = "c0ffee" + "0" * 34
+NODE = shutil.which("node")
+HAVE_KATEX = bool(NODE) and (paths.ROOT / "node_modules" / "katex" / "package.json").exists()
 
 
 def site_lock(*drop: str) -> lean.Lock:
@@ -467,6 +471,223 @@ class SiteBuildTest(SiteCase):
         for _tag, _attr, value in parse(text).links:
             self.assertFalse(value.startswith(("assets/", "../")), value)
         self.assertIn(f'href="{serve.base_path(self.site)}"', text)
+
+    def titled_book(self, title: str) -> config.Book:
+        """make_book with ``title`` in place of the first theorem's title, in both editions."""
+        book = make_book(self.tmp)
+        for ed in book.editions:
+            ch01 = ed.dir / "ch01.md"
+            ch01.write_text(ch01.read_text(encoding="utf-8").replace('title="T&A"', f'title="{title}"'), encoding="utf-8")
+        fake_build(self.build_root, book)
+        return book
+
+    @unittest.skipUnless(HAVE_KATEX, "node and node_modules/katex are required")
+    def test_title_formulas_are_rendered(self):
+        """The landing page lists theorem titles: their formulas are KaTeX HTML, styled by the site's copy of the
+        KaTeX stylesheet and fonts, which only pages with formulas load."""
+        book = self.titled_book("Squares $x^2$ cost \\$5")
+        out = self.run_build([book])
+        landing = (out / "test-book" / "index.html").read_text()
+        self.assertEqual(landing.count('<span class="ttl">Squares <span class="katex" role="math" aria-label="x^2">'), 2)
+        self.assertNotIn("$x^2$", landing)
+        self.assertIn("</span> cost $5</span>", landing)  # an escaped dollar is a dollar
+        self.assertRegex(landing, r'<link rel="stylesheet" href="\.\./assets/katex/katex\.min\.css\?v=[0-9a-f]{10}">\n'
+                                  r'<link rel="stylesheet" href="\.\./assets/site\.css')  # before site.css (it sizes .katex)
+        kdir = out / "assets" / "katex"
+        css = (kdir / "katex.min.css").read_text()
+        fonts = re.findall(r"url\((fonts/[^)]+)\)", css)
+        self.assertTrue(fonts and all(f.endswith(".woff2") and (kdir / f).is_file() for f in fonts), fonts)
+        self.assertEqual(sorted(p.name for p in (kdir / "fonts").iterdir()), sorted({f[6:] for f in fonts}))
+        self.assertNotIn("katex", (out / "index.html").read_text())  # the hub shows no formula
+        for _tag, _attr, value in parse(landing).links:  # every local link and stylesheet exists
+            if not value.startswith(("https://", "http://", "#")):
+                target = out / "test-book" / value.split("#")[0].split("?")[0]
+                self.assertTrue((target / "index.html" if value.endswith("/") else target).exists(), value)
+        # a media-only rebuild regenerates the landing pages: the formulas stay rendered
+        self.run_build([book], only={"viz"})
+        self.assertIn('<span class="katex"', (out / "test-book" / "index.html").read_text())
+        self.assertTrue((kdir / "katex.min.css").is_file())
+        # no formula left in any title: no stylesheet, no fonts
+        out = self.run_build([make_book(self.tmp)])
+        self.assertFalse(kdir.exists())
+        self.assertNotIn("katex", (out / "test-book" / "index.html").read_text())
+
+    @unittest.skipUnless((site.mathrender.KATEX_DIST / "katex.min.css").is_file(), "node_modules/katex is required")
+    def test_site_css_leaves_katex_classes_alone(self):
+        """KaTeX lays formulas out with its own classes (.vlist, .base, .mord …): a site.css rule keyed on one of
+        them alone would restyle the inside of every formula (the verification list is ul.vlist for that reason)."""
+        katex = set(re.findall(r"\.([A-Za-z][\w-]*)", (site.mathrender.KATEX_DIST / "katex.min.css").read_text())) - {"katex"}
+        css = re.sub(r"/\*.*?\*/", "", (paths.THEME / "site" / "site.css").read_text(encoding="utf-8"), flags=re.S)
+        for selector in re.findall(r"([^{}]+)\{", css):
+            for cls in re.findall(r"(?:^|[\s,>+~(])\.([A-Za-z][\w-]*)", selector):  # compounds that start with a class
+                self.assertNotIn(cls, katex, selector.strip())
+
+    def test_title_formulas_without_katex(self):
+        """Without Node or KaTeX the formulas of titles show as their TeX source, and no stylesheet is linked."""
+        book = self.titled_book("Squares $x^2$ cost \\$5")
+        with mock.patch.object(site.mathrender, "render_formulas", side_effect=site.mathrender.MathError("node is missing")):
+            out = self.run_build([book])
+        landing = (out / "test-book" / "index.html").read_text()
+        self.assertIn('<span class="ttl">Squares $x^2$ cost $5</span>', landing)
+        self.assertNotIn("katex", landing)
+        self.assertFalse((out / "assets" / "katex").exists())
+
+
+# --------------------------------------------------------------------------- layout in a browser
+
+
+# Opens each job's page in Chromium at the job's viewport and returns what its expression evaluates to.
+BROWSER_HARNESS = r"""
+const path = require('path');
+const { chromium } = require(path.join(process.env.TBOOK_ROOT_DIR, 'node_modules', 'playwright-core'));
+(async () => {
+  const jobs = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
+  const browser = await chromium.launch({ executablePath: process.env.TBOOK_CHROMIUM });
+  const out = [];
+  try {
+    for (const job of jobs) {
+      const page = await browser.newPage({ viewport: { width: job.width, height: job.height || 900 } });
+      await page.route(/^https?:\/\//, (route) => route.abort());  // web fonts: the declared stacks are what is tested
+      await page.goto(job.url, { waitUntil: 'load' });
+      out.push(await page.evaluate(job.expr));
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  process.stdout.write(JSON.stringify(out));
+})().catch((e) => { console.error(e); process.exit(1); });
+"""
+
+# mdBook 0.5's own rules for its image zoom (src/front-end/css/general.css), which theme/mdbook/tr-book.css overrides.
+MDBOOK_ZOOM_CSS = """
+.content .checkbox-img { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); }
+.content .checkbox-img:not(:checked) ~ .img-wrapper { display: none; }
+.content .checkbox-img:checked ~ .img-wrapper { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  background-color: rgba(0, 0, 0, 0.4); z-index: 1001; display: flex; align-items: center; justify-content: center; }
+.content .checkbox-img:checked ~ .img-wrapper > img { --img-padding: 5px; padding: var(--img-padding); background: #999;
+  max-width: calc(100% - (var(--img-padding) * 2)); max-height: calc(100% - (var(--img-padding) * 2)); }
+"""
+
+
+def png(width: int, height: int) -> bytes:
+    """A real (decodable) grey PNG of the given size."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\0" + b"\x80" * width for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@unittest.skipUnless(NODE and (paths.ROOT / "node_modules" / "playwright-core").is_dir() and doctor.chromium_path(),
+                     "node, node_modules/playwright-core and a Chromium are required")
+class BrowserLayoutTest(SiteCase):
+    """Layout and fonts as Chromium computes them: the hub's covers, the English text face, the zoomed figure."""
+
+    def browse(self, jobs: list[dict]) -> list:
+        script = write(self.tmp / "harness.cjs", BROWSER_HARNESS)
+        spec = write(self.tmp / "jobs.json", json.dumps(jobs))
+        r = subprocess.run([NODE, str(script), str(spec)], capture_output=True, text=True, timeout=300,
+                           env=dict(os.environ, TBOOK_ROOT_DIR=str(paths.ROOT), TBOOK_CHROMIUM=doctor.chromium_path()))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_hub_shows_whole_covers(self):
+        """A card taller than its cover (a long description) still shows the whole 5:8 cover, at every width."""
+        book = make_book(self.tmp)
+        toml = book.dir / "book.toml"
+        toml.write_text(toml.read_text(encoding="utf-8").replace('en = "Description."', 'en = "' + "A long description. " * 40 + '"'),
+                        encoding="utf-8")
+        book = config.load_book(book.dir)
+        fake_build(self.build_root, book)
+        with mock.patch.object(site, "COVER_WIDTH", 640):
+            out = self.run_build([book])
+        for name in ("cover-zh.png", "cover-en.png"):
+            (out / "test-book" / name).write_bytes(png(*site.COVER_SIZE))
+        expr = """(async () => {
+          const img = [...document.querySelectorAll('.book .cover-link img')].find((e) => e.getClientRects().length);
+          img.loading = 'eager';
+          await img.decode();
+          const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+          return { img: box(img), link: box(img.closest('.cover-link')), complete: img.complete && img.naturalWidth > 0 };
+        })()"""
+        widths = (390, 820, 1280)
+        results = self.browse([{"url": (out / "index.html").as_uri() + "?lang=en", "width": w, "expr": expr} for w in widths])
+        for width, res in zip(widths, results):
+            with self.subTest(width=width):
+                (il, it, ir, ib), (ll, lt, lr, lb) = res["img"], res["link"]
+                self.assertTrue(res["complete"])
+                self.assertAlmostEqual((ib - it) / (ir - il), 8 / 5, delta=0.01)  # the box has the cover's ratio
+                self.assertTrue(ll - 0.5 <= il and ir <= lr + 0.5 and lt - 0.5 <= it and ib <= lb + 0.5,
+                                f"cover {res['img']} cut by its link {res['link']}")
+        (il, it, ir, ib), (ll, lt, lr, lb) = results[-1]["img"], results[-1]["link"]
+        self.assertGreater(lb - lt, ib - it + 50, "the 1280px card is taller than its cover (the case that cropped it)")
+
+    def test_english_text_has_a_latin_face(self):
+        """English text starts with a Latin face (the CJK face draws ’ “ ” full-width); Chinese keeps the CJK face."""
+        book = make_book(self.tmp)
+        fake_build(self.build_root, book)
+        out = self.run_build([book])
+        tokens = json.loads(paths.TOKENS.read_text(encoding="utf-8"))["font"]
+        latin, cjk = tokens["body-latin"][0], tokens["body"][0]
+        self.assertIn("family=" + latin.replace(" ", "+") + ":", tokens["google-fonts-css"], "the Latin face is loaded")
+        # an mdBook page as the HTML edition stages it: tokens.css, the paper palette, tr-book.css
+        from tbook import html as html_mod
+
+        mdbook = self.tmp / "mdbook"
+        write(mdbook / "tokens.css", (paths.GENERATED / "tokens.css").read_text(encoding="utf-8"))
+        write(mdbook / "tr-palette.css", html_mod.paper_palette_css())
+        write(mdbook / "tr-book.css", (paths.THEME / "mdbook" / "tr-book.css").read_text(encoding="utf-8"))
+        for lang in ("en", "zh-CN"):
+            write(mdbook / f"{lang}.html", f'<!doctype html><html lang="{lang}" class="navy js"><head>'
+                  '<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="tr-palette.css">'
+                  '<link rel="stylesheet" href="tr-book.css"></head><body><div class="content"><main><p class="menu-title">x</p><p>y</p>'
+                  '</main></div></body></html>')
+        first = "getComputedStyle(%s).fontFamily.split(',')[0].trim().replace(/\"/g, '')"
+        body, title = first % "document.body", first % "document.querySelector('.menu-title')"
+        jobs = [{"url": (out / "test-book" / "index.html").as_uri() + f"?lang={lang}", "width": 1024, "expr": body}
+                for lang in ("en", "zh")]
+        jobs += [{"url": (mdbook / f"{lang}.html").as_uri(), "width": 1024, "expr": f"[{body}, {title}]"} for lang in ("en", "zh-CN")]
+        site_en, site_zh, md_en, md_zh = self.browse(jobs)
+        self.assertEqual((site_en, site_zh), (latin, cjk))
+        display = tokens["display"][0]
+        self.assertEqual(md_en, [latin, display], "only the body face changes")
+        self.assertEqual(md_zh, [cjk, display])
+
+    def test_zoomed_figure_is_large_and_on_the_page_background(self):
+        """mdBook's image zoom: an SVG figure fills the window (not its intrinsic 400×350) on the theme's
+        background (not mdBook's #999), in the neon and the paper palette."""
+        from tbook import html as html_mod
+
+        d = self.tmp / "zoom"
+        write(d / "fig.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 350" width="400" height="350">'
+                             '<rect width="400" height="350" fill="none" stroke="#687c90"/></svg>')
+        write(d / "mdbook.css", MDBOOK_ZOOM_CSS)
+        write(d / "tokens.css", (paths.GENERATED / "tokens.css").read_text(encoding="utf-8"))
+        write(d / "tr-palette.css", html_mod.paper_palette_css())
+        write(d / "tr-book.css", (paths.THEME / "mdbook" / "tr-book.css").read_text(encoding="utf-8"))
+        for theme in ("navy", "light"):
+            write(d / f"{theme}.html", f'<!doctype html><html lang="en" class="{theme} js"><head>'
+                  + "".join(f'<link rel="stylesheet" href="{c}">' for c in ("mdbook.css", "tokens.css", "tr-palette.css", "tr-book.css"))
+                  + '</head><body><div class="content"><main><p><label class="checkbox-label">'
+                  '<input class="checkbox-img" type="checkbox" checked><img src="fig.svg" alt="f">'
+                  '<span class="img-wrapper"><img src="fig.svg" alt="f"></span></label></p></main></div></body></html>')
+        expr = """(() => { const img = document.querySelector('.img-wrapper > img'), r = img.getBoundingClientRect();
+                           const probe = document.createElement('div'); probe.style.background = 'var(--bg)';
+                           document.body.append(probe);
+                           return { w: r.width, h: r.height, bg: getComputedStyle(img).backgroundColor,
+                                    page: getComputedStyle(probe).backgroundColor }; })()"""
+        for theme, res in zip(("navy", "light"), self.browse([{"url": (d / f"{t}.html").as_uri(), "width": 1280, "height": 900,
+                                                               "expr": expr} for t in ("navy", "light")])):
+            with self.subTest(theme=theme):
+                self.assertEqual(res["bg"], res["page"])
+                self.assertNotEqual(res["bg"], "rgb(153, 153, 153)")
+                self.assertGreater(res["w"], 900, res)  # min(92vw, 960px) plus padding and border, not 410
+                self.assertLessEqual(res["h"], 900, res)
 
 
 # --------------------------------------------------------------------------- shared language choice

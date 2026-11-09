@@ -11,8 +11,9 @@
     generated                   →  index.html (library hub), <slug>/index.html (book landing page),
                                    404.html, manifest.json, .nojekyll, assets/
 
-Pages are static HTML written here with every value escaped (:func:`html.escape`); the only
-script is ``assets/site.js`` (language switch). Each page carries every interface string once
+Pages are static HTML written here with every value escaped (:func:`html.escape`; formulas are
+KaTeX's HTML, rendered with ``trust: false``); the only script is ``assets/site.js`` (language
+switch). Each page carries every interface string once
 per site language (elements with ``data-l="<lang>"``); an inline ``<style>`` hides the inactive
 ones, so the default language (the first of ``site.toml``) shows even without JavaScript.
 Strings come from ``theme/i18n/<lang>.toml`` via :func:`tbook.config.s`, plus :data:`SITE_I18N`
@@ -27,7 +28,13 @@ site has been written, so CI does not deploy a site with silently missing parts.
 
 ``only={"viz"}`` (or ``{"films"}``, ``{"slides"}``) republishes just those parts of the given
 books into an existing site and regenerates the pages, which are computed from what is present in
-``out_dir``; the hub and the manifest keep every configured book already published there.
+``out_dir``; the hub and the manifest keep every configured book already published there. Any build
+removes ``<out>/<slug>/`` of the books site.toml [books].hide hides (a full build empties ``out`` anyway).
+
+Theorem titles on the landing pages are inline Markdown: their formulas are rendered by KaTeX at build
+time (:func:`render_title_math`, one Node process for the site; tbook.mathrender finds them as everywhere
+else), and the pages that show one load ``assets/katex/katex.min.css`` with its fonts. Without Node or
+KaTeX the formulas show as their TeX source.
 """
 
 from __future__ import annotations
@@ -48,7 +55,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from . import config, lean, paths, render
+from . import config, lean, mathrender, mdscan, paths, render
 from .ledger import LEDGER_FILE
 from .model import OPEN, EditionModel, Env, load_book_models
 
@@ -60,6 +67,7 @@ COVER_WIDTH = 640  # px; 640×1024 covers are sharp on 2× screens at card size
 COVER_SIZE = (640, 1024)
 FORMAL_PREVIEW = 8  # verification list: items shown before "all N"
 MARKER_FILES = ("manifest.json", ".nojekyll")
+KATEX_CSS = "katex/katex.min.css"  # below assets/, with its fonts in assets/katex/fonts/ (write_assets)
 
 # Interface strings this component adds to theme/i18n/<lang>.toml. Looked up as ``[site] <key>`` in
 # the language's i18n table first, so merging them there (or into a downstream i18n/<lang>.toml)
@@ -444,6 +452,29 @@ def _reset(out: Path) -> None:
             entry.unlink()
 
 
+def _remove_hidden_books(out: Path, keep: set[str]) -> list[str]:
+    """Remove ``<out>/<slug>`` of every book site.toml [books].hide hides (except ``keep``); returns the slugs.
+
+    A full build empties ``out`` first, but a media-only rebuild (``only=``) writes into the site as it is, so
+    the pages of a book hidden since the last full build would stay published (and served by ./tbook serve).
+    Nothing else in ``out`` is touched."""
+    try:
+        hidden = config.hidden_books()
+    except config.ConfigError:
+        return []
+    removed = []
+    for slug in hidden:
+        target = out / slug
+        if slug in keep or not (target.exists() or target.is_symlink()):
+            continue
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        removed.append(slug)
+    return removed
+
+
 def _ignore_hidden(_dir: str, names: list[str]) -> list[str]:
     return [n for n in names if n.startswith(".")]
 
@@ -451,9 +482,16 @@ def _ignore_hidden(_dir: str, names: list[str]) -> list[str]:
 # an <iframe> / <video> / <source> start tag (quote-aware: mdBook re-serializes attributes and may leave a raw
 # ">" in them)
 _BOOK_PATH_TAG_RE = re.compile(r'<(?:iframe|video|source)\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-(?:src|poster)=")(?:[^>"]|"[^"]*")*>', re.I)
-# the start tag of a film embed that plays a video of the site (tbook.film render_embed: data-tr-video)
-_FILM_FIGURE_RE = re.compile(r'<figure\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-video=")(?:[^>"]|"[^"]*")*>', re.I)
+# a film embed that plays a video of the site (tbook.film render_embed: data-tr-video): its start tag (group 1)
+# and its content up to </figure> (group 2; figures do not nest)
+_FILM_FIGURE_RE = re.compile(r'(<figure\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-video=")(?:[^>"]|"[^"]*")*>)((?:(?!</figure\b).)*)',
+                             re.I | re.S)
+# the start tag of the embed's player (tbook.film _local_player)
+_FILM_PLAYER_RE = re.compile(r'<video\b(?=(?:[^>"]|"[^"]*")*\sclass="[^"]*\btr-film-player\b)(?:[^>"]|"[^"]*")*>', re.I)
 FILM_UNBUILT = "tr-film-unbuilt"
+# preload of the player when the site hosts its video (as tbook.film writes it) and when it does not: the hidden
+# player of an unbuilt film must not request the missing file
+FILM_PRELOAD = {True: "metadata", False: "none"}
 
 
 def fix_print_media(page_html: str, prefix: str = "../") -> str:
@@ -483,21 +521,38 @@ def mark_films(page_html: str, bdir: Path) -> str:
     A film embed (tbook.film ``render_embed``) names its video relative to the book in ``data-tr-video``; the
     chapter HTML is built (and cached) before the videos, so it always has the player. Here the figure gets
     the class ``tr-film-unbuilt`` when ``bdir`` (``<out>/<slug>``) has no such file, and loses it when it has
-    one: the theme then shows the poster and "video not built" instead of a player that cannot play.
+    one: the theme then shows the poster and "video not built" instead of a player that cannot play. The
+    hidden player of such a figure gets ``preload="none"``, so the browser does not request the missing file
+    either; it gets ``preload="metadata"`` back once the video is there.
     """
     def repl(m: re.Match) -> str:
-        tag = m.group(0)
+        tag, content = m.group(1), m.group(2)
         video = re.search(r'\sdata-tr-video="([^"]*)"', tag).group(1)
         built = _exists(bdir, html.unescape(video))
-        cls = re.search(r'(\sclass=")([^"]*)(")', tag)
-        names = [c for c in (cls.group(2).split() if cls else []) if c != FILM_UNBUILT]
+        names = [c for c in _attr(tag, "class").split() if c != FILM_UNBUILT]
         if not built:
             names.append(FILM_UNBUILT)
-        if cls:
-            return tag[:cls.start(2)] + " ".join(names) + tag[cls.end(2):]
-        return tag[:-1] + f' class="{" ".join(names)}">' if names else tag
+        if names or _attr(tag, "class", None) is not None:
+            tag = _set_attr(tag, "class", " ".join(names))
+        content = _FILM_PLAYER_RE.sub(lambda v: _set_attr(v.group(0), "preload", FILM_PRELOAD[built]), content)
+        return tag + content
 
     return _FILM_FIGURE_RE.sub(repl, page_html)
+
+
+def _attr(tag: str, name: str, default: str | None = "") -> str | None:
+    """The value of the double-quoted attribute ``name`` of a start tag as written (``default`` when absent)."""
+    m = re.search(rf'\s{name}="([^"]*)"', tag)
+    return m.group(1) if m else default
+
+
+def _set_attr(tag: str, name: str, value: str) -> str:
+    """The start tag with the double-quoted attribute ``name`` set to ``value`` (added before ``>`` if absent)."""
+    m = re.search(rf'(\s{name}=")([^"]*)(")', tag)
+    if m:
+        return tag[:m.start(2)] + value + tag[m.end(2):]
+    end = len(tag) - (2 if tag.endswith("/>") else 1)
+    return f'{tag[:end]} {name}="{value}"{tag[end:]}'
 
 
 def publish_film_marks(book: config.Book, bdir: Path) -> None:
@@ -592,8 +647,9 @@ def publish_media(site: config.Site, book: config.Book, part: str, dest: Path) -
     return None
 
 
-def write_assets(out: Path) -> dict[str, str]:
-    """assets/ (site.css, site.js, tokens.css, favicon.svg); returns cache-busting versions by name."""
+def write_assets(out: Path, *, katex: bool = False) -> dict[str, str]:
+    """assets/ (site.css, site.js, tokens.css, favicon.svg; with ``katex``, KaTeX's stylesheet :data:`KATEX_CSS`
+    and its fonts, for the formulas of theorem titles); returns cache-busting versions by path below assets/."""
     adir = out / "assets"
     adir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(SITE_THEME / "site.css", adir / "site.css")
@@ -603,8 +659,22 @@ def write_assets(out: Path) -> dict[str, str]:
     icon = re.sub(r"@@([a-z-]+)@@", lambda m: screen.get(m.group(1), m.group(0)),
                   (SITE_THEME / "favicon.svg").read_text(encoding="utf-8"))
     (adir / "favicon.svg").write_text(icon, encoding="utf-8")
-    return {name: hashlib.sha256((adir / name).read_bytes()).hexdigest()[:10]
-            for name in ("site.css", "site.js", "tokens.css", "favicon.svg")}
+    names = ["site.css", "site.js", "tokens.css", "favicon.svg"]
+    kdir = adir / posixpath.dirname(KATEX_CSS)
+    if kdir.is_dir():
+        shutil.rmtree(kdir)
+    if katex:
+        try:
+            css = mathrender.katex_css()
+            (kdir / "fonts").mkdir(parents=True)
+            (adir / KATEX_CSS).write_text(css, encoding="utf-8")
+            for font in mathrender.katex_fonts():
+                shutil.copy2(font, kdir / "fonts" / font.name)
+            names.append(KATEX_CSS)
+        except (mathrender.MathError, OSError) as exc:
+            _warn(f"KaTeX stylesheet unavailable ({exc}); theorem titles show their formulas as TeX")
+            shutil.rmtree(kdir, ignore_errors=True)
+    return {name: hashlib.sha256((adir / name).read_bytes()).hexdigest()[:10] for name in names}
 
 
 # --------------------------------------------------------------------------- page frame
@@ -616,6 +686,7 @@ class Frame:
     bi: Bi
     versions: dict[str, str]
     lock: lean.Lock | None
+    math: dict[str, str] = field(default_factory=dict)  # KaTeX HTML of the formulas of theorem titles, by TeX
 
     def asset(self, prefix: str, name: str) -> str:
         v = self.versions.get(name)
@@ -655,8 +726,10 @@ def page(frame: Frame, *, prefix: str, titles: Callable[[str], str], description
         head += ['<link rel="preconnect" href="https://fonts.googleapis.com">',
                  '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
                  f'<link rel="stylesheet" href="{esc(fonts)}">']
+    head.append(f'<link rel="stylesheet" href="{esc(frame.asset(prefix, "tokens.css"))}">')
+    if KATEX_CSS in frame.versions and 'class="katex"' in body:  # a page with rendered formulas
+        head.append(f'<link rel="stylesheet" href="{esc(frame.asset(prefix, KATEX_CSS))}">')
     head += [
-        f'<link rel="stylesheet" href="{esc(frame.asset(prefix, "tokens.css"))}">',
         f'<link rel="stylesheet" href="{esc(frame.asset(prefix, "site.css"))}">',
         lang_style(langs),
         f'<script src="{esc(frame.asset(prefix, "site.js"))}"></script>',
@@ -926,7 +999,58 @@ def _env_href(view: BookView, ed_lang: str, env: Env) -> str:
     return f"{ed_lang}/{page_name}#{env.id}"
 
 
-def verification_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
+def _listed_envs(model: EditionModel) -> list[Env]:
+    """The environments the verification section lists: formal results and open items."""
+    return model.formal_envs() + [e for e in model.all_envs() if e.kind in OPEN]
+
+
+def _title_formulas(markdown: str) -> dict[int, mathrender.MathSpan]:
+    """The formulas of a title (inline Markdown), by offset, found as everywhere else (tbook.mathrender)."""
+    return {span.start: span for span in mathrender.find_math(markdown)[0]} if "$" in markdown else {}
+
+
+def render_title_math(views: list[BookView]) -> dict[str, str]:
+    """KaTeX HTML (inline) of every formula in the titles the landing pages list, by TeX: one Node process
+    for the whole site. Empty, with a warning, when Node or KaTeX is missing; a formula KaTeX cannot render
+    is left out (:func:`title_html` then shows its TeX source)."""
+    texs = list(dict.fromkeys(span.tex for v in views for model in v.models.values() for env in _listed_envs(model)
+                              if env.title for span in _title_formulas(model.title_markdown(env)).values()))
+    if not texs:
+        return {}
+    try:
+        answers = mathrender.render_formulas([(tex, False) for tex in texs])
+    except mathrender.MathError as exc:
+        _warn(f"theorem titles show their formulas as TeX: {exc}")
+        return {}
+    rendered = {tex: a["html"].replace("\n", " ") for tex, a in zip(texs, answers) if isinstance(a.get("html"), str)}
+    failed = [tex for tex in texs if tex not in rendered]
+    if failed:
+        _warn(f"KaTeX cannot render {len(failed)} formula(s) of theorem titles, shown as TeX: "
+              + ", ".join(f"${tex}$" for tex in failed))
+    return rendered
+
+
+def title_html(markdown: str, math: dict[str, str] | None = None) -> str:
+    """A title (inline Markdown, references resolved: :meth:`EditionModel.title_markdown`) as site HTML.
+
+    Text reads as everywhere else (Markdown escapes undone: ``C\\*-代数`` shows ``C*-代数``, ``\\$5`` shows
+    ``$5``), code spans stay as written, and each formula is its KaTeX HTML from ``math`` (built by
+    :func:`render_title_math`), or its TeX source with the dollars where ``math`` has none."""
+    formulas = _title_formulas(markdown)
+    out, pos = [], 0
+    for kind, piece in mdscan.inline_segments(markdown) if formulas or "\\" in markdown else [("text", markdown)]:
+        if kind == "math":
+            span = formulas.get(pos)
+            rendered = (math or {}).get(span.tex) if span else None
+            out.append(rendered if rendered is not None else esc(piece))
+        else:
+            out.append(esc(mdscan.unescape_text(piece) if kind == "text" else piece))
+        pos += len(piece)
+    return "".join(out)
+
+
+def verification_html(view: BookView, ed_lang: str, ui_lang: str, math: dict[str, str] | None = None) -> str:
+    """The verification section of a landing page; ``math``: rendered formulas of titles (:func:`render_title_math`)."""
     model = view.models.get(ed_lang)
     lock = view.lock
     if model is None:
@@ -938,7 +1062,7 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str) -> str:
         return f'<a class="ref" href="{esc(href)}">{text}</a>' if href else f'<span class="ref">{text}</span>'
 
     def title(env: Env, chip: str = "") -> str:
-        text = esc(model.title_text(env))  # [@id] in a title shows its reference text
+        text = title_html(model.title_markdown(env), math) if env.title else ""  # [@id] shows its reference text
         return f'<span class="ttl">{chip}{" " if chip and text else ""}{text}</span>'
 
     def row(env: Env, chip: str = "") -> str:
@@ -1203,7 +1327,7 @@ def landing_html(frame: Frame, view: BookView) -> str:
         f'<div class="sec-head"><h2 id="verification-title">{bi.t("verification")}</h2>'
         f'<span class="aside">LEAN ✓ {len(view.verified())} · OPEN {len(view.open_items())}</span></div>'
         + pin
-        + bi.block(lambda lang: (verification_html(view, view.edition_for(lang), lang), view.edition_for(lang)))
+        + bi.block(lambda lang: (verification_html(view, view.edition_for(lang), lang, frame.math), view.edition_for(lang)))
         + "</section>"
     )
     media = viz_section(bi, view) + films_section(bi, view) + slides_section(bi, view)
@@ -1386,6 +1510,9 @@ def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_roo
     problems: list[str] = []
     views: list[BookView] = []
     rebuilt = {b.slug for b in books}
+    removed = _remove_hidden_books(out, rebuilt)
+    if removed:
+        _warn(f"removed the pages of {', '.join(removed)} (hidden by site.toml [books].hide)")
     for book in books if parts is None else _site_books(list(books), out):
         bdir = out / book.slug
         bdir.mkdir(parents=True, exist_ok=True)
@@ -1403,7 +1530,10 @@ def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_roo
             publish_film_marks(book, bdir)
         views.append(collect(site, book, bdir, lock, models))
     langs = list(site.languages) or ["zh", "en"]
-    frame = Frame(site=site, bi=Bi(langs), versions=write_assets(out), lock=lock)
+    math = render_title_math(views)
+    versions = write_assets(out, katex=bool(math))
+    frame = Frame(site=site, bi=Bi(langs), versions=versions, lock=lock,
+                  math=math if KATEX_CSS in versions else {})  # no stylesheet: the formulas stay TeX
     for v in views:
         (v.bdir / "index.html").write_text(landing_html(frame, v), encoding="utf-8")
     (out / "index.html").write_text(index_html(frame, views), encoding="utf-8")
