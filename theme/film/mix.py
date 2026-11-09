@@ -24,7 +24,7 @@ def main(argv: list[str]) -> int:
         import numpy as np
         import soundfile as sf
     except ImportError as exc:
-        fail(f"{exc.name} is not installed; run theme/film/film.sh <film dir> setup")
+        fail(f"{exc.name} is not installed; run theme/film/setup.sh")
     film_dir = film_dir_arg([a for a in argv if not a.startswith("--")])
     out = film_dir / "out"
     if not (out / "music_bed.wav").is_file():

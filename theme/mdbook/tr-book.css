@@ -595,7 +595,7 @@ kbd { border-radius: 0; background: var(--tr-sheet); border-color: var(--tr-line
   figure.tr-media iframe { display: none; }
 }
 
-/* Slides link card: kind line in the data face; film placeholder when there is no release yet. */
+/* Slides link card: kind line in the data face; film placeholder without a poster. */
 .tr-slides .tr-media-kind {
   margin: 0;
   font-family: var(--tr-font-data);
@@ -613,4 +613,17 @@ kbd { border-radius: 0; background: var(--tr-sheet); border-color: var(--tr-line
   background: var(--tr-stage, var(--tr-void));
   color: var(--tr-dim);
   font-family: var(--tr-font-data);
+}
+/* Film embeds carry the player and a fallback (poster, "video not built"); the site adds tr-film-unbuilt to the
+   figure when it does not host the video (tbook.site.mark_films), which swaps them. */
+figure.tr-film .tr-film-files { display: contents; }
+figure.tr-film:not(.tr-film-unbuilt) .tr-film-fallback,
+figure.tr-film.tr-film-unbuilt .tr-film-player,
+figure.tr-film.tr-film-unbuilt .tr-film-files { display: none; }
+.tr-film-note {
+  font-family: var(--tr-font-data);
+  font-size: .78em;
+  letter-spacing: .1em;
+  color: var(--tr-dim);
+  align-self: center;
 }

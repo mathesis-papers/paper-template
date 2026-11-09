@@ -1,23 +1,43 @@
 #!/usr/bin/env bash
-# Fetch build-time dependencies of the film pipeline (nothing here is committed):
-#   - Python packages for narration, score and mixing (pip; set PIP_ARGS to e.g. --user),
-#   - the Kokoro-82M v1.0 ONNX model and voices (≈ 340 MB) into $KOKORO_MODEL_DIR (default .cache/film/models),
-#   - fonts: @fontsource packages from node_modules (npm ci); when absent, `npm pack` into .cache/film/fonts.
+# Install the film toolchain (nothing here is committed). No film argument: run it once per machine.
+#   theme/film/setup.sh
+#
+#   - the pinned Python packages of theme/film/requirements.txt (narration, score, mixing). With PYTHON set,
+#     into that interpreter ("$PYTHON -m pip install -r", PIP_ARGS adds pip options); without it, into the
+#     film venv $FILM_CACHE/venv (default .cache/film/venv), created from python3 (Python 3.12 or 3.13), so the
+#     tbook venv stays lean. theme/film/film.sh and ./tbook build prefer that venv when PYTHON is not set.
+#   - the Kokoro-82M ONNX model and voices (≈ 340 MB) into $KOKORO_MODEL_DIR (default $FILM_CACHE/models),
+#     unless present;
+#   - fonts: the @fontsource packages come from node_modules (npm ci); when absent, `npm pack` into
+#     $FILM_CACHE/fonts.
+# ffmpeg comes from the system (apt-get install ffmpeg; or set FFMPEG), Chromium from Playwright or
+# PW_CHROMIUM_PATH. ./tbook build films checks the whole toolchain before it renders.
 # Adapted from trureturing-film films/*/setup.sh (Apache-2.0, the-omega-institute).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-PYTHON="${PYTHON:-python3}"
 CACHE="${FILM_CACHE:-$ROOT/.cache/film}"
 MODELS="${KOKORO_MODEL_DIR:-$CACHE/models}"
-KOKORO_URL="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+# The model release; tools/tbook/film.py KOKORO_RELEASE names the same one (part of every film's build key).
+KOKORO_RELEASE="model-files-v1.0"
+KOKORO_URL="https://github.com/thewh1teagle/kokoro-onnx/releases/download/$KOKORO_RELEASE"
 
-"$PYTHON" -m pip install ${PIP_ARGS:-} kokoro-onnx soundfile scipy numpy pillow imageio-ffmpeg
+if [ -z "${PYTHON:-}" ]; then
+  VENV="$CACHE/venv"
+  if [ ! -x "$VENV/bin/python" ]; then
+    echo "setup: creating the film venv $VENV"
+    python3 -m venv "$VENV"
+  fi
+  PYTHON="$VENV/bin/python"
+fi
+echo "setup: Python packages for $PYTHON"
+# shellcheck disable=SC2086  # PIP_ARGS holds several options
+"$PYTHON" -m pip install --disable-pip-version-check ${PIP_ARGS:-} -r "$HERE/requirements.txt"
 
 mkdir -p "$MODELS"
 for f in kokoro-v1.0.onnx voices-v1.0.bin; do
   if [ ! -s "$MODELS/$f" ]; then
-    echo "setup: downloading $f"
+    echo "setup: downloading $f into $MODELS"
     curl -fL --retry 3 -o "$MODELS/$f.part" "$KOKORO_URL/$f"
     mv "$MODELS/$f.part" "$MODELS/$f"
   fi

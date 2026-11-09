@@ -6,18 +6,17 @@ provisional timeline come from ``tools/tbook/film.py`` so the pipeline and ``./t
 agree on one schema.
 
 Environment:
-  FILM_CACHE        shared cache for models and fallback fonts (default <repo>/.cache/film)
+  FILM_CACHE        the film venv, the Kokoro model and fallback fonts (default <repo>/.cache/film)
   KOKORO_MODEL_DIR  directory with kokoro-v1.0.onnx and voices-v1.0.bin (default $FILM_CACHE/models)
-  FFMPEG            ffmpeg binary (default: ffmpeg on PATH, else imageio-ffmpeg's)
+  FFMPEG            ffmpeg binary (default: ffmpeg on PATH)
 """
 
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -31,7 +30,7 @@ class PipelineError(Exception):
     pass
 
 
-def fail(msg: str) -> "NoReturn":  # type: ignore[name-defined]
+def fail(msg: str) -> NoReturn:
     print(f"film: {msg}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -57,23 +56,18 @@ def out_dir(film_dir: Path) -> Path:
 
 
 def cache_dir() -> Path:
-    return Path(os.environ.get("FILM_CACHE") or ROOT / ".cache" / "film")
+    return tfilm.film_cache()
 
 
 def model_dir() -> Path:
-    return Path(os.environ.get("KOKORO_MODEL_DIR") or cache_dir() / "models")
+    return tfilm.model_dir()
 
 
 def ffmpeg() -> str:
-    exe = os.environ.get("FFMPEG") or shutil.which("ffmpeg")
-    if exe:
-        return exe
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except ImportError:
-        fail("ffmpeg not found: install ffmpeg, set FFMPEG, or pip install imageio-ffmpeg")
+    exe = tfilm.ffmpeg_path()
+    if not exe:
+        fail("ffmpeg not found: install ffmpeg (e.g. apt-get install ffmpeg) or set FFMPEG")
+    return exe
 
 
 def timeline(film: tfilm.Film, *, allow_provisional: bool = True) -> tuple[dict, bool]:

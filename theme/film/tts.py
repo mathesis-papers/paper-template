@@ -65,7 +65,7 @@ def main(argv: list[str]) -> int:
         import soundfile as sf
         from kokoro_onnx import Kokoro
     except ImportError as exc:
-        fail(f"{exc.name} is not installed; run theme/film/film.sh <film dir> setup")
+        fail(f"{exc.name} is not installed; run theme/film/setup.sh")
     film_dir = film_dir_arg([a for a in argv if not a.startswith("--")])
     only = None
     if "--only" in argv:
@@ -80,7 +80,7 @@ def main(argv: list[str]) -> int:
     models = model_dir()
     onnx, voices = models / "kokoro-v1.0.onnx", models / "voices-v1.0.bin"
     if not onnx.is_file() or not voices.is_file():
-        fail(f"Kokoro model files not found in {models}; run theme/film/film.sh <film dir> setup")
+        fail(f"Kokoro model files not found in {models}; run theme/film/setup.sh")
     say = {**SAY, **(script.get("say") or {})}
     k = Kokoro(str(onnx), str(voices))
     out = out_dir(film_dir)
