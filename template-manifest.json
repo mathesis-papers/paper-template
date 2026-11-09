@@ -660,7 +660,7 @@
       "mode": "100644"
     },
     "tools/tests/test_buildcache.py": {
-      "sha256": "6145a846db38f2dda553ea4ecf70d123bf1058b1cdbd31196b111ca5ed07c3ec",
+      "sha256": "39ce8134447ec8fec14f9088543ba4a266b29d19bcede085304df5869b510b45",
       "mode": "100644"
     },
     "tools/tests/test_core.py": {
