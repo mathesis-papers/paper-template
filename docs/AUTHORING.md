@@ -1,6 +1,6 @@
 # 写作手册 · Authoring guide
 
-本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法。
+本手册面向书的作者（人或 agent）。语法规范见 `docs/ARCHITECTURE.md` §3；这里给出完整示例与常见问题。示例书 `books/example-monograph/` 用到了这里的每一种写法，`books/example-primer/` 是一本最简单的书（书库隐藏了示例书时它们仍在原处，见 §1）。
 
 ## 1. 一本书的组成
 
@@ -27,6 +27,10 @@ books/<slug>/
 | `outputs.html` / `pdf` / `epub` | 输出开关；`pdf = ["screen", "print"]` |
 | `pdf.paper` | Typst 纸张名（`a4`、`a5`、`us-letter`、`iso-b5`…） |
 | `epub.embed_fonts` | 是否嵌入标题与等宽字体 |
+
+### 书库里有哪些书
+
+`books/` 下每个含 `book.toml` 的目录是一本书，`site.toml` 的 `[books] order` 决定书库首页的顺序。`[books] hide` 列出要隐藏的书（glob 模式，按目录名匹配）：隐藏的书仍在 `books/` 中，可以随时看它的写法，但检查、钉版、构建、站点与发版都当它不存在，按名字点它（`--book`、`./tbook new-chapter` 等）会报错。要重新使用它，从 `hide` 中去掉该模式并运行 `./tbook pin --refresh`：隐藏期间运行的 `pin --refresh` 已把只被它引用的声明从锁文件中删去。从模板创建的书库设 `hide = ["example-*"]`，隐藏模板附带的示例书，而不是删除它们（删除会让以后合并模板改动时冲突，见 `docs/UPGRADING.md` §6）。`./tbook books` 列出可见的书，`./tbook books --hidden` 列出隐藏的书。规则详见 `docs/ARCHITECTURE.md` §2.1。
 
 ### `SUMMARY.md`
 
@@ -148,7 +152,7 @@ HTML 注释 `<!-- … -->` 不出现在任何输出中：其中的图片、链�
 
 外部资源：`src="trureturing-visualize:<id>"`、`src="trureturing-film:film-001-v1"`。HTML 中为交互嵌入或播放器；PDF/EPUB 中为缩略图/海报加在线地址。媒体块在各语言版本中也必须一一对应。
 
-本书的视频是构建产物：`./tbook build films|site|all` 渲染（输入未变时从缓存恢复），站点托管在 `<slug>/films/<id>/`。章节中的播放器播放 720p 旁白版、附下载链接；站点没有该视频时（缺少视频工具链且缓存未命中）显示海报与“视频未构建”。PDF/EPUB 显示提交的 `poster.jpg`，有 `base_url` 时加视频页地址。编写与构建见 `skills/book-film`。
+本书的视频是构建产物：`./tbook build films|site|all` 渲染（输入未变时从缓存恢复），站点托管在 `<slug>/films/<id>/`。章节中的播放器播放 720p 旁白版、附 `film.json` 的 `outputs` 所列视频的下载链接（默认只构建 720p 旁白版与封面，1080p 与纯配乐版本列出才构建）；站点没有该视频时（缺少视频工具链且缓存未命中）显示海报与“视频未构建”。PDF/EPUB 显示提交的 `poster.jpg`，有 `base_url` 时加视频页地址。编写与构建见 `skills/book-film`。
 
 ## 6. 多语言流程
 

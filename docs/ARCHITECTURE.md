@@ -49,6 +49,25 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 .github/workflows/        CI、Pages、Release、模板同步、Lean 深度验证
 ```
 
+### 2.1 `site.toml`
+
+| 键 | 说明 |
+| --- | --- |
+| `[site] repo` | GitHub 仓库 `owner/name`；留空时 CI 用 `GITHUB_REPOSITORY`，本地由 git remote 推断（`TBOOK_REPO` 优先） |
+| `[site] base_url` | Pages 根地址，PDF/EPUB 的外链用它拼绝对地址；留空则由 `repo` 推断（`TBOOK_BASE_URL` 优先） |
+| `[site] languages` | 站点界面语言，第一个为默认语言，不得重复；默认 `["zh", "en"]` |
+| `[site.title]`、`[site.tagline]` | 站名与标语，每种语言一行 |
+| `[site] logo`、`[site] branch` | 可选：站点品牌（§6）；“建议修改”链接指向的分支（§5） |
+| `[trureturing] repo`、`branch` | 形式化仓库；`./tbook pin` 跟随、`./tbook check` 核对的分支（默认 `dev`） |
+| `[books] order` | 书库首页的顺序；未列出的书按目录名排在后面 |
+| `[books] hide` | 隐藏的书：glob 模式的列表，默认 `[]`（不隐藏）；书库用 `["example-*"]` 隐藏模板附带的示例书 |
+
+`[books] hide` 的每一项是非空字符串，按 Python 的 `fnmatch.fnmatchcase` 与书的目录名（slug）匹配：`*`、`?`、`[seq]`、`[!seq]`，区分大小写；类型不对时 `site.toml` 报错。被隐藏的书仍留在 `books/` 中，但所有命令与产物都当它不存在，这样从模板创建的书库不必删除示例书，以后用 git 合并模板改动时就不会因示例书冲突（`docs/UPGRADING.md` §6）：
+
+- 列出书的唯一来源是 `config.book_slugs()` / `config.load_books()`（Node 端是 `tools/node/slides-lib.mjs` 的 `listBooks()`，`viz-common.mjs` 的 `listBooks()` 用同一套规则，`tools/tests/test_hide.py` 核对两端的模式匹配一致），它们跳过隐藏的书。因此 `./tbook check`、`./tbook pin` 与 `pin --refresh`（只收集可见书的引用，只被隐藏的书引用的声明从锁文件中删去）、`./tbook build` 的各个目标、站点首页与 `manifest.json`、构建缓存的单元（`./tbook cache status|prune|export`；`prune` 删去隐藏书的条目）、`./tbook lean-project` 的引用说明、`release.yml` 的发版计划、`viz-validate`、`viz-test`、`slides-check`、`slides-build` 都看不到它；工作流中找视频与幻灯片的步骤用 `./tbook books --files <glob>`（只需 Python 标准库，在安装工具链之前也能运行）。`./tbook serve` 只伺服已构建的 `_site/`，不受影响。
+- 按 slug 点名一本隐藏的书是错误，并说明怎样取消隐藏（从 `hide` 中去掉该模式，再运行 `./tbook pin --refresh` 把它引用的声明解析回锁文件；Python 的 `config.hidden_error()` 与 Node 的 `hiddenError()` 文字相同）：`--book <slug>`、`./tbook new-chapter <slug>`、`./tbook viz|slides|film new <slug> …`、`./tbook slides|film list <slug>`、`<slug>-v<version>` 的发版 tag、Node 脚本的书参数（`slides-check --book`、`viz-validate <slug>` 等）。目录路径不是名字：`config.load_book()`、视频流水线（`theme/film/film.sh <dir>`）与 `viz-validate <dir>` 照常读取任何书，但隐藏的书的 Lean 引用只在锁文件仍收录它们时才能解析：隐藏期间运行过 `./tbook pin --refresh` 后，只被它引用的声明已不在锁文件中，按路径读取它时这些引用报“不在锁文件中”。
+- `./tbook check` 输出一行列出被隐藏的书（提示，不是警告）；`./tbook new-book` 新建的 slug 匹配 `hide` 时照常创建并警告；`./tbook doctor` 列出可见与隐藏的书；`./tbook books [--hidden] [--files GLOB]` 列出可见（或隐藏）的书，或它们的文件 `books/<slug>/GLOB`。
+
 ## 3. 写作语法
 
 全部是 Pandoc Markdown 的子集，GitHub 上可直接预览。
@@ -72,7 +91,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 - `#id`：形式结论、定义、开放条目必须有 id；id 以字母开头，可含字母、数字、`-`、`_`、`:`。
 - `title="…"`：可选，单行行内 Markdown，可含行内数学；属性值里反斜杠与花括号原样保留（`title="$\mathbb{N}$ 上的 $\{-1,0,1\}$"`）。值内的双引号写 `\"`；`\\` 读作一个反斜杠，所以 TeX 的 `\\` 要写成 `\\\\`。标题中可以写 `[@id]`（见 §3.3）。
-- 标题的统一读法（环境标题与 SUMMARY 中的章节标题）：`$…$` 内的 TeX 不变；`$…$` 与行内代码之外，反斜杠加 ASCII 标点是 Markdown 转义，所有输出都显示标点本身（`C\*-代数` → C*-代数，`\$5` → $5，不是公式）。纯文字场合（mdBook 页头、侧栏、`<title>`、站点）用 `mdscan.unescape_markdown()` 的结果；mdBook 页头由 `render.title_html()` 写出，字面的 `$`、`\`、反引号写成字符引用，所以页头里的公式与 Pandoc 看到的完全相同；重新写回 mdBook 的 SUMMARY 时每个 ASCII 标点都加反斜杠（`html._escape_title()`）；Pandoc、账本拿到的是原 Markdown（`model.title_markdown()`、`Chapter.title_md`）。
+- 标题的统一读法（环境标题与 SUMMARY 中的章节标题）：`$…$` 内的 TeX 不变；`$…$` 与行内代码之外，反斜杠加 ASCII 标点是 Markdown 转义，所有输出都显示标点本身（`C\*-代数` → C*-代数，`\$5` → $5，不是公式）。纯文字场合（mdBook 页头、侧栏、`<title>`、站点的目录）用 `mdscan.unescape_markdown()` 的结果；站点落地页的验证摘要列出定理标题时，标题文字照此读，公式在构建时由 KaTeX 渲染（`site.title_html()`，全站一次 Node 进程；Node 或 KaTeX 不可用、或某个公式渲染失败时显示其 TeX 源码并警告），有公式的页面才加载站点自带的 KaTeX 样式与字体（`assets/katex/`）；mdBook 页头由 `render.title_html()` 写出，字面的 `$`、`\`、反引号写成字符引用，所以页头里的公式与 Pandoc 看到的完全相同；重新写回 mdBook 的 SUMMARY 时每个 ASCII 标点都加反斜杠（`html._escape_title()`）；Pandoc、账本拿到的是原 Markdown（`model.title_markdown()`、`Chapter.title_md`）。
 - `lean="GID [GID …]"`：一条或多条，空格或逗号分隔。
 - 只有显示 `LEAN ✓` 的形式结论计入各输出中的“LEAN ✓ n”与定理数（账本、版权页、封面、站点）；显示 `UNVERIFIED` 的不计入。
 - 编号：同一顶层章节内，所有编号种类共用一个计数器：`定理2.1`、`定义2.2`（中文、日文不加空格；英文为 `Theorem 2.1`）……前言类（prefix）章节用 `0.n`，附录类（suffix）章节用 `A.n`、`B.n`。
@@ -113,7 +132,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 :::
 ```
 
-- HTML：可视化以 iframe 嵌入（`height` 160–2400，默认 560），附“全屏打开”；视频以 `<video controls preload="metadata" playsinline>` 播放站内的 `films/<id>/<outputs.narrated_720p>`（海报为提交的 `poster.jpg`），附 1080p、720p、纯配乐下载；站点没有该视频时，`site.mark_films` 给 `<figure>` 加 `tr-film-unbuilt`，样式改为显示海报与“视频未构建”；幻灯片为链接卡片（在线演示、PDF）。
+- HTML：可视化以 iframe 嵌入（`height` 160–2400，默认 560），附“全屏打开”；视频以 `<video controls preload="metadata" playsinline>` 播放站内的 `films/<id>/<outputs.narrated_720p>`（海报为提交的 `poster.jpg`），附 `film.json` 的 `outputs` 所列视频的下载（默认只有 720p 旁白版；列出时另有 1080p、纯配乐）；站点没有该视频时，`site.mark_films` 给 `<figure>` 加 `tr-film-unbuilt`，样式改为显示海报与“视频未构建”，并把隐藏的播放器改为 `preload="none"`，浏览器就不去请求不存在的文件（视频构建后复原为 `metadata`）；幻灯片为链接卡片（在线演示、PDF）。
 - PDF / EPUB：静态缩略图或海报 + 图注 + 在线地址（由 `site.toml` 的 `base_url` 拼出；没有 `base_url` 时视频只有海报）。
 - 书内媒体的源文件：
   - 可视化：`books/<slug>/viz/visualizations.json`（登记表）+ `viz/<id>/`（`index.html`、`style.css`、`main.js`、`thumb.jpg`）与 `viz/tests/<id>.test.mjs`；页面契约见 `templates/viz/README.md`。
@@ -130,7 +149,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 ## 4. 校验（`./tbook check`）
 
-1. 配置：`site.toml`、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
+1. 配置：`site.toml`（含 `[books] hide`，§2.1；隐藏的书不检查，输出一行列出它们）、`book.toml` 字段，语言代码（不得重复），i18n 表存在；没有内置表（`theme/i18n/<lang>.toml`）的语言，`i18n/<lang>.toml` 的 `[meta]` 须设 `name`、`bcp47`、`short`，且 `bcp47`、`short` 不与其他语言重复。
 2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 与 HTML 注释块闭合、无法解析的 div 开头行（报错）；行内 `<!--` 未在所在段落内闭合而后文另有 `-->`，围栏代码块随容器结束或从未闭合，mdBook 与 Pandoc 读法不同的定义，围栏代码块前未闭合、Pandoc 跨过围栏配对的 `$`（警告）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录，引用式定义的地址写在标签的下一行（警告）。
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
@@ -168,8 +187,9 @@ build/slides/<slug>/<deck>/<lang>/  Slidev 输出；PDF 在 build/slides/<slug>/
                                     发布时 base、各语言的 site_path（随书的第一语言而变）或语言集合
                                     与当前不符即为过期，slides.publish 先重新构建
 books/<slug>/films/<NNN>-<name>/out/  视频流水线的工作文件（git 忽略）；入口 theme/film/film.sh <film dir> <step>
-build/films/<slug>/<id>/            一部视频的成片：film.json outputs 的 narrated、music_only、narrated_720p、
-                                    music_only_720p、cover（构建单元 films <slug>/<id>，渲染或从缓存恢复）
+build/films/<slug>/<id>/            一部视频的成片：film.json outputs 所列的文件，必有 narrated_720p 与 cover，
+                                    列出时另有 narrated、music_only、music_only_720p（构建单元 films <slug>/<id>，
+                                    渲染或从缓存恢复）
 .cache/film/                        视频工具链：venv/（theme/film/requirements.txt）、models/（Kokoro）、fonts/
 build/lean-verify/                  ./tbook lean-project 生成的深度验证 Lake 工程
 _site/                              GitHub Pages 产物（见 §6）
@@ -180,7 +200,7 @@ HTML 专有选项：`book.toml` 的 `[html] section-labels = true` 恢复 mdBook
 
 环境变量：`MDBOOK`（mdBook 路径）、`PANDOC`、`PW_CHROMIUM_PATH`（已有的 Chromium）、`TBOOK_EPUBCHECK=1|warn|0`、`TBOOK_SLIDES_NO_PDF=1`（不导出、不发布幻灯片 PDF；`slides.publish` 会去掉章节卡片中指向未发布 PDF 的链接）、`TBOOK_SLIDES_NO_CHECK=1`、`SOURCE_DATE_EPOCH`（可复现的时间戳）、`TBOOK_REPO` / `TBOOK_BASE_URL`（覆盖仓库与站点地址）、`TRURETURING_DIR`（本地 trureturing 检出）、`TRURETURING_TOKEN`（读取私有 trureturing；GitHub API 也依次用 `GITHUB_TOKEN`、`GH_TOKEN`）、`TBOOK_LANG=zh|en`（模板升级摘要语言）。
 
-视频构建：每部视频是一个构建单元（目标 `films`，单元 `<slug>/<id>`，`tbook.film.units`），由 `./tbook build films|site|all` 经 `film.build_videos` 运行。键覆盖视频依赖的全部输入，而不含无关输入：视频目录中 git 会提交的文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含视频页资源 `site/`，含 `requirements.txt`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（`film.engine_data`：书的代号、版本与标题，所钉提交与引用声明的名称、陈述摘要，片内文字）、`package-lock.json` 中字体与 Playwright（它决定 Chromium）的版本、Kokoro 模型版本（`film.KOKORO_RELEASE`）与 Node 主版本；不含站点地址，所以 CI、Pages 与 Release 的构建共用同一份视频。也不含探测到的 ffmpeg、Chromium 与视频 Python：没有视频工具链的构建（`TBOOK_FILMS=auto|skip`）须算出同一个键才能恢复视频，运行器上 ffmpeg 包的新修订也不改变视频的内容。缓存未命中时按 `TBOOK_FILMS` 处理：`auto`（默认）在工具链齐全（`film.toolchain_missing`：ffmpeg、Node 与 Playwright、Chromium、视频 Python 的包、Kokoro 模型、字体）时渲染，否则警告并删去该视频的旧构建目录；`require` 失败；`skip` 从不渲染。渲染即 `FILM_STRICT=1 theme/film/film.sh <dir> all`，在 `out/` 中工作，只把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`，不写入库文件（提交的 `poster.jpg` 只由手工的 `poster` 步骤生成）。视频工具链由 `theme/film/setup.sh` 安装：钉死的包进 `$FILM_CACHE/venv`（默认 `.cache/film/venv`，`PYTHON` 可指定别的解释器），模型进 `$KOKORO_MODEL_DIR`（默认 `.cache/film/models`）；ffmpeg 来自系统（`FFMPEG` 可覆盖）。
+视频构建：每部视频是一个构建单元（目标 `films`，单元 `<slug>/<id>`，`tbook.film.units`），由 `./tbook build films|site|all` 经 `film.build_videos` 运行。键覆盖视频依赖的全部输入，而不含无关输入：视频目录中 git 会提交的文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含视频页资源 `site/`，含 `requirements.txt`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（`film.engine_data`：书的代号、版本与标题，所钉提交与引用声明的名称、陈述摘要，片内文字）、`package-lock.json` 中字体与 Playwright（它决定 Chromium）的版本、Kokoro 模型版本（`film.KOKORO_RELEASE`）与 Node 主版本；不含站点地址，所以 CI、Pages 与 Release 的构建共用同一份视频。也不含探测到的 ffmpeg、Chromium 与视频 Python：没有视频工具链的构建（`TBOOK_FILMS=auto|skip`）须算出同一个键才能恢复视频，运行器上 ffmpeg 包的新修订也不改变视频的内容。缓存未命中时按 `TBOOK_FILMS` 处理：`auto`（默认）在工具链齐全（`film.toolchain_missing`：ffmpeg、Node 与 Playwright、Chromium、视频 Python 的包、Kokoro 模型、字体）时渲染，否则警告并删去该视频的旧构建目录；`require` 失败；`skip` 从不渲染。渲染即 `FILM_STRICT=1 theme/film/film.sh <dir> all <outputs 的键…>`（`film.render_videos` 明确传入 `film.json` 所列的输出），在 `out/` 中工作，只把这些文件复制到 `build/films/<slug>/<id>/`，缺少任何一个即失败（`buildcache.MissingOutput`，不存入缓存），不写入库文件（提交的 `poster.jpg` 只由手工的 `poster` 步骤生成）。`film.json` 在键中，改动 `outputs` 会重新渲染。流水线只编码所需（`film.render_plan`，`theme/film/plan.py` 给各步骤）：Chromium 按 1920×1080 截取每帧一次，各渲染进程在同一遍中编码——720p 视频（`narrated_720p`、`music_only_720p`）由帧直接缩放（hqdn3d、lanczos，x264 CRF 19、preset slow），只有列出 1080p 视频（`narrated`、`music_only`）时才另编码 1080p 母版（CRF 17）；`mux` 只做拼接与混入音频（AAC 48 kHz，`+faststart`），不再重新编码；纯配乐混音只在列出纯配乐视频时生成。同一台机器、同样的进程数，产物逐字节相同；720p 旁白版无论是否列出 1080p 都相同。默认（720p 旁白版与封面）渲染 50 秒的示例约 80 秒；另列出 1080p 视频时约 140 秒（帧截取不变，多编码 1080p 母版）。视频工具链由 `theme/film/setup.sh` 安装：钉死的包进 `$FILM_CACHE/venv`（默认 `.cache/film/venv`，`PYTHON` 可指定别的解释器），模型进 `$KOKORO_MODEL_DIR`（默认 `.cache/film/models`）；ffmpeg 来自系统（`FFMPEG` 可覆盖）。
 
 ### 5.1 构建缓存
 
@@ -248,7 +268,7 @@ store(unit), restore_local(unit), restore_remote(unit, repo), stored(), prune(un
 index.html                 书库首页（双语切换，书卡片：封面、简介、在线阅读、下载、媒体计数）
 404.html                   自包含的 404 页
 .nojekyll
-assets/                    站点共享样式、tokens.css、site.js、favicon
+assets/                    站点共享样式、tokens.css、site.js、favicon；katex/（KaTeX 样式与 WOFF2 字体，定理标题含公式时才有）
 manifest.json              机器可读清单（schema trureturing-books.site.v1，见下）
 <slug>/index.html          书的落地页：版本、语言、下载、目录、验证摘要、可视化/视频/幻灯片
 <slug>/cover-<lang>.png    站点封面（640×1024，tbook.cover 生成）
@@ -256,7 +276,7 @@ manifest.json              机器可读清单（schema trureturing-books.site.v1
 <slug>/downloads/          PDF、EPUB
 <slug>/viz/                index.html（可视化索引）、visualizations.json、assets/（共享运行时）、<id>/
 <slug>/films/              index.html、films.json、assets/{tokens.css,films.css,films.js}、<NNN>-<name>/poster.jpg
-                           与 <NNN>-<name>/<outputs 的五个文件>（构建有该视频时；同源托管，iOS Safari 需要正确的
+                           与 <NNN>-<name>/<outputs 所列的文件>（构建有该视频时；同源托管，iOS Safari 需要正确的
                            Content-Type 与按字节范围请求；没有时视频页、落地页与章节只显示海报与“视频未构建”）
 <slug>/slides/             index.html；<deck>/（第一语言）、<deck>/<lang>/（其他语言）、
                            <deck>/<slug>-<deck>-<lang>.pdf
@@ -266,7 +286,7 @@ manifest.json              机器可读清单（schema trureturing-books.site.v1
 
 站点品牌：`site.toml` 可选 `[site] logo = "TRURETURING//BOOKS"`；缺省时用英文站名生成 `FIRST//REST`。
 
-所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。`./tbook serve` 在同样的子路径下预览（`TBOOK_SERVE_HOST=0.0.0.0` 可供局域网访问）；`./tbook build site --book x` 只装配选定的书；`./tbook build viz|films [--book x]` 只重新发布（选定书的）这些部分，书库首页与 `manifest.json` 仍列出 `_site/` 中已有的全部书。媒体发布失败时，站点其余部分仍会写出，命令以非零退出。
+所有站内链接都是相对链接（站点挂在 `/<repo>/` 下）。`./tbook serve` 在同样的子路径下预览（`TBOOK_SERVE_HOST=0.0.0.0` 可供局域网访问）；`./tbook build site --book x` 只装配选定的书；`./tbook build viz|films [--book x]` 只重新发布（选定书的）这些部分，书库首页与 `manifest.json` 仍列出 `_site/` 中已有的全部书；被 `[books] hide` 隐藏的书的 `_site/<slug>/` 在每次站点构建时删除（完整构建本来就先清空 `_site/`），其他内容不动。媒体发布失败时，站点其余部分仍会写出，命令以非零退出。
 
 mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`；媒体块把相对本书的目标写在 `data-tr-src` / `data-tr-poster`，`site.publish_html` 据此修正。界面语言记在 localStorage 的 `tr-lang`，书库首页、落地页、可视化、视频页与幻灯片共用。
 
@@ -276,7 +296,7 @@ mdBook 的 `<lang>/print.html` 不改写 iframe 的 `src` 与 video 的 `poster`
 
 | 模块 | 职责 |
 | --- | --- |
-| `config` | `load_site()`、`load_book()`、`load_books()`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
+| `config` | `load_site()`、`load_book()`、`load_books()`、`book_slugs()`（可见的书，站点顺序）、`hidden_books()`、`named_book(slug)`（命令点名的书；隐藏的书报错）、`Site.hidden_by(slug)`、`i18n()`、`s(lang, key)`、`i18n_problems(langs)`、`Book.artifact()` |
 | `summary` | 解析 SUMMARY，章节编号前缀 |
 | `mdscan` | 块结构（`scan_blocks`：任何容器中的围栏代码、缩进代码与注释块，跨行的行内注释与公式，mdBook 与 Pandoc 读法不同处的警告 `notes`；`fenced_code_lines`、`indented_code_lines`、`map_closed`）、fenced div、属性、行内代码、`[@id]`、链接与引用式定义（`LINK_RE`、`REFDEF_RE`，容器前缀 `CONTAINER`；定义只能开始于哪些行：`definition_roles`、`text_roles`，逐行连同角色：`iter_text`）、`lean:` 链接（`lean_link_gids`；逐行读不到的 `stray_lean_links`，其 `<lean:…>` 地址由 `hide_lean_destinations` 对逐行读取隐藏）、标题的纯文字（`unescape_markdown`） |
 | `model` | `load_edition()` → `EditionModel`（章节、环境、编号、引用；`title_text()` 给出标题的纯文字，`title_markdown()` 保留 Markdown，二者都把 `[@id]` 换成引用文字）；`Issue` |
@@ -357,4 +377,4 @@ def generate(out_dir) -> Path
 | Slidev | 53.0.0 | `package.json` |
 | Playwright | `playwright-chromium@1.56.1` | `package.json`；本地可用 `PW_CHROMIUM_PATH` 指向已有 Chromium |
 
-字体：网页用 Google Fonts（Chakra Petch、JetBrains Mono、Noto Sans SC）；PDF 用系统字体加 `tools/fetch-fonts.sh` 拉取的 TTF（`.cache/fonts/`）；幻灯片与视频用 `@fontsource` 自托管。
+字体：网页用 Google Fonts（Chakra Petch、JetBrains Mono、Noto Sans SC，以及英文等非中日韩文字用的 Source Sans 3：令牌 `font.body-latin`。Noto Sans SC 把弯引号与撇号画成全角，中文需要这样，英文里却与词隔开，所以 mdBook、站点、视频页与可视化在语言不是中日韩时把 `--tr-font-body` 换成它；PDF 的英文正文本来用拉丁字体，EPUB 正文用阅读器的字体）；PDF 用系统字体加 `tools/fetch-fonts.sh` 拉取的 TTF（`.cache/fonts/`）；幻灯片与视频用 `@fontsource` 自托管。

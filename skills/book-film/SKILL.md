@@ -33,7 +33,7 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
 
 1. 写 `script.json`：每个场景 `id`、`name`、`lead`/`tail`、`lines: [[英文旁白, 中文字幕], …]`，可选 `music`、`cues`；发音修正写在 `say`。
 2. 写 `scenes.js`：每个场景 `SCENES.<id> = S => { … }`，用 `at(S, k, dur)` / `Q(S, k, '短语')` 与旁白对齐，用 `panel`、`chip`、`stamp`、`leanList`、`closingCard` 等绘制（见 README 的 scenes.js 一节）。
-3. 填 `film.json`：`title`/`title_zh`、`summary`/`summary_zh`、`subject_commit`（等于锁文件所钉提交）、`lean`（片中引用的 GID）、`outputs`（视频文件名）。新 GID 后运行 `./tbook pin --refresh`（它收集视频引用的 GID）。
+3. 填 `film.json`：`title`/`title_zh`、`summary`/`summary_zh`、`subject_commit`（等于锁文件所钉提交）、`lean`（片中引用的 GID）、`outputs`（构建产出的文件：默认只有 `narrated_720p`——720p 旁白版，播放器播放它——与 `cover`；确实需要时再列出 `narrated`（1080p 旁白版）、`music_only`（1080p 纯配乐）、`music_only_720p`，列出 1080p 视频时 `resolution` 改为 `1920x1080@30`）。新 GID 后运行 `./tbook pin --refresh`（它收集视频引用的 GID）。
 4. 本地迭代（不需要 TTS）：
 
    ```bash
@@ -51,7 +51,7 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
    TBOOK_FILMS=require ./tbook build films --book <book>
    ```
 
-   每部视频是一个构建单元（`./tbook cache status` 中目标为 `films`）：输入未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链时用它取得视频）；都没有时运行 `film.sh <dir> all`（`FILM_STRICT=1`：只用 TTS 实测的时间轴与自托管字体），把 `outputs` 中的五个文件复制到 `build/films/<slug>/<id>/`。构建不写任何入库文件；`poster.jpg` 只由第 4 步手工更新。渲染后若实际时长与 `film.json` 的 `duration` 不同，构建会警告，按提示更新。
+   每部视频是一个构建单元（`./tbook cache status` 中目标为 `films`）：输入未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链时用它取得视频）；都没有时运行 `film.sh <dir> all`（`FILM_STRICT=1`：只用 TTS 实测的时间轴与自托管字体），只编码并复制 `outputs` 所列的文件到 `build/films/<slug>/<id>/`（默认不做 1080p 母版，720p 由帧直接缩放编码；50 秒的示例约 80 秒、成片约 6 MB）。构建不写任何入库文件；`poster.jpg` 只由第 4 步手工更新。渲染后若实际时长与 `film.json` 的 `duration` 不同，构建会警告，按提示更新。
    `TBOOK_FILMS`：`auto`（默认）缓存未命中且工具链齐全时渲染，否则警告并在站点上只显示海报与“视频未构建”；`require` 缺工具链时失败；`skip` 从不渲染（命中缓存仍恢复）。`./tbook build site` 与 `./tbook build all` 同样会渲染或恢复视频。
 6. 嵌入章节——**所有语言版本都要加**，`src` 相同，只翻译图注：
 
@@ -61,7 +61,7 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
    :::
    ```
 
-   本书的视频：HTML 中为 `<video>`，播放站内 `films/<id>/` 的 720p 旁白版，海报为提交的 `poster.jpg`，附 1080p、720p、纯配乐下载与视频页链接；站点没有该视频（未构建）时改为显示海报与“视频未构建”。PDF/EPUB 中为海报、图注与站点视频页地址（`site.toml` 没有 `base_url` 时只有海报与图注）。
+   本书的视频：HTML 中为 `<video>`，播放站内 `films/<id>/` 的 720p 旁白版，海报为提交的 `poster.jpg`，附 `outputs` 所列视频的下载（默认只有 720p）与视频页链接；站点没有该视频（未构建）时改为显示海报与“视频未构建”。PDF/EPUB 中为海报、图注与站点视频页地址（`site.toml` 没有 `base_url` 时只有海报与图注）。
 
    外部视频（trureturing-film 的 Release）：`::: {.film src="trureturing-film:film-<NNN>-v<k>"}`。HTML 中为 `<video>`，直接播放该 Release 的旁白版附件 `TRURETURING_<NNN>_narrated_EN_subs_ZH-EN.mp4`，海报为其 `TRURETURING_<NNN>_cover.jpg`，附“观看”（视频文件）与“下载”（Release 页）链接；不经站点托管，也不显示“视频未构建”。Release 附件的地址在 iOS Safari 中不能播放，需要所有读者都能看的视频请做成本书的视频。PDF/EPUB 中没有海报，为标题“trureturing-film 的视频 · film-<NNN>-v<k>”、图注与该 Release 页的地址（不依赖 `base_url`）。
 7. `./tbook build site --book <book> && ./tbook serve` 查看视频页 `<slug>/films/` 与章节中的播放器（手机宽度、深浅主题）。`./tbook serve` 支持按字节范围请求，Safari 也能在本地播放；用 iPhone 查看时设置 `TBOOK_SERVE_HOST=0.0.0.0`，从同一网络访问。
@@ -72,6 +72,8 @@ theme/film/setup.sh                  # 每台机器一次：视频 venv（.cache
 | --- | --- |
 | `check` 警告 `subject_commit` 与所钉提交不同 | 视频依据的提交过期；复核片中陈述后更新 `subject_commit`，构建会重新渲染 |
 | `check` 警告 `release_tag` / `published_tag` 不再使用 | 旧的逐片 Release 字段；删除即可，视频随站点构建 |
+| `check` 报 `outputs.narrated_720p is required` 或 `outputs.<键> is not an output` | `outputs` 必须列出 `narrated_720p` 与 `cover`，可选键只有 `narrated`、`music_only`、`music_only_720p`；文件名可取 `./tbook film new` 生成的默认名 |
+| 需要 1080p 或纯配乐版本 | 在 `outputs` 中列出 `narrated`、`music_only` 或 `music_only_720p`（1080p 时 `resolution` 改为 `1920x1080@30`）；视频重新渲染，站点只托管、链接所列文件。每分钟视频默认约 7 MB，列出全部输出时约 84 MB，注意 Pages 站点 1 GB 的上限 |
 | 站点显示“视频未构建” | 缓存未命中且没有渲染：工具链不全（构建日志列出缺项，运行 `theme/film/setup.sh`）或 `TBOOK_FILMS=skip` |
 | 改了章节，视频却重新渲染 | 不应发生：键只含 git 列出的视频文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、字体与 Playwright 的 npm 版本、Kokoro 模型版本与 Node 主版本，不含站点地址。改 `book.toml` 的版本或标题、钉新的 trureturing 提交也会让视频重新渲染（它们属于引擎数据）；用 `./tbook cache status` 与条目的 `entry.json` 比对输入 |
 | PR 中视频每次推送都重新渲染 | 预期如此：PR 运行不读也不存 Actions 缓存（防投毒），只从已发布的 Release 恢复；合入后 `pages.yml` 渲染并保存，之后分支与 `main` 上的构建都从缓存恢复，PR 要等某个 Release 附上该键 |

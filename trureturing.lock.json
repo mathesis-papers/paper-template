@@ -5,6 +5,46 @@
   "commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
   "pinned_at": "2026-11-08T12:32:04Z",
   "declarations": {
+    "D5/S0/Carrier/Conj.trace": {
+      "module": "D5/S0/Carrier/Conj",
+      "name": "D5.S0.Carrier.trace",
+      "kind": "def",
+      "statement_id": "sha256:1b736640a59f4ea235ec8dec41c7a383ae3810214e61bcfa23394cd5bd471cfe",
+      "line": 42,
+      "signature": "def trace (x : GoldenInt) : ℤ"
+    },
+    "D5/S0/Carrier/Ring.GoldenInt": {
+      "module": "D5/S0/Carrier/Ring",
+      "name": "D5.S0.Carrier.GoldenInt",
+      "kind": "inductive",
+      "statement_id": "sha256:cf9edcb1b0afa3e79e62dbc00419cce07094df49bbc47cafd4e7a6158ac052e7",
+      "line": 13,
+      "signature": "@[ext] structure GoldenInt where a : ℤ b : ℤ deriving DecidableEq instance : Zero GoldenInt"
+    },
+    "D5/S0/Carrier/Ring.phi": {
+      "module": "D5/S0/Carrier/Ring",
+      "name": "D5.S0.Carrier.phi",
+      "kind": "def",
+      "statement_id": "sha256:cf9edcb1b0afa3e79e62dbc00419cce07094df49bbc47cafd4e7a6158ac052e7",
+      "line": 79,
+      "signature": "def phi : GoldenInt"
+    },
+    "D5/S0/Carrier/Ring.phi_sq": {
+      "module": "D5/S0/Carrier/Ring",
+      "name": "D5.S0.Carrier.phi_sq",
+      "kind": "theorem",
+      "statement_id": "sha256:cf9edcb1b0afa3e79e62dbc00419cce07094df49bbc47cafd4e7a6158ac052e7",
+      "line": 85,
+      "signature": "theorem phi_sq : phi ^ 2 = phi + 1"
+    },
+    "D5/S0/Certificates/DetlefsRoughResidueCharacterizationRefutation.result": {
+      "module": "D5/S0/Certificates/DetlefsRoughResidueCharacterizationRefutation",
+      "name": "D5.S0.Certificates.DetlefsRoughResidueCharacterizationRefutation.result",
+      "kind": "theorem",
+      "statement_id": "sha256:da99565bba3127af0f5731e6fe748b58bcb211359ca3816d8c12fdb7559ae549",
+      "line": 42,
+      "signature": "theorem result : ¬ claim"
+    },
     "D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result": {
       "module": "D5/S0/Certificates/GreathouseLogTwoFloorRefutation",
       "name": "D5.S0.Certificates.GreathouseLogTwoFloorRefutation.result",
@@ -12,6 +52,62 @@
       "statement_id": "sha256:feb0a692ff0b7728d70c666c100329f31d178733d7cab938432f7aecfb7edd6d",
       "line": 37,
       "signature": "theorem result : ¬ claim"
+    },
+    "D5/S0/Certificates/RationalFarkas.infeasible_of_certificate": {
+      "module": "D5/S0/Certificates/RationalFarkas",
+      "name": "D5.S0.Certificates.RationalFarkas.infeasible_of_certificate",
+      "kind": "theorem",
+      "statement_id": "sha256:546171e159c27165350a8a425b913728e57852b76e93306eda2c912f2483697d",
+      "line": 48,
+      "signature": "theorem infeasible_of_certificate {Constraint Variable : Type*} [Fintype Constraint] [Fintype Variable] (A : Constraint -> Variable -> ℚ) (b : Constraint -> ℚ) (certificate : Certificate A b) : ¬Exists fun x : Variable -> ℚ => LinearFeasible A b x"
+    },
+    "D5/S0/Computability/FiniteCounterexampleCertificate.finite_readout_counterexample_certificate": {
+      "module": "D5/S0/Computability/FiniteCounterexampleCertificate",
+      "name": "D5.S0.Computability.FiniteCounterexampleCertificate.finite_readout_counterexample_certificate",
+      "kind": "theorem",
+      "statement_id": "sha256:0200f27a4da331e8a3a8a1913b594d5520df774e4fd32f12acdd7a88244e7940",
+      "line": 22,
+      "signature": "theorem finite_readout_counterexample_certificate (D : MarkerHistory -> Bool) : (¬ ∀ h, D h = true) ↔ ∃ n h, findCounterexample D n = some h ∧ D h = false"
+    },
+    "D5/S0/Diagonal/PigeonholeFiber.finite_reading_has_fiber": {
+      "module": "D5/S0/Diagonal/PigeonholeFiber",
+      "name": "D5.S0.Diagonal.PigeonholeFiber.finite_reading_has_fiber",
+      "kind": "theorem",
+      "statement_id": "sha256:5f55169af7d89edac5921dbfefa1ae643783901e94726f4763079e1c068f4b6f",
+      "line": 16,
+      "signature": "theorem finite_reading_has_fiber {Objects Readings : Type u} (read : Objects → Readings) (hcard : Cardinal.mk Readings < Cardinal.mk Objects) : ∃ x y, x ≠ y ∧ read x = read y"
+    },
+    "D5/S1/Deficit/AlmostAdditivity.lambdaMinus_almost_additive": {
+      "module": "D5/S1/Deficit/AlmostAdditivity",
+      "name": "D5.S1.Deficit.AlmostAdditivity.lambdaMinus_almost_additive",
+      "kind": "theorem",
+      "statement_id": "sha256:dc74a1ae4c7e67fb4980b7dd55527c962334104bbc5c8bb53faac5fb498225a4",
+      "line": 114,
+      "signature": "theorem lambdaMinus_almost_additive {m n : ℕ} (hm : 1 ≤ m) (hn : 1 ≤ n) : |lambdaMinus (m * n) - lambdaMinus m - lambdaMinus n| ≤ Real.log (primeRadical (Nat.gcd m n))"
+    },
+    "D5/S1/Deficit/ChargedCarryPath.charged_normal_form_unique": {
+      "module": "D5/S1/Deficit/ChargedCarryPath",
+      "name": "D5.S1.Deficit.charged_normal_form_unique",
+      "kind": "theorem",
+      "statement_id": "sha256:ee0443c74cdb68b2ddb190088633e20b1e683bcd72ff5faabb6dafb19c9b0350",
+      "line": 152,
+      "signature": "theorem charged_normal_form_unique {r s t : RawDigits} {z w : ℤ} (hs : ChargedReduces r s z) (hsc : CanonicalRaw s) (ht : ChargedReduces r t w) (htc : CanonicalRaw t) : s = t ∧ z = w"
+    },
+    "D5/S1/Deficit/ChargedCarryPath.deficit_eq_beattyDeficit": {
+      "module": "D5/S1/Deficit/ChargedCarryPath",
+      "name": "D5.S1.Deficit.deficit_eq_beattyDeficit",
+      "kind": "theorem",
+      "statement_id": "sha256:ee0443c74cdb68b2ddb190088633e20b1e683bcd72ff5faabb6dafb19c9b0350",
+      "line": 269,
+      "signature": "theorem deficit_eq_beattyDeficit (v₁ v₂ : ℕ) : deficit v₁ v₂ = (beattyDeficit v₁ v₂ : ℝ)"
+    },
+    "D5/S1/Deficit/DeficitInteger.betaContraction": {
+      "module": "D5/S1/Deficit/DeficitInteger",
+      "name": "D5.S1.Deficit.betaContraction",
+      "kind": "def",
+      "statement_id": "sha256:65be18ff970d1515bc36bb21c3a1ccf3d20e9ab632605fad77806ffaeeef482c",
+      "line": 240,
+      "signature": "noncomputable def betaContraction (v : ℕ) : ℝ"
     },
     "D5/S1/Deficit/DeficitInteger.deficit": {
       "module": "D5/S1/Deficit/DeficitInteger",
@@ -37,6 +133,262 @@
       "line": 264,
       "signature": "theorem deficit_three_valued (v₁ v₂ : ℕ) : deficit v₁ v₂ = -1 ∨ deficit v₁ v₂ = 0 ∨ deficit v₁ v₂ = 1"
     },
+    "D5/S1/Deficit/DoubleFaceLength.betaReal_sub_betaContraction": {
+      "module": "D5/S1/Deficit/DoubleFaceLength",
+      "name": "D5.S1.Deficit.DoubleFaceLength.betaReal_sub_betaContraction",
+      "kind": "theorem",
+      "statement_id": "sha256:5b208b67f8726b8f2d16f26114d0086f0704e346592f7f39a203e2c22451c29d",
+      "line": 64,
+      "signature": "theorem betaReal_sub_betaContraction (v : ℕ) : betaReal v - betaContraction v = Real.sqrt 5 * (v : ℝ)"
+    },
+    "D5/S1/Deficit/FixedModulusNoncongruence.deficit_not_determined_by_fixed_modulus": {
+      "module": "D5/S1/Deficit/FixedModulusNoncongruence",
+      "name": "D5.S1.Deficit.FixedModulusNoncongruence.deficit_not_determined_by_fixed_modulus",
+      "kind": "theorem",
+      "statement_id": "sha256:5efcc868a12b65954af1f37bf9432dd3873b93c348903c6ffaf256f3bbe034ac",
+      "line": 183,
+      "signature": "theorem deficit_not_determined_by_fixed_modulus (m : ℕ) (hm : 2 ≤ m) : ∃ v₁ v₂ v₁' v₂' : ℕ, Nat.ModEq m v₁ v₁' ∧ Nat.ModEq m v₂ v₂' ∧ deficit v₁ v₂ ≠ deficit v₁' v₂'"
+    },
+    "D5/S1/Deficit/GoldenCarryLedger.carry_rewrite_face_invariant": {
+      "module": "D5/S1/Deficit/GoldenCarryLedger",
+      "name": "D5.S1.Deficit.GoldenCarryLedger.carry_rewrite_face_invariant",
+      "kind": "theorem",
+      "statement_id": "sha256:db01fdb5e07a28f51f4971dc798f66ff2bc26946ab0385b02dbbcdcb4ebb4841",
+      "line": 33,
+      "signature": "theorem carry_rewrite_face_invariant (k : ℕ) : (goldenRatio ^ (k + 1) + goldenRatio ^ (k + 2) = goldenRatio ^ (k + 3) ∧ 2 * goldenRatio ^ (k + 2) = goldenRatio ^ (k + 3) + goldenRatio ^ k) ∧ (goldenConj ^ (k + 1) + goldenConj ^ (k + 2) = goldenConj ^ (k + 3) ∧ 2 * goldenConj ^ (k + 2) = goldenConj ^ (k + 3) + goldenConj ^ k)"
+    },
+    "D5/S1/Deficit/GoldenPhaseDeficit.golden_phase_deficit": {
+      "module": "D5/S1/Deficit/GoldenPhaseDeficit",
+      "name": "D5.S1.Deficit.GoldenPhaseDeficit.golden_phase_deficit",
+      "kind": "theorem",
+      "statement_id": "sha256:89044d9d411327f7bdb214549fbbe786033b39b6a8df839e15866bd23f8c10b9",
+      "line": 59,
+      "signature": "theorem golden_phase_deficit (v₁ v₂ : ℕ) : (beattyDeficit v₁ v₂ = 1 ↔ goldenPhase v₁ + goldenPhase v₂ < Real.goldenRatio⁻¹) ∧ (beattyDeficit v₁ v₂ = -1 ↔ Real.goldenRatio ≤ goldenPhase v₁ + goldenPhase v₂) ∧ (beattyDeficit v₁ v₂ = 0 ↔ Real.goldenRatio⁻¹ ≤ goldenPhase v₁ + goldenPhase v₂ ∧ goldenPhase v₁ + goldenPhase v₂ < Real.goldenRatio)"
+    },
+    "D5/S1/Deficit/GoldenPhaseDistribution.limiting_deficit_distribution": {
+      "module": "D5/S1/Deficit/GoldenPhaseDistribution",
+      "name": "D5.S1.Deficit.GoldenPhaseDistribution.limiting_deficit_distribution",
+      "kind": "theorem",
+      "statement_id": "sha256:92c2eddf8eff35e1b5e6058f2250c860049aef1ab615ab844f882af580e610a6",
+      "line": 29,
+      "signature": "theorem limiting_deficit_distribution : positiveFrequency = 1 / (2 * Real.goldenRatio ^ 2) ∧ negativeFrequency = 1 / (2 * Real.goldenRatio ^ 4) ∧ positiveFrequency - negativeFrequency = 1 / (2 * Real.goldenRatio ^ 3)"
+    },
+    "D5/S1/Digit/Addition.rawValue_toRaw_Z": {
+      "module": "D5/S1/Digit/Addition",
+      "name": "D5.S1.Digit.rawValue_toRaw_Z",
+      "kind": "theorem",
+      "statement_id": "sha256:23896cc4145629a00f6c8db194ec19de3f8e6c859b0a4a224e0cc8d6f35199df",
+      "line": 32,
+      "signature": "@[simp] theorem rawValue_toRaw_Z (n : ℕ) : rawValue (toRaw (Z n)) = n"
+    },
+    "D5/S1/Digit/Addition.zeck_add": {
+      "module": "D5/S1/Digit/Addition",
+      "name": "D5.S1.Digit.zeck_add",
+      "kind": "theorem",
+      "statement_id": "sha256:23896cc4145629a00f6c8db194ec19de3f8e6c859b0a4a224e0cc8d6f35199df",
+      "line": 40,
+      "signature": "theorem zeck_add (m n : ℕ) : toRaw (Z (m + n)) = normalize (toRaw (Z m) + toRaw (Z n))"
+    },
+    "D5/S1/Digit/Carry.rawValue_carryStep": {
+      "module": "D5/S1/Digit/Carry",
+      "name": "D5.S1.Digit.rawValue_carryStep",
+      "kind": "theorem",
+      "statement_id": "sha256:297c9a8f073c8db599c6ea843f6c83ac5fb37950cc7747d3e703def323f1964c",
+      "line": 78,
+      "signature": "theorem rawValue_carryStep {before after : RawDigits} (step : CarryStep before after) : rawValue before = rawValue after"
+    },
+    "D5/S1/Digit/CarryStepConfluence.carryStep_confluent": {
+      "module": "D5/S1/Digit/CarryStepConfluence",
+      "name": "D5.S1.Digit.carryStep_confluent",
+      "kind": "theorem",
+      "statement_id": "sha256:6c103809a969f30a1bc5134d01262d21f525cc0fba7bcfcbe1c521590f532d5e",
+      "line": 54,
+      "signature": "theorem carryStep_confluent : ∀ ⦃r s t : RawDigits⦄, Relation.ReflTransGen CarryStep r s → Relation.ReflTransGen CarryStep r t → Relation.Join (Relation.ReflTransGen CarryStep) s t"
+    },
+    "D5/S1/Digit/Normalize.canonicalRaw_unique": {
+      "module": "D5/S1/Digit/Normalize",
+      "name": "D5.S1.Digit.canonicalRaw_unique",
+      "kind": "theorem",
+      "statement_id": "sha256:ddda28c85544306d105b5bfca2868fd2f8ffa840e354db46a376dfb5427c0168",
+      "line": 249,
+      "signature": "theorem canonicalRaw_unique {r s : RawDigits} (hr : CanonicalRaw r) (hs : CanonicalRaw s) (hvalue : rawValue r = rawValue s) : r = s"
+    },
+    "D5/S1/Digit/Raw.CanonicalRaw": {
+      "module": "D5/S1/Digit/Raw",
+      "name": "D5.S1.Digit.CanonicalRaw",
+      "kind": "def",
+      "statement_id": "sha256:172f8295b6d310914a75859a5c1ad916b52d55303490aa33c7a7aca9f3f45855",
+      "line": 38,
+      "signature": "def CanonicalRaw (r : RawDigits) : Prop"
+    },
+    "D5/S1/Digit/Raw.rawValue": {
+      "module": "D5/S1/Digit/Raw",
+      "name": "D5.S1.Digit.rawValue",
+      "kind": "def",
+      "statement_id": "sha256:172f8295b6d310914a75859a5c1ad916b52d55303490aa33c7a7aca9f3f45855",
+      "line": 23,
+      "signature": "def rawValue (r : RawDigits) : ℕ"
+    },
+    "D5/S1/Recurrence/FibVajda.fib_vajda": {
+      "module": "D5/S1/Recurrence/FibVajda",
+      "name": "D5.S1.Recurrence.FibVajda.fib_vajda",
+      "kind": "theorem",
+      "statement_id": "sha256:c6cee96a97c6dde04bdd0a8f2a75f491cc0565bfa0281983e20cdc36096eeab0",
+      "line": 17,
+      "signature": "theorem fib_vajda (n i j : ℕ) : (Nat.fib (n + i) : ℤ) * (Nat.fib (n + j) : ℤ) - (Nat.fib n : ℤ) * (Nat.fib (n + i + j) : ℤ) = (-1 : ℤ) ^ n * (Nat.fib i : ℤ) * (Nat.fib j : ℤ)"
+    },
+    "D5/S1/Recurrence/FibonacciPowerSumMod16Obstruction.fib_mod_sixteen_period": {
+      "module": "D5/S1/Recurrence/FibonacciPowerSumMod16Obstruction",
+      "name": "D5.S1.Recurrence.FibonacciPowerSumMod16Obstruction.fib_mod_sixteen_period",
+      "kind": "theorem",
+      "statement_id": "sha256:635aed974873dcc71f332bc4f7f3591095d30a64b0e01db2b10d5986c0390ed6",
+      "line": 47,
+      "signature": "theorem fib_mod_sixteen_period : (∀ n : ℕ, Nat.fib (n + 24) % 16 = Nat.fib n % 16) ∧ (∀ n : ℕ, Nat.fib n % 16 = Nat.fib (n % 24) % 16)"
+    },
+    "D5/S1/Recurrence/GoldenFibDivisibility.fib_dvd_iff": {
+      "module": "D5/S1/Recurrence/GoldenFibDivisibility",
+      "name": "D5.S1.Recurrence.GoldenFibDivisibility.fib_dvd_iff",
+      "kind": "theorem",
+      "statement_id": "sha256:86eac9e34a86b32dcd3a1f9e36e651709fb923c45d704fe75615ecc713a13cf0",
+      "line": 19,
+      "signature": "theorem fib_dvd_iff (a b : ℕ) (ha : 3 ≤ a) : Nat.fib a ∣ Nat.fib b ↔ a ∣ b"
+    },
+    "D5/S1/Scale/FibLucasDouble.golden_fib_two_mul_eq_fib_mul_lucas": {
+      "module": "D5/S1/Scale/FibLucasDouble",
+      "name": "D5.S1.Scale.golden_fib_two_mul_eq_fib_mul_lucas",
+      "kind": "theorem",
+      "statement_id": "sha256:7b8492af3b5ec07e17526fee9039bdb6d4df28184e37fc89e80297beae5ad167",
+      "line": 15,
+      "signature": "theorem golden_fib_two_mul_eq_fib_mul_lucas (n : ℕ) : (Nat.fib (2 * n) : ℤ) = (Nat.fib n : ℤ) * goldenLucas n"
+    },
+    "D5/S1/Scale/Fibonacci.fib_cassini_from_golden_norm": {
+      "module": "D5/S1/Scale/Fibonacci",
+      "name": "D5.S1.Scale.fib_cassini_from_golden_norm",
+      "kind": "theorem",
+      "statement_id": "sha256:751177242ed35f6038442f34be0329f08c8b2dc1ddcc1dafc85cddc43dcf9266",
+      "line": 37,
+      "signature": "theorem fib_cassini_from_golden_norm (n : ℕ) : (Nat.fib n : ℤ) * (Nat.fib (n + 2) : ℤ) - (Nat.fib (n + 1) : ℤ) ^ 2 = (-1 : ℤ) ^ (n + 1)"
+    },
+    "D5/S1/Scale/Fibonacci.golden_phi_pow_eq_fib_pair": {
+      "module": "D5/S1/Scale/Fibonacci",
+      "name": "D5.S1.Scale.golden_phi_pow_eq_fib_pair",
+      "kind": "theorem",
+      "statement_id": "sha256:751177242ed35f6038442f34be0329f08c8b2dc1ddcc1dafc85cddc43dcf9266",
+      "line": 16,
+      "signature": "theorem golden_phi_pow_eq_fib_pair (n : ℕ) : phi ^ (n + 1) = ⟨(Nat.fib n : ℤ), (Nat.fib (n + 1) : ℤ)⟩"
+    },
+    "D5/S1/Scale/FibonacciErrorRatio.fibonacci_golden_residual": {
+      "module": "D5/S1/Scale/FibonacciErrorRatio",
+      "name": "D5.S1.Scale.fibonacci_golden_residual",
+      "kind": "theorem",
+      "statement_id": "sha256:912937e9d34b68c3396f5d3ca5313d17a4d7b7a202e214e42118a10660e54f07",
+      "line": 21,
+      "signature": "theorem fibonacci_golden_residual (n : ℕ) : (Nat.fib n : ℝ) * Real.goldenRatio - Nat.fib (n + 1) = -((-1 / Real.goldenRatio) ^ n)"
+    },
+    "D5/S1/Scale/Lucas.goldenLucas": {
+      "module": "D5/S1/Scale/Lucas",
+      "name": "D5.S1.Scale.goldenLucas",
+      "kind": "def",
+      "statement_id": "sha256:b5423e35beed41e6b14f88050429fd9678f562cbc414e16bf8d14c321b042785",
+      "line": 15,
+      "signature": "def goldenLucas (n : ℕ) : ℤ"
+    },
+    "D5/S1/Scale/Lucas.golden_lucas_discriminant": {
+      "module": "D5/S1/Scale/Lucas",
+      "name": "D5.S1.Scale.golden_lucas_discriminant",
+      "kind": "theorem",
+      "statement_id": "sha256:b5423e35beed41e6b14f88050429fd9678f562cbc414e16bf8d14c321b042785",
+      "line": 45,
+      "signature": "theorem golden_lucas_discriminant (n : ℕ) : goldenLucas n ^ 2 - 5 * (Nat.fib n : ℤ) ^ 2 = 4 * (-1 : ℤ) ^ n"
+    },
+    "D5/S1/Scale/Lucas.golden_lucas_succ_eq_fib_add_fib": {
+      "module": "D5/S1/Scale/Lucas",
+      "name": "D5.S1.Scale.golden_lucas_succ_eq_fib_add_fib",
+      "kind": "theorem",
+      "statement_id": "sha256:b5423e35beed41e6b14f88050429fd9678f562cbc414e16bf8d14c321b042785",
+      "line": 30,
+      "signature": "theorem golden_lucas_succ_eq_fib_add_fib (n : ℕ) : goldenLucas (n + 1) = (Nat.fib n : ℤ) + (Nat.fib (n + 2) : ℤ)"
+    },
+    "D5/S1/Words/Expansions/BasePhiNegativeBridge.betaContraction_mem_window": {
+      "module": "D5/S1/Words/Expansions/BasePhiNegativeBridge",
+      "name": "D5.S1.Words.Expansions.BasePhiNegativeBridge.betaContraction_mem_window",
+      "kind": "theorem",
+      "statement_id": "sha256:e02daa6ab8bef11153d22f23833d6ddf2a5db2b16c4ed13736193a74d0ab9c0a",
+      "line": 242,
+      "signature": "theorem betaContraction_mem_window (v : ℕ) : -(goldenConj ^ 2) ≤ betaContraction v ∧ betaContraction v ≤ -goldenConj"
+    },
+    "D5/S1/Words/GoldenFactorComplexity.golden_factor_complexity": {
+      "module": "D5/S1/Words/GoldenFactorComplexity",
+      "name": "D5.S1.Words.golden_factor_complexity",
+      "kind": "theorem",
+      "statement_id": "sha256:df6050c1b101dcd4fec43d349d0113d19f3b79299ce649379ef3d12887619f3e",
+      "line": 341,
+      "signature": "theorem golden_factor_complexity (n : Nat) : (goldenFactorSet n).card = n + 1"
+    },
+    "D5/S1/Words/GoldenWord.goldenWord": {
+      "module": "D5/S1/Words/GoldenWord",
+      "name": "D5.S1.Words.goldenWord",
+      "kind": "def",
+      "statement_id": "sha256:5b627b7ad0e8bf353fc2f705e2a1b10313bd8a4217a1734f4074c6797bfc5c6a",
+      "line": 28,
+      "signature": "def goldenWord (i : Nat) : Bool"
+    },
+    "D5/S1/Words/GoldenWord.goldenWord_char_zeckendorf": {
+      "module": "D5/S1/Words/GoldenWord",
+      "name": "D5.S1.Words.goldenWord_char_zeckendorf",
+      "kind": "theorem",
+      "statement_id": "sha256:5b627b7ad0e8bf353fc2f705e2a1b10313bd8a4217a1734f4074c6797bfc5c6a",
+      "line": 51,
+      "signature": "theorem goldenWord_char_zeckendorf (i : Nat) : goldenWord i = true ↔ 2 ∉ wdigits i"
+    },
+    "D5/S1/Words/ZeckendorfOrder.zeckendorf_lex_iff_lt": {
+      "module": "D5/S1/Words/ZeckendorfOrder",
+      "name": "D5.S1.Words.zeckendorf_lex_iff_lt",
+      "kind": "theorem",
+      "statement_id": "sha256:09aced2ff34acf798e826fee4397dba553bccca74d22607fff63bf3aaaa865c9",
+      "line": 68,
+      "signature": "theorem zeckendorf_lex_iff_lt (m n : ℕ) : List.Lex (· < ·) (Nat.zeckendorf m) (Nat.zeckendorf n) ↔ m < n"
+    },
+    "D5/S3/Arith/Robin/FibonacciRankEulerTail.fibonacci_lt_two_pow": {
+      "module": "D5/S3/Arith/Robin/FibonacciRankEulerTail",
+      "name": "D5.S3.Arith.Robin.FibonacciRankEulerTail.fibonacci_lt_two_pow",
+      "kind": "theorem",
+      "statement_id": "sha256:0fe597d21b816458d586394a18dcbdeb66126a5bf8b49f839f96155f19425d3f",
+      "line": 23,
+      "signature": "theorem fibonacci_lt_two_pow : ∀ n : ℕ, Nat.fib n < 2 ^ n"
+    },
+    "D5/S3/ConceptDynamics/ConceptJoinUniversal.Refines": {
+      "module": "D5/S3/ConceptDynamics/ConceptJoinUniversal",
+      "name": "D5.S3.ConceptDynamics.ConceptJoinUniversal.Refines",
+      "kind": "def",
+      "statement_id": "sha256:46dfcb4e0f994ccdbaff9a38e548f8f79ce92541a1946fce7fbf8f0781d54808",
+      "line": 28,
+      "signature": "def Refines {X C D : Type _} (q_C : Concept X C) (q_D : Concept X D) : Prop"
+    },
+    "D5/S3/ConceptDynamics/ConceptJoinUniversal.concept_join_universal": {
+      "module": "D5/S3/ConceptDynamics/ConceptJoinUniversal",
+      "name": "D5.S3.ConceptDynamics.ConceptJoinUniversal.concept_join_universal",
+      "kind": "theorem",
+      "statement_id": "sha256:46dfcb4e0f994ccdbaff9a38e548f8f79ce92541a1946fce7fbf8f0781d54808",
+      "line": 37,
+      "signature": "theorem concept_join_universal {X C D E : Type _} (q_C : Concept X C) (q_D : Concept X D) (q_E : Concept X E) : Refines q_C (conceptJoin q_C q_D) ∧ Refines q_D (conceptJoin q_C q_D) ∧ (Refines q_C q_E → Refines q_D q_E → Refines (conceptJoin q_C q_D) q_E)"
+    },
+    "D5/S3/ConceptDynamics/Information/EqualEntropyTargetValueContrast.equal_entropy_target_value_contrast": {
+      "module": "D5/S3/ConceptDynamics/Information/EqualEntropyTargetValueContrast",
+      "name": "D5.S3.ConceptDynamics.Information.EqualEntropyTargetValueContrast.equal_entropy_target_value_contrast",
+      "kind": "theorem",
+      "statement_id": "sha256:798a497f18ba7e3a3d2aa4b489a706ca66965d15eef15b633f1d8610c3027fb7",
+      "line": 41,
+      "signature": "theorem equal_entropy_target_value_contrast : let mass : Bool × Bool -> Real"
+    },
+    "D5/S3/ConceptDynamics/Information/RefinementEntropyMonotonicity.refinement_information_residual_monotone": {
+      "module": "D5/S3/ConceptDynamics/Information/RefinementEntropyMonotonicity",
+      "name": "D5.S3.ConceptDynamics.Information.RefinementEntropyMonotonicity.refinement_information_residual_monotone",
+      "kind": "theorem",
+      "statement_id": "sha256:ef59ad5d0f50086b3147c5ad5b0d41c68eb79aebcdd0544a8479d22e1a7c2c01",
+      "line": 146,
+      "signature": "theorem refinement_information_residual_monotone {X C D : Type*} [Fintype X] [Fintype C] [Fintype D] (mu : X -> Real) (hmu : (forall x, 0 <= mu x) ∧ (∑ x, mu x) = 1) (q_C : Concept X C) (q_D : Concept X D) (refinement : Refines q_C q_D) : conceptInformation mu q_C <= conceptInformation mu q_D ∧ conceptResidual mu q_D <= conceptResidual mu q_C"
+    },
     "D5/S3/ConceptDynamics/Restoration/TargetRecoveryCriterion.target_recovery_criterion": {
       "module": "D5/S3/ConceptDynamics/Restoration/TargetRecoveryCriterion",
       "name": "D5.S3.ConceptDynamics.Restoration.TargetRecoveryCriterion.target_recovery_criterion",
@@ -44,6 +396,86 @@
       "statement_id": "sha256:b00b35b9fad01258b563836e879dfb6cd8370b8d8d4f8c83cfafb011a2cc3a56",
       "line": 37,
       "signature": "theorem target_recovery_criterion {X ProcessState Target : Type*} [Nonempty X] (process : Concept X ProcessState) (target : Concept X Target) : ((∃ recover : ProcessState → Target, target = recover ∘ process) ↔ ∀ ⦃x y : X⦄, process x = process y → target x = target y) ∧ ((∀ ⦃x y : X⦄, process x = process y → target x = target y) ↔ defectRelation process target = ∅) ∧ (defectRelation process target = ∅ ↔ ∃ recover : ProcessState → Target, target = recover ∘ process) ∧ ((¬∃ recover : ProcessState → Target, target = recover ∘ process) ↔ (defectRelation process target).Nonempty)"
+    },
+    "D5/S3/ConceptDynamics/TargetRisk/MaximumFactorCompatibleSubdomain.maximum_factor_compatible_subdomain": {
+      "module": "D5/S3/ConceptDynamics/TargetRisk/MaximumFactorCompatibleSubdomain",
+      "name": "D5.S3.ConceptDynamics.TargetRisk.MaximumFactorCompatibleSubdomain.maximum_factor_compatible_subdomain",
+      "kind": "theorem",
+      "statement_id": "sha256:a80f30b93167f434728f401631ac63021eb0bdb6ff063489223669bf7bf61ad4",
+      "line": 36,
+      "signature": "theorem maximum_factor_compatible_subdomain {X B Y : Type*} [Fintype X] (concept : Concept X B) (target : Concept X Y) : by classical exact (forall admitted : Finset X, Function.FactorsThrough (fun state : {x // x ∈ admitted} => target state.1) (fun state : {x // x ∈ admitted} => concept state.1) -> admitted.card <= ∑ b ∈ Finset.univ.image concept, (Finset.univ.filter fun x => concept x = b).sup (fun representative => (Finset.univ.filter fun x => concept x = b ∧ target x = target representative).card)) ∧ (exists admitted : Finset X, Function.FactorsThrough (fun state : {x // x ∈ admitted} => t"
+    },
+    "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff.refinementCost": {
+      "module": "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff",
+      "name": "D5.S3.ConceptDynamics.TargetRisk.RefinementRiskCostTradeoff.refinementCost",
+      "kind": "def",
+      "statement_id": "sha256:3a14180eefdd262ed3402a651f779eaf48632516b5e62774fcaffe078d54256b",
+      "line": 49,
+      "signature": "noncomputable def refinementCost {X C : Type*} (readout : Concept X C) : ℕ∞"
+    },
+    "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff.refinement_reduces_target_risk_and_raises_cost": {
+      "module": "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff",
+      "name": "D5.S3.ConceptDynamics.TargetRisk.RefinementRiskCostTradeoff.refinement_reduces_target_risk_and_raises_cost",
+      "kind": "theorem",
+      "statement_id": "sha256:3a14180eefdd262ed3402a651f779eaf48632516b5e62774fcaffe078d54256b",
+      "line": 56,
+      "signature": "theorem refinement_reduces_target_risk_and_raises_cost {X C D Target : Type*} (q_C : Concept X C) (q_D : Concept X D) (targets : Set (Concept X Target)) (refinement : Refines q_C q_D) : targetRisk q_D targets ⊆ targetRisk q_C targets ∧ refinementCost q_C ≤ refinementCost q_D"
+    },
+    "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff.targetRisk": {
+      "module": "D5/S3/ConceptDynamics/TargetRisk/RefinementRiskCostTradeoff",
+      "name": "D5.S3.ConceptDynamics.TargetRisk.RefinementRiskCostTradeoff.targetRisk",
+      "kind": "def",
+      "statement_id": "sha256:3a14180eefdd262ed3402a651f779eaf48632516b5e62774fcaffe078d54256b",
+      "line": 42,
+      "signature": "def targetRisk {X C Target : Type*} (readout : Concept X C) (targets : Set (Concept X Target)) : Set (Concept X Target)"
+    },
+    "D5/S3/Entropy/Forgetting/DeterministicEntropyEquality.pushforward_entropy_eq_iff_injective_on_support": {
+      "module": "D5/S3/Entropy/Forgetting/DeterministicEntropyEquality",
+      "name": "D5.S3.Entropy.Forgetting.DeterministicEntropyEquality.pushforward_entropy_eq_iff_injective_on_support",
+      "kind": "theorem",
+      "statement_id": "sha256:4f38f6d235bc8f3b16fea36bb62d0279dcb82fd23495c6f4ba5cd4149ce260f8",
+      "line": 92,
+      "signature": "theorem pushforward_entropy_eq_iff_injective_on_support {X Y : Type*} [Fintype X] [Fintype Y] (p : X → ℝ) (f : X → Y) (hp : (∀ x, 0 ≤ p x) ∧ ∑ x, p x = 1) : shannonEntropy (pushforward f p) = shannonEntropy p ↔ Set.InjOn f {x | p x ≠ 0}"
+    },
+    "D5/S3/ObserverMemory/GoldenRevivalScore.golden_fibonacci_revival_score_tendsto": {
+      "module": "D5/S3/ObserverMemory/GoldenRevivalScore",
+      "name": "D5.S3.ObserverMemory.GoldenRevivalScore.golden_fibonacci_revival_score_tendsto",
+      "kind": "theorem",
+      "statement_id": "sha256:c739d81e8a0a1aeb0f4f9d0ca103844b6bc21ade4726355b00b86bba71fb8e32",
+      "line": 48,
+      "signature": "theorem golden_fibonacci_revival_score_tendsto : Tendsto (fun n : Nat => (Nat.fib n : Real) * |(Nat.fib n : Real) * Real.goldenRatio - Nat.fib (n + 1)|) atTop (nhds (1 / Real.sqrt 5))"
+    },
+    "D5/S3/ObserverMemory/TwoTimeKnowledge.Forgot": {
+      "module": "D5/S3/ObserverMemory/TwoTimeKnowledge",
+      "name": "D5.S3.ObserverMemory.TwoTimeKnowledge.Forgot",
+      "kind": "def",
+      "statement_id": "sha256:5c3876101994e3624f8b1279728b592d88b44c0fae670bf66c740d1278178816",
+      "line": 33,
+      "signature": "def Forgot [Preorder Time] (readout : Time → World → View) (value : Event → World → Value) (ledger : Time → Set Event) (e : Event) (t0 t1 : Time) : Prop"
+    },
+    "D5/S3/ObserverMemory/TwoTimeKnowledge.Knows": {
+      "module": "D5/S3/ObserverMemory/TwoTimeKnowledge",
+      "name": "D5.S3.ObserverMemory.TwoTimeKnowledge.Knows",
+      "kind": "def",
+      "statement_id": "sha256:5c3876101994e3624f8b1279728b592d88b44c0fae670bf66c740d1278178816",
+      "line": 24,
+      "signature": "def Knows (readout : Time → World → View) (value : Event → World → Value) (e : Event) (t : Time) : Prop"
+    },
+    "D5/S3/ObserverMemory/TwoTimeKnowledge.forgot_iff_later_fiber_counterexample": {
+      "module": "D5/S3/ObserverMemory/TwoTimeKnowledge",
+      "name": "D5.S3.ObserverMemory.TwoTimeKnowledge.forgot_iff_later_fiber_counterexample",
+      "kind": "theorem",
+      "statement_id": "sha256:5c3876101994e3624f8b1279728b592d88b44c0fae670bf66c740d1278178816",
+      "line": 40,
+      "signature": "theorem forgot_iff_later_fiber_counterexample [Preorder Time] (readout : Time → World → View) (value : Event → World → Value) (ledger : Time → Set Event) (e : Event) (t0 t1 : Time) : Forgot readout value ledger e t0 t1 ↔ t0 < t1 ∧ Persists ledger e t0 t1 ∧ (∀ ⦃x y : World⦄, readout t0 x = readout t0 y → value e x = value e y) ∧ ∃ x y : World, readout t1 x = readout t1 y ∧ value e x ≠ value e y"
+    },
+    "D5/S3/ObserverMemory/TwoTimeKnowledge.knows_of_later_readout_factors_through_earlier": {
+      "module": "D5/S3/ObserverMemory/TwoTimeKnowledge",
+      "name": "D5.S3.ObserverMemory.TwoTimeKnowledge.knows_of_later_readout_factors_through_earlier",
+      "kind": "theorem",
+      "statement_id": "sha256:5c3876101994e3624f8b1279728b592d88b44c0fae670bf66c740d1278178816",
+      "line": 61,
+      "signature": "theorem knows_of_later_readout_factors_through_earlier (readout : Time → World → View) (value : Event → World → Value) {e : Event} {t0 t1 : Time} (hreadout : (readout t1).FactorsThrough (readout t0)) (hknow : Knows readout value e t1) : Knows readout value e t0"
     }
   }
 }

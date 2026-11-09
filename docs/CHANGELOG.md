@@ -6,13 +6,17 @@
 
 ### 新增
 
+- 示例书扩充为四章加一个附录：收缩面与相位判据（附图与小数值表）、有限证书与反驳（Detlefs、反例搜索、Farkas）、细化与目标风险、遗忘与熵、黄金词与回归得分、$\lambda_-$ 的几乎可加性、齐肯多夫表示与进位（附图）；33 条定理类结论都引用所钉提交上已冻结的 Lean 声明，另有 2 个开放问题与 1 个猜想；Detlefs 刻画补上漏掉的剩余类后得到的修正刻画写成注记（两个方向都有纸面证明，尚无 Lean 证明），不算开放问题。定理 2.1 改为只陈述 Lean 证明的内容（该取整公式并非对所有 $n \ge 1$ 成立），见证值移到证明中。
+- 新增第二本示例书 `books/example-primer/`《斐波那契与卢卡斯：一本可验证的入门小书》：两章、11 条定理与一个开放问题，没有媒体，演示一本书最少需要什么。两本示例书都以 `example-` 开头，书库用 `hide = ["example-*"]` 一并隐藏。
 - 构建缓存（`tools/tbook/buildcache.py`，`docs/ARCHITECTURE.md` §5.1、`docs/PUBLISHING.md` §5）：每个构建单元（每个语言版本的 HTML、每种 PDF、EPUB、每本书的幻灯片、每个视频）按全部输入的 SHA-256 定键，输入没有变化就恢复存下的产物，不再构建。示例书 `./tbook build html pdf epub slides` 从约 50 秒降到约 0.5 秒，视频从约 3 分钟降到约 0.3 秒。查找顺序：本地存储 `.cache/artifacts/` → Actions 缓存（只由 `pages.yml` 在默认分支上保存，PR 事件不读不写）→ 最新 5 个附有 `build-cache.json` 的已发布 Release（`TBOOK_CACHE_REMOTE=1`，逐个核对 SHA-256 与 GitHub 的 `digest`）→ 构建。新命令 `./tbook cache status|key|prune|export`；`TBOOK_CACHE=0` 关闭缓存。
 - 每个 Release 都是整站的恢复点：`release.yml` 无论 tag 是单本还是全部书都构建整个站点，把每个单元的 tar 与清单 `build-cache.json` 与读者下载一并附上；先建草稿、上传全部附件再发布，兼容 immutable releases。模板仓库的 `template-release.yml` 为示例站点做同样的事。没有 Actions 缓存的构建（新仓库、缓存被淘汰、PR）由此恢复。
 - 视频是构建产物：`./tbook build films|site|all` 渲染或从缓存恢复每个视频（`TBOOK_FILMS=auto|require|skip`；CI 与 Pages 用 `require`，视频渲染失败则构建失败），成片随站点发布在 `_site/<slug>/films/<id>/`（同源，iOS Safari 可播放），书中播放器用 720p 版本。视频工具链由 `theme/film/setup.sh`（不再需要视频参数）装入 `.cache/film/`，Python 包钉在 `theme/film/requirements.txt`。渲染不再改写提交入库的 `poster.jpg`。站点没有某个视频时，章节显示海报与说明，首页不显示“观看”。
+- `site.toml` 的 `[books] hide`：隐藏的书（glob 模式的列表，按书的目录名匹配，区分大小写，规则同 Python 的 `fnmatch.fnmatchcase`；默认 `[]`，不隐藏任何书）留在 `books/` 中，但所有命令与产物都当它不存在：`./tbook check`、`./tbook pin` 与 `pin --refresh`（只收集可见书的引用，只被隐藏的书引用的声明从锁文件中删去）、`./tbook build` 的各个目标与站点、构建缓存（`./tbook cache status|prune|export`）、`./tbook lean-project`、`release.yml` 的发版计划，以及 `viz-validate`、`viz-test`、`slides-check`、`slides-build`。按 slug 点名隐藏的书（`--book`、`new-chapter`、`viz|slides|film new`、`<slug>-v*` tag 等）报错并说明如何取消隐藏；`./tbook check` 输出一行列出被隐藏的书；`./tbook new-book` 新建的书被隐藏时警告。从模板创建的书库设 `hide = ["example-*"]` 隐藏模板附带的示例书，而不是删除它们：以后用 git 合并模板改动时不再因示例书冲突（`skills/book-new`、`docs/UPGRADING.md` §6、`docs/ARCHITECTURE.md` §2.1）。新命令 `./tbook books [--hidden] [--files GLOB]`（只需 Python 标准库）；`.github/actions/setup` 的“Find films”与 `ci.yml` 的“Find slide decks”用它跳过隐藏的书。模板仓库的 CI 另在隐藏示例书的工作树中重跑检查与单元测试。
 
 ### 变更
 
-- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：每分钟视频约占 85 MB（1080p 两版加 720p 两版），视频多的书库留意站点大小。
+- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：视频默认只发布 720p 旁白版，每分钟约 8 MB；列出全部输出时每分钟约 84 MB（见下一条），视频多的书库留意站点大小。
+- 视频默认只构建 720p 旁白版（**需要手动操作**，见下文）：`film.json` 的 `outputs` 列出什么就构建、托管、链接什么。必需 `narrated_720p`（播放器播放的 720p 旁白版）与 `cover`；`narrated`（1080p 旁白版）、`music_only`（1080p 纯配乐）、`music_only_720p` 只在列出时构建；`outputs` 中的其他键与写成 `null` 的值由 `./tbook check` 报错。`resolution` 是发布的视频尺寸：默认 `1280x720@<fps>`，列出 1080p 视频时为 `1920x1080@<fps>`，与 `outputs` 不符时报错。`./tbook film new` 与示例视频只列 `narrated_720p` 与 `cover`。流水线只编码所需（`theme/film/plan.py`）：Chromium 仍按 1920×1080 截取每帧，各渲染进程在同一遍中把帧缩放编码为 720p（hqdn3d、lanczos，x264 CRF 19、preset slow，画质与原来两遍 900 kb/s 的 720p 相当、码率略低），只在列出 1080p 视频时另编码 1080p 母版，纯配乐混音只在列出纯配乐视频时生成；`mux` 只拼接并混入音频（AAC 48 kHz，faststart）。删除 `small` 步骤与 `theme/film/small.sh`：720p 不再由 1080p 母版重新编码。`film.sh <dir> all [<输出>…]` 与 `FILM_OUTPUTS` 指定要做的输出，默认是 `film.json` 所列，构建明确传入它们；渲染缺少所列文件时构建失败，不存入缓存。50 秒的示例视频渲染从约 155 秒降到约 80 秒，站点上它的文件（视频与封面）从约 71 MB 降到约 6.5 MB；列出 1080p 视频时约 140 秒，1080p 文件与原来逐字节相同，720p 旁白版无论是否列出 1080p 都相同。章节播放器的下载链接、视频页、落地页与 `films.json` 只指向所列文件；下载标签“纯配乐”改为“纯配乐 1080p”，新增“纯配乐 720p”。下游书库：原先省略了 `narrated_720p`（曾可省略、取默认名）的 `film.json` 须补上它（`./tbook check` 给出默认文件名）；列出全部五个输出的视频照旧构建全部五个；要改用新默认，删去 `narrated`、`music_only`、`music_only_720p`，把 `resolution` 改为 `1280x720@30`。
 - 以 `workflow_call` 调用 `ci.yml` 的书库工作流须授予 `pages: read`（**需要手动操作**）：`build` 与 `media` 作业用 `actions/configure-pages` 取得 Pages 地址，使 CI 的缓存键与 `pages.yml` 一致。
 - `.github/actions/setup` 的 `fonts: 'true'` 也安装 Playwright `--with-deps` 会装的字体（`fonts-liberation`、`fonts-ipafont-gothic`、`fonts-wqy-zenhei`、`fonts-freefont-ttf` 等）：PDF 与 EPUB 的键包含系统字体族，构建它们的作业（`ci.yml` 的 build、`pages.yml`、发版）因此看到同一套字体，键一致。
 - `./tbook serve` 支持 HTTP 字节范围请求（`Range`，206），本地预览的视频在 Safari/iOS 中也能播放；`./tbook doctor` 按 `$FFMPEG` 查找 ffmpeg，与视频构建一致。
@@ -40,6 +44,8 @@
 
 ### 修复
 
+- PDF：`\cap`、`\bigcap`、`\sqcap`、`\odot`、`\otimes`、`\ominus`、`\circleddash` 等不再使整本 PDF 构建失败。Pandoc 的 Typst 输出仍用旧名 `sect` 与修饰符 `.circle`，所钉的 Typst 已改名为 `inter` 与 `.o`；`tools/filters/typst-compat.lua` 在正文与环境标题的公式中改写它们。测试把 KaTeX 支持的每个数学符号经 Pandoc、过滤器与 Typst 编译一遍。
+- HTML 与幻灯片：主题以大写显示的表头、SUMMARY 部分标题与幻灯片表头中，公式与代码保持原样（此前 $\varphi$ 显示为 $\Phi$，$n$ 显示为 $N$）。
 - PDF/EPUB：带 `{-}`（`.unnumbered`）的标题不再与 Pandoc 的自动 id 冲突、导致 Typst 失败；缩进代码块中的脚注、链接与公式原样保留；紧贴在文字行下的标题也是标题，不再显示字面的 `{#id}`；含公式的标题按 HTML 显示的文字生成 id（`#关于-β-的估计`），含脚注引用的标题按 mdBook 显示的编号生成 id（`## 注释[^a]` → `#注释1`），从 HTML 版复制来的片段链接在 PDF/EPUB 中同样可达（构建 PDF/EPUB 时用 Node 渲染标题中的公式，不可用时退回 TeX 源码并警告）。
 - PDF/EPUB：紧贴在段落行下的环境（`::: {.theorem …}`）不再被 Pandoc 读成正文，保留标题、编号与徽章；地址为空的链接与图片（`[x]()`、`![x]()`）不再使 Typst 构建失败，显示为文字并警告（`./tbook check` 也警告）。
 - PDF/EPUB：列表项与块引用中以 `[1]:` 开头的文献行不再被 Pandoc 当作链接定义吞掉；定义列表的后续段落不再被当作缩进代码（公式照常渲染，EPUB 通过 epubcheck）。
@@ -51,6 +57,12 @@
 - 幻灯片四角的折角框各自朝外（⌜ ⌝ ⌞ ⌟）：此前泛指的类名 `.br` 与右下角的 `.br` 同名，四个角都画成了右下角的形状；泛指的类名改为 `.bracket`。
 - 模板升级：在以合并提交并入的分支上删除的托管文件，此后保持删除，不再被每次升级重新安装（`git log --full-history`）；squash 合并不保留这样的删除，见 `docs/UPGRADING.md` §2。
 - `release.yml`：以日期开头的版本（如同一天第二次发布的 `v2026.11.08-2`）是正式发布，不再标为 pre-release；只有严格的语义化版本预发布（`v3.0.0-rc.1`）才是。
+- 站点：书的落地页在验证摘要中列出的定理标题，其中的公式在构建时由 KaTeX 渲染（此前显示 TeX 源码，如 `$\lambda_-$`）；有公式的页面才加载站点自带的 KaTeX 样式与 WOFF2 字体（`_site/assets/katex/`）。没有 Node 或 KaTeX 时仍显示 TeX 源码并警告。
+- 英文页面的弯引号与撇号（mdBook 的智能标点写出的 ’ “ ”）不再是 Noto Sans SC 的全角字形：新令牌 `font.body-latin`（Source Sans 3 在前，Google Fonts 地址随之加入它），mdBook、站点、视频页与可视化在语言不是中日韩时用它作正文字体；中文页面不变。视频的缓存键包含 `theme/generated/tokens.mjs`，所以升级后各视频重新渲染一次。
+- 书库首页的书卡不再裁切封面：简介较长、卡片高于封面时，封面按 5:8 完整显示在左栏顶部，此前被拉伸裁去两侧（标题只剩一部分）。
+- mdBook 中点击放大的插图显示在主题背景上（此前是 mdBook 的灰底 `#999`，插图的浅色线条几乎看不见），SVG 插图放大到窗口宽度（至多 960px），不再停在原始尺寸。
+- 站点没有某个视频时，章节页（含 `print.html`）中隐藏的播放器改为 `preload="none"`，浏览器不再请求不存在的视频（此前每页一个 404）；视频构建后恢复 `preload="metadata"`。
+- `./tbook build viz|films` 只重新发布媒体时，删除 `[books] hide` 隐藏的书在 `_site/` 中留下的页面，`./tbook serve` 不再提供它们。
 
 ## [0.1.0] - 2026-11-08
 

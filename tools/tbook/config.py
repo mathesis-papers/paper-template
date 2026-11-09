@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fnmatch
+import json
 import os
 import re
 import subprocess
@@ -187,10 +189,15 @@ class Site:
     trureturing_branch: str
     book_order: list[str]
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
+    book_hide: list[str] = field(default_factory=list)
 
     @property
     def default_language(self) -> str:
         return self.languages[0]
+
+    def hidden_by(self, slug: str) -> str:
+        """The first ``[books].hide`` pattern that hides the book ``slug``, or '' when it is visible."""
+        return next((p for p in self.book_hide if fnmatch.fnmatchcase(slug, p)), "")
 
     def text(self, value: Localized, lang: str) -> str:
         return pick(value, lang, self.languages)
@@ -245,6 +252,9 @@ def load_site() -> Site:
             raise ConfigError(f"site.toml: invalid language code {lang!r}")
     if duplicates(languages):
         raise ConfigError(f"site.toml: languages lists {duplicates(languages)[0]!r} twice")
+    books = raw.get("books", {})
+    if not isinstance(books, dict):
+        raise ConfigError("site.toml: books must be a table ([books])")
     return Site(
         root=paths.ROOT,
         repo=repo,
@@ -254,9 +264,28 @@ def load_site() -> Site:
         tagline=localized(site.get("tagline"), "site.tagline"),
         trureturing_repo=tru.get("repo", "the-omega-institute/trureturing"),
         trureturing_branch=tru.get("branch", "dev"),
-        book_order=list(raw.get("books", {}).get("order", [])),
+        book_order=list(books.get("order", [])),
         raw=raw,
+        book_hide=hide_patterns(books.get("hide")),
     )
+
+
+def hide_patterns(value: Any) -> list[str]:
+    """``[books].hide`` of site.toml: glob patterns (:func:`fnmatch.fnmatchcase`, matched against the book
+    slug, case-sensitive) of books that every command and output treats as absent; [] when unset.
+
+    tools/node/slides-lib.mjs (``hidePatterns``) reads it the same way, with the same messages.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(f"site.toml: [books].hide must be a list of glob patterns, e.g. hide = [\"example-*\"]; "
+                          f"got {json.dumps(value, ensure_ascii=False, default=str)}")
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise ConfigError(f"site.toml: [books].hide entries must be non-empty strings (glob patterns such as "
+                              f"\"example-*\"); got {json.dumps(item, ensure_ascii=False, default=str)}")
+    return list(value)
 
 
 # --------------------------------------------------------------------------- books
@@ -420,17 +449,76 @@ def load_book(slug_or_dir: str | Path) -> Book:
     return book
 
 
-def book_slugs() -> list[str]:
+def _book_dirs() -> list[str]:
+    """Slugs of every directory of books/ with a book.toml, hidden ones included, sorted."""
     if not paths.BOOKS.exists():
         return []
-    found = sorted(p.name for p in paths.BOOKS.iterdir() if (p / "book.toml").exists())
-    order = [s for s in load_site().book_order if s in found]
+    return sorted(p.name for p in paths.BOOKS.iterdir() if (p / "book.toml").exists())
+
+
+def book_slugs() -> list[str]:
+    """The books of the repository in site order ([books] order first, then by slug), without the books
+    that site.toml [books].hide hides: the one list every command and output starts from."""
+    site = load_site()
+    found = [s for s in _book_dirs() if not site.hidden_by(s)]
+    order = [s for s in site.book_order if s in found]
     return order + [s for s in found if s not in order]
 
 
+def unhide_hint(slug: str) -> str:
+    """For a "not in trureturing.lock.json" message about a book read by path: when site.toml [books].hide hides
+    ``slug``, why ./tbook pin --refresh cannot help yet (it collects visible books only); '' otherwise."""
+    try:
+        pattern = load_site().hidden_by(slug)
+    except ConfigError:
+        return ""
+    if not pattern:
+        return ""
+    return (f" (book {slug} is hidden by site.toml [books].hide {json.dumps(pattern)}: remove that pattern "
+            "from hide first, since ./tbook pin --refresh collects the citations of visible books only)")
+
+
+def hidden_books() -> list[str]:
+    """Slugs of the books that site.toml [books].hide hides (they exist but no command sees them), sorted."""
+    site = load_site()
+    return [s for s in _book_dirs() if site.hidden_by(s)]
+
+
+def hidden_error(slugs: list[str]) -> ConfigError:
+    """The error for naming hidden books explicitly (``--book``, ``new-chapter <slug>`` …).
+
+    Unhiding alone is not enough once ``./tbook pin --refresh`` has run while the book was hidden: the lock file
+    keeps only the declarations visible books cite, so the message names the refresh too. The Node scripts give
+    the same text (tools/node/slides-lib.mjs hiddenError; tools/tests/test_hide.py compares them)."""
+    site = load_site()
+    patterns = list(dict.fromkeys(site.hidden_by(s) for s in slugs))
+    one = len(slugs) == 1
+    return ConfigError(
+        f"book{'' if one else 's'} {', '.join(slugs)} {'is' if one else 'are'} hidden by site.toml [books].hide "
+        f"({', '.join(json.dumps(p, ensure_ascii=False) for p in patterns)}); to use {'it' if one else 'them'}, remove "
+        f"{'that pattern' if len(patterns) == 1 else 'those patterns'} from hide, then run ./tbook pin --refresh "
+        f"(the lock file keeps only the declarations that visible books cite)")
+
+
+def named_book(name: str | Path) -> Book:
+    """The book a command was given (``new-chapter <slug>``, ``viz new <slug>`` …): :func:`load_book`, except
+    that a slug of a book site.toml [books].hide hides is an error, since the book is absent for every command.
+
+    :func:`load_book` itself loads any book directory, hidden or not (a path is not a name: the film pipeline,
+    for one, works on the directory it is given)."""
+    slug = str(name)
+    if "/" not in slug and os.sep not in slug and slug in hidden_books():
+        raise hidden_error([slug])
+    return load_book(name)
+
+
 def load_books(only: list[str] | None = None) -> list[Book]:
+    """The books of :func:`book_slugs`, or those named in ``only`` (unknown or hidden names are errors)."""
     slugs = book_slugs()
     if only:
+        hidden = [s for s in only if s not in slugs and s in hidden_books()]
+        if hidden:
+            raise hidden_error(list(dict.fromkeys(hidden)))
         missing = [s for s in only if s not in slugs]
         if missing:
             raise ConfigError(f"unknown book(s): {', '.join(missing)}; known: {', '.join(slugs) or 'none'}")

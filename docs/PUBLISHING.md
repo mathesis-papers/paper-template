@@ -16,7 +16,7 @@
 
 所有构建命令都接受 `--book <slug>`（可重复）与 `--lang <code>`（可重复）。所选的书都没有 `--lang` 指定的语言版本时，构建报错退出（退出码 2），不会静默跳过。
 
-视频与其他产物一样随站点构建：站点在 `_site/<slug>/films/<film id>/<文件>` 同源托管视频（Content-Type 与按字节范围请求都正确，iOS Safari 需要这两点；Release 附件的地址在那里不能播放），不再为单个视频发 Release；视频计入 GitHub Pages 站点 1 GB 的上限。渲染视频需要视频工具链（`bash theme/film/setup.sh` 与系统的 ffmpeg）。环境变量 `TBOOK_FILMS` 决定缓存未命中时怎么办：`auto`（默认）有工具链就渲染，没有则警告，站点不含该视频；`require` 无法渲染即构建失败；`skip` 从不渲染。三种情况下缓存命中的视频都照常恢复。
+视频与其他产物一样随站点构建：站点在 `_site/<slug>/films/<film id>/<文件>` 同源托管视频（Content-Type 与按字节范围请求都正确，iOS Safari 需要这两点；Release 附件的地址在那里不能播放），不再为单个视频发 Release；视频计入 GitHub Pages 站点 1 GB 的上限。只构建、托管 `film.json` 的 `outputs` 所列的文件：默认只有 720p 旁白版与封面，50 秒的示例视频共约 6.5 MB（视频 6.1 MB、封面 0.5 MB，另有提交的海报 0.16 MB），约合每分钟 8 MB；同时列出 1080p 旁白版、1080p 与 720p 纯配乐时约 70 MB（每分钟约 84 MB）。渲染视频需要视频工具链（`bash theme/film/setup.sh` 与系统的 ffmpeg）。环境变量 `TBOOK_FILMS` 决定缓存未命中时怎么办：`auto`（默认）有工具链就渲染，没有则警告，站点不含该视频；`require` 无法渲染即构建失败；`skip` 从不渲染。三种情况下缓存命中的视频都照常恢复。
 
 ## 2. 站点
 
@@ -34,15 +34,15 @@ EPUB 按 Apple Books 的要求生成：EPUB 3、MathML 数学、PNG 封面、导
 
 | 工作流 | 触发 | 作用 |
 | --- | --- | --- |
-| `ci.yml` | PR、推送到任意分支、手动、被调用 | `check` 作业：`./tbook check`、`./tbook theme --check`、全部单元测试、可视化登记校验与幻灯片检查（模板仓库另跑 `./tbook template manifest --check`，并在删去示例书的工作树中重跑检查与单元测试：下游书库可以删除示例书，甚至暂时没有书，CI 照样通过）；`build` 作业：HTML/PDF/EPUB，产物上传为 artifact；`media` 作业：可视化浏览器回归测试、幻灯片构建与 PDF、视频（`TBOOK_FILMS=require`；推送到默认分支或 tag 时不构建视频，由 `pages.yml` 与发版工作流构建）。`build` 与 `media` 经构建缓存（§5）恢复未变的单元，从不保存；调用者须授予 `contents: read` 与 `pages: read` |
+| `ci.yml` | PR、推送到任意分支、手动、被调用 | `check` 作业：`./tbook check`、`./tbook theme --check`、全部单元测试、可视化登记校验与幻灯片检查（模板仓库另跑 `./tbook template manifest --check`，并在删去示例书的工作树中、以及用 `site.toml` 的 `[books] hide = ["example-*"]` 隐藏示例书的工作树中重跑检查与单元测试：下游书库可以隐藏或删除示例书，甚至暂时没有书，CI 照样通过）；`build` 作业：HTML/PDF/EPUB，产物上传为 artifact；`media` 作业：可视化浏览器回归测试、幻灯片构建与 PDF、视频（`TBOOK_FILMS=require`；推送到默认分支或 tag 时不构建视频，由 `pages.yml` 与发版工作流构建）。`build` 与 `media` 经构建缓存（§5）恢复未变的单元，从不保存；调用者须授予 `contents: read` 与 `pages: read` |
 | `pages.yml` | 推送到 `main`、手动 | `./tbook check` 后构建全部（含视频，`TBOOK_FILMS=require`）并部署 GitHub Pages；Pages 尚未启用时只构建、不部署，并在作业摘要中提示。唯一保存构建缓存的工作流（§5），同一时间只运行一个 |
-| `release.yml` | tag `<slug>-v<version>`（单本，须等于 `book.toml` 的 version）或 `v*`（全部书，仅下游书库，如 `v2026.11.08`、`v3.0.0`） | 构建整个站点（含视频），创建 GitHub Release，附所选书的 PDF、EPUB 与幻灯片 PDF（`<slug>-<deck>-<lang>.pdf`），以及全站的构建缓存（`cache-*.tar` 与 `build-cache.json`，§5）；Release 先建为草稿，附件全部上传后才发布，已发布的 Release 不再改动附件；只有语义化版本的预发布（`book.toml` 的 `1.0.0-rc.1`，或 tag `v3.0.0-rc.1`）标为 pre-release；以日期开头的版本（`YYYY.MM.DD`、`YYYY-MM-DD` 或 `YYYYMMDD`，月、日补零）无论后面跟什么都是正式发布，如同一天的第二次发布 `v2026.11.08-2`；以 `film-` 开头、不指向任何书的 tag（旧的逐片视频 tag）只给出提示并跳过，不发布任何东西，可以删除 |
+| `release.yml` | tag `<slug>-v<version>`（单本，须等于 `book.toml` 的 version）或 `v*`（全部书，仅下游书库，如 `v2026.11.08`、`v3.0.0`） | 构建整个站点（含视频），创建 GitHub Release，附所选书的 PDF、EPUB 与幻灯片 PDF（`<slug>-<deck>-<lang>.pdf`），以及全站的构建缓存（`cache-*.tar` 与 `build-cache.json`，§5）；Release 先建为草稿，附件全部上传后才发布，已发布的 Release 不再改动附件；只有语义化版本的预发布（`book.toml` 的 `1.0.0-rc.1`，或 tag `v3.0.0-rc.1`）标为 pre-release；以日期开头的版本（`YYYY.MM.DD`、`YYYY-MM-DD` 或 `YYYYMMDD`，月、日补零）无论后面跟什么都是正式发布，如同一天的第二次发布 `v2026.11.08-2`；以 `film-` 开头、不指向任何书的 tag（旧的逐片视频 tag）只给出提示并跳过，不发布任何东西，可以删除；`site.toml` 的 `[books] hide` 隐藏的书不发布：`v*` 不含它们，指向它们的 `<slug>-v*` 失败并说明原因 |
 | `lean-verify.yml` | 每周、手动、可被 Release 调用 | Lake 工程深度验证被引用定理的公理闭包 |
 | `trureturing-bump.yml` | 每周、手动 | 把所钉的 trureturing 提交升级到最新并开 PR；标题前缀 `[refused]`（目标提交不在 `site.toml` 的分支上或无法核实）、`[unresolved]`（有引用无法解析）、`[pin failed]`、`[check fails]`、`[review statements]` 提示需要处理的情况；前三种 PR 不改锁文件，与 `[check fails]` 一样以草稿开出 |
 | `template-sync.yml` | 每周、手动（仅下游） | 升级到模板新版本并开 PR（有冲突时标题以 `[conflicts]` 开头，`.template-new` 文件一并提交） |
 | `template-release.yml` | tag `v*`（仅模板仓库） | 核对版本与清单、跑 CI 后发布模板版本，附示例站点的构建缓存（同样先建草稿、上传后发布） |
 
-检查与构建作业（`ci.yml`、`pages.yml`、`release.yml` 的构建、`trureturing-bump.yml`）通过组合动作 `.github/actions/setup` 安装工具链（Python 3.12 + requirements、Node 22 + `npm ci`、按需安装 Chromium、mdBook 0.5.4、CJK 字体；`films: 'true'` 且有书带视频时另装 ffmpeg 与备用字体，运行 `theme/film/setup.sh` 安装 `theme/film/requirements.txt` 并下载 Kokoro 模型到 `.cache/film/models`）。
+检查与构建作业（`ci.yml`、`pages.yml`、`release.yml` 的构建、`trureturing-bump.yml`）通过组合动作 `.github/actions/setup` 安装工具链（Python 3.12 + requirements、Node 22 + `npm ci`、按需安装 Chromium、mdBook 0.5.4、CJK 字体；`films: 'true'` 且有（未隐藏的）书带视频时另装 ffmpeg 与备用字体，运行 `theme/film/setup.sh` 安装 `theme/film/requirements.txt` 并下载 Kokoro 模型到 `.cache/film/models`）。
 
 CI 中没有 trureturing 的 checkout，`./tbook check` 通过 GitHub compare API 核对所钉提交在 `site.toml` 的分支上；GitHub Actions 中无法判定即为错误。因此 `ci.yml`、`pages.yml`、`release.yml` 的检查步骤把 `github.token` 作为 `GITHUB_TOKEN` 传入（`trureturing-bump.yml` 用作业的 `GH_TOKEN`），这些作业至少需要 `contents: read` 权限。
 

@@ -62,6 +62,9 @@ sub, sup { line-height: 0; }
 
 /* ---------- language: paired fragments, one shown at a time (Chinese when no script has run) ---------- */
 :root[data-lang="en"] .zh, :root:not([data-lang="en"]) .en { display: none !important; }
+/* English (shell.js sets <html lang>): a Latin face first, so curly quotes and apostrophes are not the full-width
+   glyphs of the CJK face (Chinese keeps them) */
+:root:not(:lang(zh), :lang(ja), :lang(ko)) { --font-body: var(--tr-font-body-latin, system-ui, sans-serif); }
 .langs { display: inline-flex; border: 1px solid var(--line-hot); align-self: center; }
 .langs button {
   background: transparent; border: 0; color: var(--dim); cursor: pointer;

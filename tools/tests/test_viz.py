@@ -33,6 +33,21 @@ GIDDEF = "D5/S1/Deficit/DeficitInteger.deficit"  # a Lean def
 needs_example = unittest.skipUnless(EXAMPLE.is_dir(), "books/example-monograph is absent")
 
 
+def _example_listed() -> bool:
+    """The example book is here and site.toml does not hide it ([books].hide), so commands such as
+    ``./tbook viz list`` see it (config.load_book loads it either way)."""
+    try:
+        return EXAMPLE.is_dir() and not config.load_site().hidden_by(EXAMPLE.name)
+    except config.ConfigError:
+        return False
+    finally:
+        config.load_site.cache_clear()  # read while the module is imported: cache nothing for the tests
+
+
+# Downstream repositories usually hide the example book instead (skills/book-new): commands skip it then.
+needs_listed_example = unittest.skipUnless(_example_listed(), "books/example-monograph is absent or hidden")
+
+
 def example_book():
     return config.load_book("example-monograph")
 
@@ -705,7 +720,7 @@ class Scaffold(unittest.TestCase):
             r = subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True, timeout=60)
             self.assertEqual(r.returncode, 0, f"{f.name}: {r.stderr}")
 
-    @needs_example
+    @needs_listed_example
     def test_cli(self):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
@@ -726,6 +741,16 @@ class Strings(unittest.TestCase):
             self.assertTrue(viz.t("zh", key) and viz.t("en", key), key)
         self.assertEqual(viz.t("en", "published", n=3), "3 published · in registry order")
         self.assertFalse(re.search(r"[㐀-鿿]", " ".join(viz.STRINGS["en"].values())))
+
+    def test_pages_load_the_theme_fonts(self):
+        """Visualization pages link the Google Fonts URL of theme/tokens.json (it carries the Latin face English
+        text uses), not a copy that drifts from it."""
+        url = json.loads((paths.THEME / "tokens.json").read_text(encoding="utf-8"))["font"]["google-fonts-css"]
+        pages = [paths.ROOT / "templates" / "viz" / "index.html"] + sorted(paths.BOOKS.glob("*/viz/*/index.html"))
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            if "fonts.googleapis.com/css" in text:
+                self.assertIn(f'href="{url}"', text, page)
 
     def test_runtime_has_no_hard_coded_palette(self):
         """theme/viz colours come from tokens.css; hex values appear only in marked fallbacks."""

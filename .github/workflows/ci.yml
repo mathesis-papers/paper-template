@@ -1,12 +1,13 @@
 # Continuous integration (managed by the template; works in the template repository and in every
-# books repository created from it, including one that deleted the example book or has no book yet:
-# with nothing to build, every step passes).
+# books repository created from it, including one that hides the example books (site.toml [books].hide),
+# deleted them or has no book yet: with nothing to build, every step passes).
 #
 #   check  ./tbook check (structure, bilingual parity, Lean citations re-verified against trureturing's
 #          frozen ledger at the pinned commit, which must be on the site.toml trureturing branch: the check
 #          steps pass github.token for GitHub's compare API), theme tokens, unit tests, template manifest
 #          (template repository only), static checks of visualizations and slides; in the template
-#          repository also the checks and unit tests once more without books/example-monograph
+#          repository also the checks and unit tests once more without books/example-monograph, and once
+#          more with the example books hidden (site.toml [books].hide = ["example-*"])
 #   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
 #   media  visualization browser tests, slide decks (Slidev + Chromium) and films
 #
@@ -98,10 +99,11 @@ jobs:
         if: hashFiles('tools/node/slides-check.mjs') != ''
         run: node tools/node/slides-check.mjs
 
-      - name: Without the example book (template repository only)
-        # Books repositories may delete books/example-monograph (skills/book-new) and run this same CI with
-        # no book at all. Repeat the checks and the unit tests in a worktree without it, so that no managed
-        # check or test comes to depend on it.
+      - name: Without the example books (template repository only)
+        # Books repositories may delete the template's example books (books/example-*; hiding them with
+        # site.toml [books].hide is the alternative, tested below) and run this same CI with no book at all.
+        # Repeat the checks and the unit tests in a worktree without them, so that no managed check or test
+        # comes to depend on them.
         if: github.repository == 'the-omega-institute/trureturing-books-template'
         env:
           PYTHONPATH: tools
@@ -115,7 +117,7 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/node_modules" "$dir/node_modules"
           if [ -d .cache ]; then ln -s "$GITHUB_WORKSPACE/.cache" "$dir/.cache"; fi
           cd "$dir"
-          git rm -r -q books/example-monograph
+          git rm -r -q books/example-*
           python3 - <<'PY'
           import re
           from pathlib import Path
@@ -125,6 +127,41 @@ jobs:
                           encoding="utf-8")
           PY
           ./tbook check
+          node tools/node/viz-validate.mjs
+          node tools/node/slides-check.mjs
+          python -m unittest discover -s tools/tests
+
+      - name: With the example books hidden (template repository only)
+        # Books repositories keep the template's example books and hide them (site.toml [books].hide =
+        # ["example-*"], skills/book-new), so that merging template changes never conflicts over deleted files.
+        # Repeat the checks and the unit tests in a worktree that hides them: every command must skip them,
+        # and no managed test may depend on seeing them.
+        if: github.repository == 'the-omega-institute/trureturing-books-template'
+        env:
+          PYTHONPATH: tools
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/hidden-examples"
+          git worktree add --detach "$dir" HEAD
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$dir/node_modules"
+          if [ -d .cache ]; then ln -s "$GITHUB_WORKSPACE/.cache" "$dir/.cache"; fi
+          cd "$dir"
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          site = Path("site.toml")
+          text, n = re.subn(r"(?m)^hide\s*=\s*\[\]", 'hide = ["example-*"]', site.read_text(encoding="utf-8"))
+          assert n == 1, "site.toml: expected the line hide = [] under [books]"
+          site.write_text(text, encoding="utf-8")
+          PY
+          ./tbook check | tee "$RUNNER_TEMP/hidden-check.txt"
+          grep -q '^check: hidden by site.toml \[books\]\.hide, not checked: example-' "$RUNNER_TEMP/hidden-check.txt"
+          visible="$(./tbook books)"
+          if grep '^example-' <<<"$visible"; then echo "::error::./tbook books lists a hidden book"; exit 1; fi
           node tools/node/viz-validate.mjs
           node tools/node/slides-check.mjs
           python -m unittest discover -s tools/tests
@@ -222,12 +259,14 @@ jobs:
 
       - name: Find slide decks
         id: decks
+        # Decks of the books that site.toml [books].hide does not hide.
         run: |
-          if compgen -G 'books/*/slides/*/slides.md' > /dev/null; then
+          decks="$(./tbook books --files 'slides/*/slides.md')"
+          if [ -n "$decks" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No slide decks (books/*/slides/<deck>/slides.md); skipping."
+            echo "No slide decks (books/*/slides/<deck>/slides.md of a book that site.toml [books].hide does not hide); skipping."
           fi
 
       - name: Build slides (HTML, browser checks, PDF)

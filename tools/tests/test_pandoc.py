@@ -597,6 +597,52 @@ class LuaFilterTest(unittest.TestCase):
         self.assertNotIn("newcommand", html)
 
 
+@unittest.skipUnless(have_pandoc(), "pandoc not available")
+class TypstSymbolTest(unittest.TestCase):
+    """Pandoc's Typst writer still emits symbol names the pinned Typst renamed (\\cap → sect, \\odot →
+    dot.circle); tools/filters/typst-compat.lua writes the new names, in the text and in environment titles."""
+
+    META = LuaFilterTest.META
+
+    def test_renamed_symbols(self):
+        md = ("Meet $A \\cap B$, $\\bigcap_i A_i$, $A \\Cap B$, $a \\sqcap b$, $a \\odot b$, $\\bigodot_i a_i$, "
+              "$a \\otimes b$, $\\bigotimes_i a_i$, $a \\ominus b$, $a \\circleddash b$, $\\text{sect} \\cap x$, "
+              "$\\mathrm{intersect}$.\n\n"
+              ':::::: {#rem-x .tr-env .remark tr-kind="remark" tr-status="informal" tr-label="Remark" '
+              'tr-number="1.1" tr-ref="Remark 1.1" tr-title="On $A \\\\cap B$"}\nBody.\n::::::\n')
+        out = run_filters(md, "typst", self.META)
+        for new in ("A inter B", "inter.big", "inter.double", "inter.sq", "dot.o", "dot.o.big", "times.o",
+                    "times.o.big", "minus.o", "dash.o", 'title: [On $A inter B$]', 'upright("sect") inter x'):
+            self.assertIn(new, out)
+        self.assertNotRegex(re.sub(r'"[^"]*"', "", out), r"\bsect\b|\.circle\b")
+        self.assertIn("upright(i n t e r s e c t)", out)  # letters, not the name sect
+
+    @unittest.skipUnless(have_typst(), "typst not available")
+    def test_every_katex_symbol_compiles(self):
+        """Every math symbol KaTeX renders in HTML compiles in the PDF too."""
+        import typst  # type: ignore
+
+        katex = paths.ROOT / "node_modules" / "katex" / "dist" / "katex.js"
+        if not katex.is_file():
+            self.skipTest("node_modules/katex is not installed")
+        names = sorted(set(re.findall(r'defineSymbol\(math, \w+, \w+, [^,]*, "\\\\([A-Za-z]+)"',
+                                      katex.read_text(encoding="utf-8"))))
+        self.assertGreater(len(names), 300)
+        out = run_filters("\n\n".join(f"$a \\{n} b$" for n in names), "typst", self.META)
+        paras = [p for p in re.split(r"\n\s*\n", out) if p.strip()]
+        self.assertEqual(len(paras), len(names))
+        failed = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, para in zip(names, paras):
+                src = Path(tmp) / "m.typ"
+                src.write_text(para, encoding="utf-8")
+                try:
+                    typst.compile(str(src), format="svg")
+                except Exception as exc:  # noqa: BLE001 - collect every failing symbol
+                    failed.append(f"\\{name} → {para.strip()}: {str(exc).splitlines()[0]}")
+        self.assertEqual(failed, [], "add the rename to tools/filters/typst-compat.lua")
+
+
 class MetadataTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

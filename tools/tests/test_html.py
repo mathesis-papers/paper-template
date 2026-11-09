@@ -48,6 +48,27 @@ def texs(text: str) -> list[str]:
 # --------------------------------------------------------------------------- scanner
 
 
+class CapitalizedHeadingsKeepMathTest(unittest.TestCase):
+    """Where the theme sets text the author writes in capitals (table header cells, SUMMARY part titles, slide
+    table headers), math and code keep their case: uppercase would turn $\\varphi$ into $\\Phi$ and $n$ into
+    $N$, a different formula."""
+
+    def rules(self, path: Path) -> list[tuple[str, str]]:
+        text = re.sub(r"/\*.*?\*/", "", path.read_text(encoding="utf-8"), flags=re.S)
+        return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text)]
+
+    def test_math_and_code_keep_their_case(self):
+        for rel, containers in (("theme/mdbook/tr-book.css", (".content main table th", ".chapter li.part-title")),
+                                ("theme/slides/styles/deck.css", ("table.t th",))):
+            rules = self.rules(paths.ROOT / rel)
+            for container in containers:
+                upper = [b for sel, b in rules if container in [x.strip() for x in sel.split(",")]
+                         and re.search(r"text-transform:\s*uppercase", b)]
+                self.assertTrue(upper, f"{rel}: {container} is no longer capitalized; update this test")
+                exempt = [b for sel, b in rules if f"{container} :is(.katex, code)" in re.sub(r"\s+", " ", sel)]
+                self.assertTrue(exempt and re.search(r"text-transform:\s*none", exempt[0]), f"{rel}: {container}")
+
+
 class FindMathTest(unittest.TestCase):
     def test_inline(self):
         self.assertEqual(texs("a $x$ b $y^2$ c"), ["x", "y^2"])

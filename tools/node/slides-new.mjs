@@ -12,7 +12,7 @@
 // Adapted from chrono-company-slides scripts/new.mjs (Apache-2.0).
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { DECK_RE, ROOT, TEMPLATES, bcp47, editionFile, loadBook, pick, themeRef, toPosix } from './slides-lib.mjs';
+import { DECK_RE, ROOT, TEMPLATES, bcp47, editionFile, namedBook, pick, themeRef, toPosix } from './slides-lib.mjs';
 
 const USAGE = 'usage: node tools/node/slides-new.mjs <book> <deck> "<中文标题>" ["<English title>"]';
 const [slug, deck, zhTitle, enTitle, ...extra] = process.argv.slice(2);
@@ -34,7 +34,7 @@ for (const t of [zhTitle, enTitle].filter(Boolean)) {
 
 let book;
 try {
-  book = loadBook(slug);
+  book = namedBook(slug);
 } catch (e) {
   console.error(`slides-new: ${e.message}`);
   process.exit(1);

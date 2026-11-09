@@ -83,7 +83,7 @@ def new_chapter(slug: str, name: str, titles: dict[str, str]) -> list[Path]:
     """
     if not CHAPTER_RE.match(name):
         raise config.ConfigError(f"chapter file name {name!r} must be kebab-case")
-    book = config.load_book(slug)
+    book = config.named_book(slug)
     plan = []
     for ed in book.editions:
         title = titles.get(ed.lang) or titles.get("*")

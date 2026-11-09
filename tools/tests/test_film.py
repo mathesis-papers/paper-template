@@ -56,17 +56,22 @@ def temp_book(root: Path, slug: str = "film-fixture") -> config.Book:
     return config.load_book(bdir)
 
 
-def copy_example(book: config.Book, name: str = "001-golden-deficit") -> Path:
-    """Copy the example film's sources into ``book`` with the book's video file names."""
+def copy_example(book: config.Book, name: str = "001-golden-deficit", outputs: tuple[str, ...] | None = None) -> Path:
+    """Copy the example film's sources into ``book`` with the book's video file names: the outputs the example
+    lists (the default: narrated_720p and cover), or ``outputs`` (``resolution`` then follows them)."""
     dst = book.films_dir / name
     shutil.copytree(EXAMPLE_FILM, dst, ignore=shutil.ignore_patterns("out"))
     meta = json.loads((dst / "film.json").read_text(encoding="utf-8"))
     num = name[:3]
     meta["id"] = name
     outs = film.default_outputs(book.slug, num)
-    meta["outputs"] = {k: outs[k] for k in film.REQUIRED_OUTPUTS + film.OPTIONAL_OUTPUTS}
+    meta["outputs"] = {k: outs[k] for k in (outputs or meta["outputs"])}
+    meta["resolution"] = film.published_size(meta["outputs"]) + "@30"
     (dst / "film.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     return dst
+
+
+ALL_OUTPUTS = film.VIDEO_OUTPUTS  # every output a film.json may list
 
 
 def errors(issues) -> list[str]:
@@ -171,14 +176,15 @@ class ValidationTest(unittest.TestCase):
     def test_meta_errors(self):
         d = copy_example(self.book)
         meta = json.loads((d / "film.json").read_text(encoding="utf-8"))
-        meta.update(id="002-other", duration="57s", resolution="1280x720@30", subtitles=["fr"],
+        meta.update(id="002-other", duration="57s", resolution="1920x1080@30", subtitles=["fr"],
                     lean=["D5/S1/Deficit/DeficitInteger.not_a_locked_name", "not a gid"], subject_commit="XYZ")
         meta["outputs"]["cover"] = "cover.png"
         meta["outputs"]["music_only_720p"] = "poster.jpg"
         del meta["title_zh"]
         (d / "film.json").write_text(json.dumps(meta), encoding="utf-8")
         msgs = "\n".join(errors(film.check(self.book)))
-        for needle in ("id must equal the directory name", "duration must look like m:ss", "1920x1080",
+        for needle in ("id must equal the directory name", "duration must look like m:ss",
+                       "resolution is the size of the published video: 1280x720@<fps> (outputs lists no 1080p video",
                        "subtitles", "not in trureturing.lock.json", "not a declaration GID",
                        "subject_commit", "outputs.cover", "outputs.music_only_720p", "title_zh"):
             self.assertIn(needle, msgs)
@@ -203,15 +209,88 @@ class ValidationTest(unittest.TestCase):
                              if sev == "warning"), 2)
 
     @needs_example
-    def test_720p_names_are_optional(self):
+    def test_the_default_outputs(self):
+        """By default a film makes the 720p narrated video the players play and the cover, nothing else."""
+        self.assertEqual(film.REQUIRED_OUTPUTS, ("narrated_720p", "cover"))
+        self.assertEqual(set(film.REQUIRED_OUTPUTS) | set(film.OPTIONAL_OUTPUTS), set(film.VIDEO_OUTPUTS))
         d = copy_example(self.book)
-        meta = json.loads((d / "film.json").read_text(encoding="utf-8"))
-        del meta["outputs"]["narrated_720p"], meta["outputs"]["music_only_720p"]
-        (d / "film.json").write_text(json.dumps(meta), encoding="utf-8")
         self.assertEqual(errors(film.check(self.book)), [])
         f = film.get(self.book, d.name)
-        self.assertEqual(f.videos()["narrated_720p"], "film-fixture_001_720p_narrated.mp4")
-        self.assertEqual(list(f.videos()), list(film.VIDEO_OUTPUTS))
+        self.assertEqual(f.videos(), {"narrated_720p": "film-fixture_001_720p_narrated.mp4",
+                                      "cover": "film-fixture_001_cover.jpg"})
+        self.assertEqual(f.meta["resolution"], "1280x720@30")
+        self.assertEqual([f.listed(k) for k in film.VIDEO_OUTPUTS], [False, False, True, False, True])
+        self.assertEqual(f.download(), "narrated_720p")
+        # default_outputs still names every output
+        self.assertEqual(f.output("narrated"), "film-fixture_001_narrated_EN_subs_ZH-EN.mp4")
+        self.assertEqual(f.output("music_only_720p"), "film-fixture_001_720p_music_only.mp4")
+
+    @needs_example
+    def test_optional_outputs_are_made_when_listed(self):
+        d = copy_example(self.book, outputs=("cover", "music_only_720p", "narrated_720p", "narrated"))
+        self.assertEqual(errors(film.check(self.book)), [])
+        f = film.get(self.book, d.name)
+        # in the order of VIDEO_OUTPUTS, whatever the order in film.json
+        self.assertEqual(list(f.videos()), ["narrated", "narrated_720p", "music_only_720p", "cover"])
+        self.assertEqual(f.download(), "narrated")
+        d2 = copy_example(self.book, "002-every-output", outputs=ALL_OUTPUTS)
+        self.assertEqual(errors(film.check(self.book)), [])
+        self.assertEqual(list(film.get(self.book, d2.name).videos()), list(film.VIDEO_OUTPUTS))
+
+    @needs_example
+    def test_outputs_validation(self):
+        d = copy_example(self.book)
+        base = json.loads((d / "film.json").read_text(encoding="utf-8"))
+
+        def problems(**outputs) -> list[str]:
+            meta = json.loads(json.dumps(base))
+            for key, value in outputs.items():
+                if value is ...:
+                    del meta["outputs"][key]
+                else:
+                    meta["outputs"][key] = value
+            meta["resolution"] = film.published_size(meta["outputs"]) + "@30"
+            return [m for sev, m in film.validate_meta(meta, d, self.book, fake_lock()) if sev == "error"
+                    and "outputs" in m]
+
+        self.assertEqual(problems(), [])
+        self.assertEqual(problems(narrated_720p=...), [
+            "film.json: outputs.narrated_720p is required (the file name of the 720p narrated video the players "
+            "play), e.g. 'film-fixture_001_720p_narrated.mp4'"])
+        self.assertIn("outputs.cover is required", problems(cover=...)[0])
+        self.assertEqual(problems(narrated_4k="x.mp4"), [
+            "film.json: outputs.narrated_4k is not an output; outputs lists narrated_720p, cover and may add "
+            "narrated, music_only, music_only_720p"])
+        self.assertIn("leave the key out to not build this video", problems(music_only=None)[0])
+        self.assertIn("wrong extension", problems(narrated="a.jpg")[0])
+        self.assertIn("two outputs share a file name", problems(narrated=base["outputs"]["narrated_720p"])[0])
+        self.assertIn("outputs.cover must be a file name", problems(cover="poster.jpg")[0])
+
+    @needs_example
+    def test_resolution_follows_the_outputs(self):
+        d = copy_example(self.book)
+        meta = json.loads((d / "film.json").read_text(encoding="utf-8"))
+
+        def res_errors(resolution: str, *extra: str) -> list[str]:
+            m = json.loads(json.dumps(meta))
+            m["resolution"] = resolution
+            for key in extra:
+                m["outputs"][key] = film.default_outputs(self.book.slug, "001")[key]
+            return [x for sev, x in film.validate_meta(m, d, self.book, fake_lock()) if sev == "error"]
+
+        self.assertEqual(res_errors("1280x720@30"), [])
+        self.assertEqual(res_errors("1280x720@24", "music_only_720p"), [])
+        self.assertEqual(res_errors("1920x1080@30", "narrated"), [])
+        self.assertEqual(res_errors("1920x1080@30", "music_only"), [])
+        self.assertEqual(res_errors("1280x720@30", "narrated"), [
+            "film.json: resolution is the size of the published video: 1920x1080@<fps> (outputs lists a 1080p video)"])
+        self.assertIn("the build scales them to 1280x720", res_errors("1920x1080@30")[0])
+        self.assertIn("resolution must look like 1280x720@30", res_errors("720p")[0])
+        # without the field: the size the outputs give
+        del meta["resolution"]
+        self.assertEqual([x for sev, x in film.validate_meta(meta, d, self.book, fake_lock()) if sev == "error"], [])
+        meta["outputs"]["narrated"] = "n.mp4"
+        self.assertEqual([x for sev, x in film.validate_meta(meta, d, self.book, fake_lock()) if sev == "error"], [])
 
     @needs_example
     def test_stale_subject_commit_is_a_warning(self):
@@ -373,8 +452,10 @@ class EmbedTest(unittest.TestCase):
                       f'data-tr-poster="{d}poster.jpg" title="{head}">\n'
                       f'<source src="../{d}{v720}" data-tr-src="{d}{v720}" type="video/mp4">\n</video>', out)
         self.assertIn(f'<img class="tr-film-poster tr-film-fallback" src="../{d}poster.jpg" alt="{head}" loading="lazy">', out)
-        self.assertIn(f'<span class="tr-film-files"><a href="../{d}{v1080}" download>⬇ 1080p</a>'
-                      f'<a href="../{d}{v720}" download>⬇ 720p</a>', out)
+        # download links only for the videos film.json lists: by default the 720p narrated one
+        self.assertIn(f'<span class="tr-film-files"><a href="../{d}{v720}" download>⬇ 720p</a></span>', out)
+        self.assertNotIn(v1080, out)
+        self.assertNotIn(f.output("music_only"), out)
         self.assertIn(f'<span class="tr-film-note tr-film-fallback">{film.t("zh", "unbuilt")}</span>', out)
         self.assertNotIn("/releases/", out)
         self.assertNotIn("github.com", out)
@@ -390,7 +471,23 @@ class EmbedTest(unittest.TestCase):
         self.assertIn('<source src="../../films/001-golden-deficit/example-monograph_001_720p_narrated.mp4"', out)
         self.assertIn(f"Film 001 · The Golden Deficit · {duration}", out)
         self.assertIn(">Film page</a>", out)
-        self.assertIn(">⬇ Music only</a>", out)
+        self.assertIn(">⬇ 720p</a>", out)
+        self.assertNotIn("Music only", out)
+
+    def test_mdbook_links_every_listed_video(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        book = temp_book(tmp)
+        copy_example(book, outputs=ALL_OUTPUTS)
+        ctx = ctx_for(book, "en", "mdbook")
+        out = film.render_embed(env_for("001-golden-deficit"), ctx, "", doc_for(book, "en"))
+        d = "../films/001-golden-deficit/film-fixture_001_"
+        self.assertIn(f'<span class="tr-film-files"><a href="{d}narrated_EN_subs_ZH-EN.mp4" download>⬇ 1080p</a>'
+                      f'<a href="{d}720p_narrated.mp4" download>⬇ 720p</a>'
+                      f'<a href="{d}music_only_subs_ZH-EN.mp4" download>⬇ Music only 1080p</a>'
+                      f'<a href="{d}720p_music_only.mp4" download>⬇ Music only 720p</a></span>', out)
+        # the player plays the 720p narrated video whatever else is listed
+        self.assertIn(f'<source src="{d}720p_narrated.mp4"', out)
 
     def test_mdbook_external(self):
         ctx = ctx_for(self.book, "en", "mdbook")
@@ -610,7 +707,46 @@ class BuildVideosTest(unittest.TestCase):
         scenes.write_text(scenes.read_text(encoding="utf-8") + "\n// edit\n", encoding="utf-8")
         status, _ = self.run_build()
         self.assertEqual((status["001-golden-deficit"], len(self.renders)), ("built", 2))
-        self.assertIn(b"#2", self.files()[self.sb.film().output("narrated")])
+        self.assertIn(b"#2", self.files()[self.sb.film().output("narrated_720p")])
+
+    def test_the_default_builds_the_720p_narrated_video_and_the_cover(self):
+        self.run_build()
+        f = self.sb.film()
+        self.assertEqual(sorted(self.files()), sorted([f.output("narrated_720p"), f.output("cover")]))
+
+    def test_listing_an_output_renders_again_and_builds_it(self):
+        self.run_build()
+        key = self.sb.key()
+        original = (self.sb.dir / "film.json").read_text(encoding="utf-8")
+        meta = json.loads(original)
+        meta["outputs"]["music_only"] = "bk_001_music.mp4"
+        meta["resolution"] = "1920x1080@30"
+        (self.sb.dir / "film.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        self.assertNotEqual(self.sb.key(), key)  # film.json is an input: the outputs are part of the key
+        status, _ = self.run_build()
+        self.assertEqual((status["001-golden-deficit"], len(self.renders)), ("built", 2))
+        self.assertIn("bk_001_music.mp4", self.files())
+        # and unlisting it again restores the earlier build without the file
+        (self.sb.dir / "film.json").write_text(original, encoding="utf-8")
+        status, _ = self.run_build()
+        self.assertEqual((status["001-golden-deficit"], len(self.renders)), ("cached", 2))
+        self.assertNotIn("bk_001_music.mp4", self.files())
+
+    def test_a_render_without_a_listed_output_fails_and_is_not_stored(self):
+        def short_render(f: film.Film, dest: Path) -> None:  # a renderer that forgets the cover
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / f.output("narrated_720p")).write_bytes(b"mp4")
+
+        with mock.patch.object(film, "render_videos", side_effect=short_render):
+            with self.assertRaisesRegex(film.buildcache.MissingOutput, "did not write bk_001_cover.jpg"):
+                self.run_build()
+        self.assertFalse(film.video_unit(self.sb.site, self.sb.film()).entry_dir().exists())
+        # nor does the site host a film whose listed outputs are not all there
+        out = self.sb.root / "_site" / "bk" / "films"
+        with mock.patch.object(film, "build_videos", return_value={}), redirect_stderr(io.StringIO()):
+            film.build(self.sb.site, self.sb.book, out)
+        self.assertFalse(json.loads((out / "films.json").read_text(encoding="utf-8"))["films"][0]["built"])
+        self.assertEqual(sorted(p.name for p in (out / "001-golden-deficit").iterdir()), ["poster.jpg"])
 
     def test_cache_off_always_renders(self):
         with mock.patch.dict(os.environ, {"TBOOK_CACHE": "0"}):
@@ -669,17 +805,48 @@ class BuildVideosTest(unittest.TestCase):
         d = out / f.id
         for name in f.videos().values():
             self.assertEqual((d / name).read_bytes(), (self.out_dir / name).read_bytes())
-        self.assertTrue((d / "poster.jpg").is_file())
+        # by default only the 720p narrated video and the cover (and the committed poster)
+        self.assertEqual(sorted(p.name for p in d.iterdir()),
+                         sorted([f.output("narrated_720p"), f.output("cover"), "poster.jpg"]))
         page = (out / "index.html").read_text(encoding="utf-8")
         self.assertIn(f'<video controls preload="metadata" playsinline poster="{f.id}/poster.jpg"', page)
         self.assertIn(f'<source src="{f.id}/{f.output("narrated_720p")}" type="video/mp4">', page)
-        self.assertIn(f'href="{f.id}/{f.output("narrated")}" download>', page)
+        links = page.split('<div class="links">', 1)[1].split("</div>", 1)[0]
+        self.assertEqual(links, f'<a class="btn primary" href="{f.id}/{f.output("narrated_720p")}" download>⬇ '
+                                f'{film._pair("small")}</a><a class="btn" href="{f.id}/{f.output("cover")}" '
+                                f'download>{film._pair("cover")}</a>')
+        for key in film.OPTIONAL_OUTPUTS:
+            self.assertNotIn(f.output(key), page)
         self.assertNotIn("github.com/acme/books/releases", page)
         self.assertNotIn(film.t("en", "unbuilt"), page)
         reg = json.loads((out / "films.json").read_text(encoding="utf-8"))["films"][0]
         self.assertTrue(reg["built"])
-        self.assertEqual(reg["videos"]["narrated_720p"], f"{f.id}/{f.output('narrated_720p')}")
+        self.assertEqual(reg["videos"], {"narrated_720p": f"{f.id}/{f.output('narrated_720p')}",
+                                         "cover": f"{f.id}/{f.output('cover')}"})
         self.assertFalse({"release_tag", "published_tag"} & set(reg))
+
+    def test_publish_hosts_and_links_the_listed_optional_videos(self):
+        shutil.rmtree(self.sb.dir)
+        copy_example(self.sb.book, outputs=("narrated", "narrated_720p", "music_only_720p", "cover"))
+        out = self.sb.root / "_site" / "bk" / "films"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            film.build(self.sb.site, self.sb.book, out)
+        f = self.sb.film()
+        d = out / f.id
+        listed = [f.output(k) for k in ("narrated", "narrated_720p", "music_only_720p", "cover")]
+        self.assertEqual(sorted(p.name for p in d.iterdir()), sorted(listed + ["poster.jpg"]))
+        page = (out / "index.html").read_text(encoding="utf-8")
+        links = page.split('<div class="links">', 1)[1].split("</div>", 1)[0]
+        hrefs = [h.split('"', 1)[0] for h in links.split('href="')[1:]]
+        self.assertEqual(hrefs, [f"{f.id}/{n}" for n in listed])  # 1080p first (primary), then 720p, music, cover
+        self.assertIn(f'<a class="btn primary" href="{f.id}/{f.output("narrated")}" download>⬇ {film._pair("hd")}</a>', links)
+        self.assertIn(film._pair("music_only_small"), links)
+        self.assertNotIn(f.output("music_only"), page)
+        reg = json.loads((out / "films.json").read_text(encoding="utf-8"))["films"][0]
+        self.assertEqual(sorted(reg["videos"]), sorted(["narrated", "narrated_720p", "music_only_720p", "cover"]))
+        items = film.items(self.sb.book)
+        self.assertEqual(items[0]["download_url"], f"films/{f.id}/{f.output('narrated')}")
+        self.assertEqual(items[0]["watch_url"], f"films/{f.id}/{f.output('narrated_720p')}")
 
     def test_publish_without_videos_shows_the_poster_and_a_note(self):
         self.missing = ["node"]
@@ -756,29 +923,54 @@ class ToolchainTest(unittest.TestCase):
 class SiteHostingTest(unittest.TestCase):
     """tbook.site: chapter embeds of films the site does not host are marked; print.html sources repaired."""
 
+    # as mdBook writes the embed of tbook.film _local_player (attributes re-serialized), with its fallback poster
     FIGURE = ('<figure class="tr-media tr-film" data-film="001-x" data-tr-video="films/001-x/v720.mp4">\n'
-              '<video class="tr-film-player" controls="" poster="../films/001-x/poster.jpg" '
+              '<video class="tr-film-player" controls="" preload="metadata" playsinline="" poster="../films/001-x/poster.jpg" '
               'data-tr-poster="films/001-x/poster.jpg"><source src="../films/001-x/v720.mp4" '
-              'data-tr-src="films/001-x/v720.mp4" type="video/mp4"></video></figure>')
+              'data-tr-src="films/001-x/v720.mp4" type="video/mp4"></video>\n'
+              '<img class="tr-film-poster tr-film-fallback" src="../films/001-x/poster.jpg" alt="A > B"></figure>')
 
     def test_mark_films(self):
         from tbook import site
 
         bdir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, bdir)
-        marked = site.mark_films(self.FIGURE, bdir)
+        after = '\n<p>Text.</p>\n<video class="tr-film-player" preload="metadata"></video>'  # not in a film figure
+        marked = site.mark_films(self.FIGURE + after, bdir)
         self.assertIn('<figure class="tr-media tr-film tr-film-unbuilt" data-film="001-x"', marked)
+        # the hidden player does not request the missing video (a 404 in the console on every such page)
+        self.assertIn('<video class="tr-film-player" controls="" preload="none" playsinline=""', marked)
+        self.assertNotIn('preload="metadata" playsinline', marked)
+        self.assertTrue(marked.endswith(after), "only the film's figure is changed")
         self.assertEqual(site.mark_films(marked, bdir), marked)  # idempotent
         (bdir / "films" / "001-x").mkdir(parents=True)
         (bdir / "films" / "001-x" / "v720.mp4").write_bytes(b"mp4")
-        self.assertEqual(site.mark_films(marked, bdir), self.FIGURE)  # reversible once the video is there
-        external = '<figure class="tr-media tr-film" data-film="trureturing-film:film-001-v1"><video></video></figure>'
+        self.assertEqual(site.mark_films(marked, bdir), self.FIGURE + after)  # reversible once the video is there
+        external = ('<figure class="tr-media tr-film" data-film="trureturing-film:film-001-v1">'
+                    '<video class="tr-film-player" preload="none"></video></figure>')
         self.assertEqual(site.mark_films(external, bdir), external)
+
+    def test_mark_films_adds_missing_attributes(self):
+        from tbook import site
+
+        bdir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bdir)
+        bare = '<figure data-tr-video="films/a.mp4"><video class="tr-film-player" controls/></figure>'
+        marked = site.mark_films(bare, bdir)
+        self.assertEqual(marked, '<figure data-tr-video="films/a.mp4" class="tr-film-unbuilt">'
+                                 '<video class="tr-film-player" controls preload="none"/></figure>')
+        (bdir / "films").mkdir()
+        (bdir / "films" / "a.mp4").write_bytes(b"mp4")
+        self.assertEqual(site.mark_films(marked, bdir), '<figure data-tr-video="films/a.mp4" class="">'
+                                                        '<video class="tr-film-player" controls preload="metadata"/></figure>')
+        unclosed = '<figure data-tr-video="films/b.mp4"><video class="tr-film-player" preload="metadata">'
+        self.assertIn('preload="none"', site.mark_films(unclosed, bdir), "a figure cut short is still marked")
 
     def test_print_page_sources(self):
         from tbook import site
 
-        nested = self.FIGURE.replace('"../films', '"../../films')
+        # a chapter one level down, copied into print.html: mdBook rewrites the <img> but not the <video>
+        nested = self.FIGURE.replace('"../films', '"../../films').replace('src="../../films/001-x/poster', 'src="../films/001-x/poster')
         printed = site.fix_print_media(nested)
         self.assertIn('<source src="../films/001-x/v720.mp4" data-tr-src=', printed)
         self.assertIn('poster="../films/001-x/poster.jpg" data-tr-poster=', printed)
@@ -801,7 +993,10 @@ class SiteHostingTest(unittest.TestCase):
             site.build(sb.site, [sb.book], out, build_root=build_root)
         chapter = (out / "bk" / "zh" / "index.html").read_text(encoding="utf-8")
         self.assertIn("tr-film tr-film-unbuilt", chapter)
-        self.assertIn("tr-film-unbuilt", (out / "bk" / "zh" / "print.html").read_text(encoding="utf-8"))
+        self.assertIn('preload="none"', chapter)
+        printed = (out / "bk" / "zh" / "print.html").read_text(encoding="utf-8")
+        self.assertIn("tr-film-unbuilt", printed)
+        self.assertIn('preload="none"', printed)
         landing = (out / "bk" / "index.html").read_text(encoding="utf-8")
         films_html = landing.split('id="films"', 1)[1].split("</section>", 1)[0]
         self.assertIn(film.t("zh", "unbuilt"), films_html)
@@ -823,6 +1018,8 @@ class SiteHostingTest(unittest.TestCase):
             site.build(sb.site, [sb.book], out, only={"films"}, build_root=build_root)
         chapter = (out / "bk" / "zh" / "index.html").read_text(encoding="utf-8")
         self.assertNotIn("tr-film-unbuilt", chapter)
+        self.assertIn('class="tr-film-player" controls="" preload="metadata"', chapter)
+        self.assertNotIn('preload="none"', chapter)
         self.assertTrue((out / "bk" / "films" / "001-golden-deficit" / v720).is_file())
         landing = (out / "bk" / "index.html").read_text(encoding="utf-8")
         films_html = landing.split('id="films"', 1)[1].split("</section>", 1)[0]
@@ -848,7 +1045,9 @@ class PublishTest(unittest.TestCase):
         self.assertEqual(it["poster"], "films/001-golden-deficit/poster.jpg")
         self.assertEqual(it["href"], "films/index.html#001-golden-deficit")
         self.assertEqual(it["watch_url"], "films/001-golden-deficit/example-monograph_001_720p_narrated.mp4")
-        self.assertEqual(it["download_url"], "films/001-golden-deficit/example-monograph_001_narrated_EN_subs_ZH-EN.mp4")
+        # the example lists no 1080p video: the narrated video to download is the 720p one
+        self.assertEqual(it["download_url"], it["watch_url"])
+        self.assertEqual(it["cover_url"], "films/001-golden-deficit/example-monograph_001_cover.jpg")
         self.assertEqual(it["note"]["en"], film.t("en", "unbuilt"))
         self.assertFalse({"release_tag", "published", "release_url"} & set(it))
         self.assertEqual({r["gid"] for r in it["lean"]}, {GID3, GIDI})
@@ -891,6 +1090,10 @@ class ScaffoldTest(unittest.TestCase):
         self.assertFalse(set(meta) & set(film.LEGACY_KEYS))
         self.assertEqual(meta["title_zh"], "进位规则")
         self.assertEqual(meta["subject_commit"], lean.Lock.load().commit)
+        # the default: the 720p narrated video and the cover
+        self.assertEqual(meta["outputs"], {"narrated_720p": "film-fixture_002_720p_narrated.mp4",
+                                           "cover": "film-fixture_002_cover.jpg"})
+        self.assertEqual(meta["resolution"], "1280x720@30")
         issues = film.check(self.book)
         self.assertEqual(errors(issues), [], [i.format() for i in issues])
         self.assertNotIn("@@", "".join(p.read_text(encoding="utf-8") for p in created))
@@ -986,8 +1189,107 @@ class PipelineTest(unittest.TestCase):
     def test_scripts_are_executable(self):
         import os
 
-        for name in ("film.sh", "render_all.sh", "mux.sh", "small.sh", "setup.sh"):
+        for name in ("film.sh", "render_all.sh", "mux.sh", "setup.sh"):
             self.assertTrue(os.access(THEME_FILM / name, os.X_OK), name)
+        # the 720p videos are encoded from the frames, never again from a 1080p master
+        self.assertFalse((THEME_FILM / "small.sh").exists())
+
+    def test_render_plan(self):
+        plan = film.render_plan
+        self.assertEqual(plan(["narrated_720p", "cover"]),
+                         {"outputs": ["narrated_720p", "cover"], "renditions": ["720p"], "music": False})
+        self.assertEqual(plan(["cover", "music_only_720p", "narrated_720p"]),
+                         {"outputs": ["narrated_720p", "music_only_720p", "cover"], "renditions": ["720p"], "music": True})
+        self.assertEqual(plan(["narrated", "narrated_720p", "cover"])["renditions"], ["master", "720p"])
+        self.assertEqual(plan(["music_only"]), {"outputs": ["music_only"], "renditions": ["master"], "music": True})
+        self.assertEqual(plan(["cover"])["renditions"], [])
+        with self.assertRaisesRegex(film.FilmError, "unknown output narrated_4k"):
+            plan(["narrated_4k"])
+        with self.assertRaisesRegex(film.FilmError, "no outputs"):
+            plan([])
+
+    @needs_example
+    def test_plan_script(self):
+        """theme/film/plan.py: the shell assignments film.sh, render_all.sh and mux.sh evaluate."""
+        import subprocess
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        book = temp_book(tmp)
+        d = copy_example(book)
+
+        def run(outputs: str | None) -> subprocess.CompletedProcess:
+            env = {k: v for k, v in os.environ.items() if k != "FILM_OUTPUTS"}
+            if outputs is not None:
+                env["FILM_OUTPUTS"] = outputs
+            return subprocess.run([sys.executable, str(THEME_FILM / "plan.py"), str(d)], capture_output=True,
+                                  text=True, env=env)
+
+        r = run(None)  # what film.json lists
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [
+            "OUTPUTS='narrated_720p cover'", "RENDITIONS=720p", "MUSIC_MIX=0", "NARRATED=''", "MUSIC_ONLY=''",
+            "NARRATED_720P=film-fixture_001_720p_narrated.mp4", "MUSIC_ONLY_720P=''", "COVER=film-fixture_001_cover.jpg"])
+        r = run("narrated, music_only_720p")  # by hand, also unlisted outputs (default file names)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("RENDITIONS=master,720p", r.stdout)
+        self.assertIn("MUSIC_MIX=1", r.stdout)
+        self.assertIn("NARRATED=film-fixture_001_narrated_EN_subs_ZH-EN.mp4", r.stdout)
+        self.assertIn("COVER=''", r.stdout)
+        r = run("narrated_4k")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("unknown output narrated_4k", r.stderr)
+
+    def test_pipeline_scripts_follow_the_plan(self):
+        sh = (THEME_FILM / "film.sh").read_text(encoding="utf-8")
+        all_step = sh.split("  all)", 1)[1].split(";;", 1)[0]
+        self.assertIn('export FILM_OUTPUTS="$*"', all_step)
+        self.assertIn('if [ -n "$COVER" ]; then FILM_STRICT=1 cover; fi', all_step)
+        self.assertNotIn("small", sh)
+        render_all = (THEME_FILM / "render_all.sh").read_text(encoding="utf-8")
+        self.assertIn('--renditions "$RENDITIONS"', render_all)
+        mux = (THEME_FILM / "mux.sh").read_text(encoding="utf-8")
+        for needle in ("-movflags +faststart", "-ar 48000", 'mux video_720p.mp4 mix_voice.wav 128k "$NARRATED_720P"',
+                       'mux video_only.mp4 mix_voice.wav 192k "$NARRATED"', "-c:v copy"):
+            self.assertIn(needle, mux)
+        self.assertNotIn("libx264", mux)  # nothing is encoded twice
+        render = (THEME_FILM / "render.js").read_text(encoding="utf-8")
+        self.assertIn("'hqdn3d=3:2:6:5,scale=1280:720:flags=lanczos,format=yuv420p'", render)
+        self.assertIn("viewport: { width: 1920, height: 1080 }", (THEME_FILM / "lib.js").read_text(encoding="utf-8"))
+
+    @needs_example
+    def test_render_videos_passes_the_listed_outputs(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        book = temp_book(tmp)
+        d = copy_example(book, outputs=("narrated_720p", "music_only", "cover"))
+        f = film.get(book, d.name)
+        calls = []
+
+        def fake_run(args, **kw):
+            calls.append((args, kw["env"]))
+            (d / "out").mkdir(exist_ok=True)
+            for key in film.VIDEO_OUTPUTS:  # a pipeline that also leaves other files in out/
+                (d / "out" / f.output(key)).write_bytes(key.encode())
+            return SimpleNamespace(returncode=0)
+
+        with mock.patch.object(film.subprocess, "run", side_effect=fake_run), \
+                mock.patch.dict(os.environ, {"FILM_OUTPUTS": "narrated"}):
+            film.render_videos(f, tmp / "dest")
+        (args, env), = calls
+        self.assertEqual(args[1:], [str(d), "all", "music_only", "narrated_720p", "cover"])
+        self.assertNotIn("FILM_OUTPUTS", env)
+        self.assertEqual(env["FILM_STRICT"], "1")
+        # only the listed outputs are copied
+        self.assertEqual(sorted(p.name for p in (tmp / "dest").iterdir()), sorted(f.videos().values()))
+        (d / "out" / f.output("music_only")).unlink()
+
+        def no_write(args, **kw):
+            return SimpleNamespace(returncode=0)
+
+        with mock.patch.object(film.subprocess, "run", side_effect=no_write):
+            with self.assertRaisesRegex(film.FilmError, "did not write out/film-fixture_001_music_only"):
+                film.render_videos(f, tmp / "dest2")
 
 
 class DoctorFfmpegTest(unittest.TestCase):

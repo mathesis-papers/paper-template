@@ -12,7 +12,8 @@
 # Playwright). Java, needed by epubcheck, is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
 # Films: ffmpeg and fallback fonts for math glyphs come from apt; theme/film/setup.sh installs the
 # Python packages (already installed here) and downloads the Kokoro model into .cache/film/models. None
-# of it is installed when no book has a film (books/*/films/*/film.json): there is nothing to render.
+# of it is installed when no book has a film (books/*/films/*/film.json; books that site.toml [books].hide
+# hides do not count): there is nothing to render.
 #
 # Caches. The pip cache, Playwright's Chromium, the fetched fonts and the film models are restored and
 # saved only outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
@@ -66,12 +67,21 @@ runs:
       shell: bash
       env:
         WANTED: ${{ inputs.films }}
+      # Films of the books that site.toml [books].hide does not hide. ./tbook books needs only Python's standard
+      # library, so the runner's python3 runs it before Python is set up; if it cannot run (python3 older than
+      # 3.11, an unreadable site.toml), every book counts.
       run: |
-        if [ "$WANTED" = "true" ] && compgen -G 'books/*/films/*/film.json' >/dev/null; then
+        films=""
+        if [ "$WANTED" = "true" ]; then
+          if ! films="$(./tbook books --files 'films/*/film.json' 2>/dev/null)"; then
+            films="$(compgen -G 'books/*/films/*/film.json' || true)"
+          fi
+        fi
+        if [ -n "$films" ]; then
           echo "install=true" >> "$GITHUB_OUTPUT"
         else
           echo "install=false" >> "$GITHUB_OUTPUT"
-          if [ "$WANTED" = "true" ]; then echo "No film (books/*/films/*/film.json): the film toolchain is not installed."; fi
+          if [ "$WANTED" = "true" ]; then echo "No film (books/*/films/*/film.json of a book that site.toml [books].hide does not hide): the film toolchain is not installed."; fi
         fi
 
     - name: Set up Python

@@ -49,7 +49,15 @@
    ./tbook doctor
    ```
 
-3. 修改 `site.toml`（站点标题、语言）；新建一本书：
+3. 修改 `site.toml`（站点标题、语言），并在 `[books]` 中隐藏模板附带的示例书：
+
+   ```toml
+   [books]
+   order = ["my-book"]
+   hide = ["example-*"]
+   ```
+
+   示例书留在 `books/example-*/` 供参考，但检查、构建、站点与发版都当它不存在。不要删除它：以后用 git 合并模板改动时，被删除而模板又改过的示例书会冲突（[docs/UPGRADING.md](docs/UPGRADING.md) §6）。然后新建一本书：
 
    ```bash
    ./tbook new-book my-book --title zh="我的书" --title en="My Book"
@@ -91,6 +99,7 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 | `./tbook check` | 结构、多语言对齐、Lean 引用 |
 | `./tbook pin [<sha>\|<branch>\|<tag>\|--refresh]` | 钉 trureturing 提交（须在 `site.toml` 的分支上），解析引用 |
 | `./tbook new-book` / `new-chapter` | 新书、新章节 |
+| `./tbook books [--hidden]` | 列出书库中的书（`site.toml` 的 `[books] hide` 隐藏的书不算；`--hidden` 列出它们） |
 | `./tbook build [html\|pdf\|epub\|slides\|viz\|films\|site\|all]` | 构建（输入未变的单元从缓存恢复） |
 | `./tbook cache status\|key\|prune\|export` | 构建缓存：输入未变的单元不再构建；各单元状态、存储内容摘要（Actions 缓存键的内容部分）、清理旧条目、导出 Release 附件 |
 | `./tbook serve` | 本地预览站点 |
@@ -112,7 +121,12 @@ theme/   tools/   templates/   skills/   docs/   .github/workflows/
 
 ## 示例
 
-`books/example-monograph/`《黄金整数与可观测性》演示了全部写法：Zeckendorf 进位亏量只取三个值、Greathouse 取整公式的反驳、目标恢复判据，以及书内可视化、视频与演示文稿。
+模板附带两本示例书：
+
+- `books/example-monograph/`《黄金整数与可观测性》：四章加一个附录，演示全部写法（各种定理环境、多个 Lean 引用、开放问题与猜想、交叉引用、表格、图、脚注、定义列表、引文）以及书内可视化、视频与演示文稿。内容从 Zeckendorf 进位亏量只取三个值出发，经有限证书与反驳、细化与记忆、黄金词，到齐肯多夫表示与进位的附录。
+- `books/example-primer/`《斐波那契与卢卡斯：一本可验证的入门小书》：两章的入门小书，没有媒体，演示一本书最少需要什么。
+
+模板附带的示例书都以 `example-` 开头；书库用 `site.toml` 的 `[books] hide = ["example-*"]` 隐藏它们（见快速开始第 3 步）。
 
 ## 许可
 

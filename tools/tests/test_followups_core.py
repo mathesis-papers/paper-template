@@ -474,7 +474,8 @@ class CommentCheckTests(unittest.TestCase):
 
 
 class TitleEscapeSiteTests(unittest.TestCase):
-    """Re-review 4/5: the site shows titles as plain text, with Markdown escapes undone outside math."""
+    """Re-review 4/5: the site shows titles with Markdown escapes undone outside math; formulas are rendered at
+    build time (tbook.site.render_title_math), or shown as their TeX source without a rendering."""
 
     def test_site_titles_unescape(self):
         summaries = {"zh": "- [C\\*-代数 与 snake\\_case](ch01.md)\n", "en": "- [C\\*-algebras](ch01.md)\n"}
@@ -488,10 +489,21 @@ class TitleEscapeSiteTests(unittest.TestCase):
             bdir = repo.root / "_site" / book.slug
             with mock.patch.object(site, "_media_module", lambda part: None):
                 view = site.collect(config.load_site(), book, bdir, make_lock())
-            ver = site.verification_html(view, "zh", "zh")
+            ver = site.verification_html(view, "zh", "zh")  # no renderings: the formula is its TeX source
             self.assertIn('<span class="ttl">C*-代数 与 $5 与 $\\{x\\}$</span>', ver)
             toc = site.toc_html(view, "zh", "zh")
             self.assertIn('<span class="t-title">C*-代数 与 snake_case</span>', toc)
+            # "\$5" is a literal dollar, not the start of a formula; the code span stays as written
+            self.assertEqual(site.title_html("C\\*-代数 与 \\$5 与 $\\{x\\}$", {"\\{x\\}": "<KATEX>"}),
+                             "C*-代数 与 $5 与 <KATEX>")
+            self.assertEqual(site.title_html("`$x$` 与 $x$ \\& <b>", {"x": "<K>"}), "`$x$` 与 <K> &amp; &lt;b&gt;")
+            if not (html.KATEX_DIST / "katex.min.css").exists():
+                self.skipTest("node_modules/katex is required (npm ci)")
+            math = site.render_title_math([view])
+            self.assertEqual(list(math), ["\\{x\\}"])
+            ver = site.verification_html(view, "zh", "zh", math)
+            self.assertIn('<span class="ttl">C*-代数 与 $5 与 <span class="katex" role="math" aria-label="\\{x\\}">', ver)
+            self.assertNotIn("$\\{x\\}$", ver)
 
 
 if __name__ == "__main__":

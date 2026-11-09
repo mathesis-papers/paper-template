@@ -9,6 +9,9 @@ body {
   background: var(--tr-fx-aurora), var(--tr-void);
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
+/* English (html lang="en"): a Latin face first, so curly quotes and apostrophes are not the full-width glyphs of the
+   CJK face (Chinese keeps them) */
+:not(:lang(zh), :lang(ja), :lang(ko)) { --tr-font-body: var(--tr-font-body-latin); }
 body::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: var(--tr-fx-scanlines); z-index: 10; }
 a { color: var(--tr-cyan); }
 code { font-family: var(--tr-font-data); }

@@ -36,6 +36,9 @@ def cmd_check(args) -> int:
     warnings = [i for i in issues if i.severity != "error"]
     for issue in errors + warnings:
         print(issue.github() if gh else issue.format())
+    hidden = config.hidden_books()
+    if hidden:  # informational: what the check skipped, and why
+        print(f"check: hidden by site.toml [books].hide, not checked: {', '.join(hidden)}")
     n_books = len(_books(args))
     print(f"check: {n_books} book(s), {len(errors)} error(s), {len(warnings)} warning(s)")
     if args.strict and warnings:
@@ -167,6 +170,11 @@ def cmd_new_book(args) -> int:
     path = newbook.new_book(args.slug, titles, langs=langs, author=args.author or "", code=args.code or "",
                             subtitles=_langs_titles(args.subtitle))
     print(f"created {paths.rel(path)}")
+    pattern = config.load_site().hidden_by(args.slug)
+    if pattern:
+        print(f"warning: {args.slug} matches {json.dumps(pattern, ensure_ascii=False)} in site.toml [books].hide, so "
+              "every command treats it as absent (check, build, the site); remove that pattern from hide to work on it",
+              file=sys.stderr)
     return 0
 
 
@@ -175,6 +183,23 @@ def cmd_new_chapter(args) -> int:
 
     for p in newbook.new_chapter(args.book, args.name, _langs_titles(args.title)):
         print(f"created {paths.rel(p)}")
+    return 0
+
+
+def cmd_books(args) -> int:
+    """``./tbook books [--hidden] [--files GLOB]``: the books every command sees, in site order (``--hidden``:
+    the ones site.toml [books].hide hides instead); with ``--files``, the files ``books/<slug>/GLOB`` of those
+    books, as shell globbing finds them. Needs only the standard library: the workflows ask it which books
+    have films or slide decks before the toolchain is installed."""
+    import glob
+
+    slugs = config.hidden_books() if args.hidden else config.book_slugs()
+    for slug in slugs:
+        if not args.files:
+            print(slug)
+            continue
+        for f in sorted(glob.glob(args.files, root_dir=paths.BOOKS / slug)):  # the slug is no pattern
+            print(paths.rel(paths.BOOKS / slug / f))
     return 0
 
 
@@ -258,6 +283,12 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("name", help="file name without .md, e.g. ch02-deficit")
     c.add_argument("--title", action="append", required=True, help="LANG=TITLE, once per edition")
     c.set_defaults(fn=cmd_new_chapter)
+
+    c = sub.add_parser("books", help="list the books (site order) that site.toml [books].hide does not hide")
+    c.add_argument("--hidden", action="store_true", help="list the hidden books instead")
+    c.add_argument("--files", metavar="GLOB", help="print the files books/<slug>/GLOB of the listed books, "
+                                                   "e.g. 'films/*/film.json'")
+    c.set_defaults(fn=cmd_books)
 
     c = sub.add_parser("serve", help="serve _site locally under the Pages base path")
     c.add_argument("--port", type=int, default=8765)

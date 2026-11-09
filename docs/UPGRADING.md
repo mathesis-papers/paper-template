@@ -72,3 +72,25 @@ git 历史指 `HEAD` 可达的全部提交，包括以合并提交（merge commi
    - 仓库已有、内容不同的同名托管文件（例如自己的 `.gitignore`）是冲突：保留你的文件，模板版本写在旁边的 `<file>.template-new`，命令以退出码 3 结束。逐个合并后删除 `.template-new`。
    - 若第 1 步也复制了同一发布的 `template-manifest.json`，同样可行：仓库历史中从未有过的托管文件照样新增；已有的同名文件则记为“保留的本地改动”，不写 `.template-new`。
 3. 按 `skills/book-new` 补齐 `site.toml` 与 `books/`，运行 `./tbook template status` 与 `./tbook check`，提交。
+
+## 6. 用 git 合并模板与示例书
+
+有的书库不（只）用 `./tbook template update`，而是把模板仓库加为 git 远端，直接合并它的发布 tag 或分支：
+
+```bash
+git remote add --no-tags template https://github.com/the-omega-institute/trureturing-books-template.git
+git fetch template main "+refs/tags/v*:refs/template-tags/v*"
+git merge refs/template-tags/vX.Y.Z   # 从 “Use this template” 创建的书库与模板没有共同历史，第一次合并要加 --allow-unrelated-histories
+```
+
+模板的发布 tag 只取到 `refs/template-tags/` 下，不进书库自己的 `refs/tags`（`--no-tags` 让以后的 `git fetch template` 也不自动带回 tag）：书库的 `release.yml` 把推送的 `v*` tag 当作全部书的发版，`git push --tags` 会把模板的版本 tag 当成书库的发版推上去；与书库自己的 tag 同名时（两边都有 `v1.0.0`），`git fetch template --tags` 还会以 “would clobber existing tag” 失败，`git merge v1.0.0` 合到的则是书库自己的提交。以后每次升级重复后两行（不再需要 `--allow-unrelated-histories`）；要合并模板尚未发布的改动，用 `git merge template/main`。
+
+这样合并会带来模板的全部改动，包括 `books/example-*` 下的示例书。示例书被删掉的书库，每当模板改动示例书，合并就在这些文件上冲突（modify/delete），每次都要手动处理。所以**隐藏示例书，不要删除**：在 `site.toml` 的 `[books]` 中设
+
+```toml
+hide = ["example-*"]
+```
+
+隐藏的书留在 `books/` 中，随合并照常更新，但检查、钉版、构建、站点与发版都当它不存在（`docs/ARCHITECTURE.md` §2.1）；模板以后新增的 `example-*` 示例书也自动隐藏。设好后运行 `./tbook check`（输出一行列出隐藏的书）与 `./tbook pin --refresh`（从锁文件中删去只被示例书引用的声明）。已经删掉示例书的书库，可以先 `git checkout template/main -- books/example-monograph`（或合并时按模板版本解决冲突）把它取回，再隐藏它。
+
+书库自有的文件（`site.toml`、`trureturing.lock.json`、`README.md` 等，§1）在模板里也有自己的版本，git 合并时可能冲突：保留书库的版本（必要时参考模板的改动，例如 `site.toml` 新增的配置项）。锁文件只由工具写：解决冲突后运行 `./tbook pin --refresh`。

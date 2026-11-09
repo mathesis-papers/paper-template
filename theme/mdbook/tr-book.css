@@ -95,6 +95,10 @@ html.ayu {
 html { background-color: var(--bg); }
 .page-wrapper { min-height: 100vh; min-height: 100dvh; }
 body { font-family: var(--tr-font-body); }
+/* Text in a language other than Chinese, Japanese or Korean (the English edition): a Latin face first. The CJK
+   face draws the curly quotes and apostrophes of smart punctuation (’ “ ”) full-width, as Chinese wants them;
+   in English they would stand apart from their words. CJK characters still come from the CJK face. */
+:not(:lang(zh), :lang(ja), :lang(ko)) { --tr-font-body: var(--tr-font-body-latin); }
 ::selection { background: color-mix(in srgb, var(--tr-cyan) 30%, transparent); }
 :focus-visible { outline: 2px solid var(--tr-amber); outline-offset: 2px; }
 
@@ -275,6 +279,16 @@ html.navy .chapter li a.active, html.ayu .chapter li a.active { text-shadow: var
 .content main em { color: var(--tr-sigma); }
 .content main hr { border: 0; height: 1px; margin: 2.4em 0; background: linear-gradient(90deg, transparent, var(--tr-line-hot), transparent); }
 .content main img { max-width: 100%; height: auto; }
+/* mdBook's image zoom (a click on a figure): the figure on the page's own background, as on the page, instead of
+   mdBook's mid grey (on which the dim ink of a figure drawn for both palettes reads at 1.5:1); an SVG, which
+   scales cleanly, as large as the window allows rather than at its intrinsic size. */
+.content .checkbox-img:checked ~ .img-wrapper > img {
+  background: var(--bg); border: 1px solid var(--tr-line-hot); box-sizing: border-box;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--tr-void-deep) 70%, transparent);
+}
+.content .checkbox-img:checked ~ .img-wrapper > img:is([src$=".svg" i], [src*=".svg?" i], [src*=".svg#" i]) {
+  width: min(92vw, 960px); height: auto; object-fit: contain;
+}
 
 /* Code */
 .content main :not(pre) > code {
@@ -321,6 +335,11 @@ pre > .buttons button:hover { color: var(--tr-cyan); }
 }
 .content main blockquote[class*="blockquote-tag"] { border-inline-start-width: 3px; }
 .blockquote-tag-title { font-family: var(--tr-font-display); letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.86em; }
+
+/* Math and code keep their case and spacing inside headings that the theme sets in capitals: uppercase would
+   turn $\varphi$ into $\Phi$ and $n$ into $N$, a different formula. */
+.content main table th :is(.katex, code),
+.chapter li.part-title :is(.katex, code) { text-transform: none; letter-spacing: normal; }
 
 /* Tables */
 .table-wrapper { overflow-x: auto; margin: 1.4em 0; border: 1px solid var(--tr-panel-edge); }

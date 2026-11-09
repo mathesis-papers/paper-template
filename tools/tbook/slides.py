@@ -1908,6 +1908,12 @@ def index_html(site: config.Site, book: config.Book, decks: list[dict[str, Any]]
     hide_default = f':root:not([data-lang]) [class^="l-"]:not(.l-{primary}) {{ display: none; }}'
     commit = (f'<p class="pin">{pair(lambda lang: config.s(lang, "ui.pinned_at"))} '
               f'<a href="{esc(lock.tree_url)}"><code>{esc(lock.commit[:12])}</code></a></p>') if lock else ""
+    from .site import _google_fonts  # theme/tokens.json font.google-fonts-css, as the other pages use
+
+    fonts_css = _google_fonts()
+    fonts_head = ('<link rel="preconnect" href="https://fonts.googleapis.com">\n'
+                  '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+                  f'<link rel="stylesheet" href="{esc(fonts_css)}">\n') if fonts_css else ""
     title_text = " · ".join(dict.fromkeys(f"{book.edition(lang).title} · {config.s(lang, 'ui.slides') or 'Slides'}" for lang in langs))
     return f"""<!doctype html>
 <html lang="{esc(config.bcp47(primary))}">
@@ -1915,12 +1921,11 @@ def index_html(site: config.Site, book: config.Book, decks: list[dict[str, Any]]
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title_text)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
-<style>
+{fonts_head}<style>
 /* colours: theme/generated/tokens.css (generated from theme/tokens.json) */
 {tokens}
+/* English (any language but Chinese, Japanese, Korean): a Latin face first, as on the site (theme/site/site.css) */
+:not(:lang(zh), :lang(ja), :lang(ko)) {{ --tr-font-body: var(--tr-font-body-latin); }}
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; min-height: 100vh; background: var(--tr-void); background-image: var(--tr-fx-aurora); color: var(--tr-ink);
   font: 16px/1.65 var(--tr-font-body); }}
@@ -2024,7 +2029,7 @@ def cli(args) -> int:
         if len(rest) not in (3, 4):
             print('usage: ./tbook slides new <book> <deck> "<中文标题>" "<English title>"', file=sys.stderr)
             return 2
-        config.load_book(rest[0])  # clear error for an unknown book
+        config.named_book(rest[0])  # clear error for an unknown or hidden book
         cmd = [_node(), str(paths.TOOLS / "node" / "slides-new.mjs"), *rest]
         return subprocess.run(cmd, cwd=paths.ROOT, env=dict(os.environ, TBOOK_ROOT=str(paths.ROOT))).returncode
     print(f"tbook slides: unknown action {args.action!r} (new, list)", file=sys.stderr)
