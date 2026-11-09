@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Concatenate out/seg_*.mp4 and mux the mixes: out/<outputs.narrated> (mix_voice.wav) and out/<outputs.music_only>
-# (mix_music.wav), 1080p masters with AAC 192k and +faststart for streaming from a release asset.
+# (mix_music.wav), 1080p masters with AAC 192k and +faststart, so a browser starts playing before the download ends.
 # usage: theme/film/mux.sh <film dir>      Env: FFMPEG. Adapted from trureturing-film films/*/mux.sh (Apache-2.0).
 set -euo pipefail
 FILM="$(cd "$1" && pwd)"

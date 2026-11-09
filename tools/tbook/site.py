@@ -6,7 +6,7 @@
     build/dist/<slug>/*         →  <out>/<slug>/downloads/       PDF (screen, print) and EPUB
     tbook.cover.render_cover    →  <out>/<slug>/cover-<lang>.png (CSS-only cover card if it fails)
     tbook.viz.build             →  <out>/<slug>/viz/
-    tbook.film.build            →  <out>/<slug>/films/
+    tbook.film.build            →  <out>/<slug>/films/           films page, posters, the videos (rendered or restored)
     tbook.slides.publish        →  <out>/<slug>/slides/
     generated                   →  index.html (library hub), <slug>/index.html (book landing page),
                                    404.html, manifest.json, .nojekyll, assets/
@@ -448,18 +448,22 @@ def _ignore_hidden(_dir: str, names: list[str]) -> list[str]:
     return [n for n in names if n.startswith(".")]
 
 
-# an <iframe> / <video> start tag (quote-aware: mdBook re-serializes attributes and may leave a raw ">" in them)
-_BOOK_PATH_TAG_RE = re.compile(r'<(?:iframe|video)\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-(?:src|poster)=")(?:[^>"]|"[^"]*")*>', re.I)
+# an <iframe> / <video> / <source> start tag (quote-aware: mdBook re-serializes attributes and may leave a raw
+# ">" in them)
+_BOOK_PATH_TAG_RE = re.compile(r'<(?:iframe|video|source)\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-(?:src|poster)=")(?:[^>"]|"[^"]*")*>', re.I)
+# the start tag of a film embed that plays a video of the site (tbook.film render_embed: data-tr-video)
+_FILM_FIGURE_RE = re.compile(r'<figure\b(?=(?:[^>"]|"[^"]*")*\sdata-tr-video=")(?:[^>"]|"[^"]*")*>', re.I)
+FILM_UNBUILT = "tr-film-unbuilt"
 
 
 def fix_print_media(page_html: str, prefix: str = "../") -> str:
     """Repair media URLs in mdBook's ``<lang>/print.html``.
 
     print.html copies every chapter to ``<lang>/`` and rewrites ``<a href>`` and ``<img src>`` for the new
-    depth, but not the ``src`` of iframes or the ``poster`` of videos, so the embeds of chapters in
-    subdirectories would point above the book. Embeds carry those targets relative to the book (``<slug>/``)
-    in ``data-tr-src`` / ``data-tr-poster`` (tbook.viz / tbook.film ``render_embed``); ``prefix`` is the path
-    from the page to ``<slug>/``.
+    depth, but not the ``src`` of iframes and video sources or the ``poster`` of videos, so the embeds of
+    chapters in subdirectories would point above the book. Embeds carry those targets relative to the book
+    (``<slug>/``) in ``data-tr-src`` / ``data-tr-poster`` (tbook.viz / tbook.film ``render_embed``);
+    ``prefix`` is the path from the page to ``<slug>/``.
     """
     def repl(m: re.Match) -> str:
         tag = m.group(0)
@@ -471,6 +475,44 @@ def fix_print_media(page_html: str, prefix: str = "../") -> str:
         return tag
 
     return _BOOK_PATH_TAG_RE.sub(repl, page_html)
+
+
+def mark_films(page_html: str, bdir: Path) -> str:
+    """Mark the film embeds of a chapter page whose video the site does not host.
+
+    A film embed (tbook.film ``render_embed``) names its video relative to the book in ``data-tr-video``; the
+    chapter HTML is built (and cached) before the videos, so it always has the player. Here the figure gets
+    the class ``tr-film-unbuilt`` when ``bdir`` (``<out>/<slug>``) has no such file, and loses it when it has
+    one: the theme then shows the poster and "video not built" instead of a player that cannot play.
+    """
+    def repl(m: re.Match) -> str:
+        tag = m.group(0)
+        video = re.search(r'\sdata-tr-video="([^"]*)"', tag).group(1)
+        built = _exists(bdir, html.unescape(video))
+        cls = re.search(r'(\sclass=")([^"]*)(")', tag)
+        names = [c for c in (cls.group(2).split() if cls else []) if c != FILM_UNBUILT]
+        if not built:
+            names.append(FILM_UNBUILT)
+        if cls:
+            return tag[:cls.start(2)] + " ".join(names) + tag[cls.end(2):]
+        return tag[:-1] + f' class="{" ".join(names)}">' if names else tag
+
+    return _FILM_FIGURE_RE.sub(repl, page_html)
+
+
+def publish_film_marks(book: config.Book, bdir: Path) -> None:
+    """Apply :func:`mark_films` to every page of the book's editions in ``bdir`` that embeds a film."""
+    for ed in book.editions:
+        edir = bdir / ed.lang
+        if not edir.is_dir():
+            continue
+        for page_file in sorted(edir.rglob("*.html")):
+            text = page_file.read_text(encoding="utf-8")
+            if "data-tr-video=" not in text:
+                continue
+            marked = mark_films(text, bdir)
+            if marked != text:
+                page_file.write_text(marked, encoding="utf-8")
 
 
 def publish_html(book: config.Book, bdir: Path, build_root: Path) -> None:
@@ -985,7 +1027,10 @@ def viz_section(bi: Bi, view: BookView) -> str:
 
 
 def films_section(bi: Bi, view: BookView) -> str:
-    """Film cards: poster, title, duration; the page on the site (``href``) and the video (``watch_url``)."""
+    """Film cards: poster, title, duration; the page on the site (``href``) and the video (``watch_url``).
+
+    A video on the site (a relative ``watch_url``) that the build did not publish gets the item's ``note``
+    ("video not built") instead of a Watch button, as does an item with ``published`` False."""
     items = view.media.get("films") or []
     if not items:
         return ""
@@ -998,10 +1043,15 @@ def films_section(bi: Bi, view: BookView) -> str:
         img = (f'<img src="{esc(poster)}" alt="" loading="lazy" decoding="async" width="1280" height="720">'
                if poster and _exists(view.bdir, poster) else "")
 
-        unpublished = it.get("published") is False  # the release does not exist yet: no Watch button
+        # a film with a video of its own never falls back to its page: without the video (not published, or not
+        # built into this site) it gets the note instead of a Watch button
+        own_video = it.get("published") is False or bool(it.get("watch_url"))
 
         def watch_link(lang: str) -> str:
-            return _loc(it.get("watch_url") or it.get("url"), lang, langs) or ("" if unpublished else page_link)
+            url = _loc(it.get("watch_url") or it.get("url"), lang, langs)
+            if url and not _exists(view.bdir, url):
+                url = ""
+            return url or ("" if own_video else page_link)
 
         title = bi.text(lambda lang: _loc(it.get("title"), lang, langs) or str(it.get("id", "")))
         heading = f'<a href="{esc(page_link)}">{title}</a>' if page_link else title
@@ -1013,7 +1063,7 @@ def films_section(bi: Bi, view: BookView) -> str:
             if watch_link(lang):
                 return (f'<a class="btn" href="{esc(watch_link(lang))}" rel="noopener">'
                         f'{esc(config.s(lang, "ui.watch"))} <span aria-hidden="true">▸</span></a>')
-            note = _loc(it.get("note"), lang, langs)  # e.g. "not released yet"
+            note = _loc(it.get("note"), lang, langs)  # e.g. "video not built"
             return f'<span class="muted">{esc(note)}</span>' if note else ""
 
         watch = bi.span(action)
@@ -1349,6 +1399,8 @@ def build(site, books, out_dir: Path, only: set[str] | None = None, *, build_roo
                 err = publish_media(site, book, part, bdir / part)
                 if err:
                     problems.append(err)
+        if book.slug in rebuilt and (parts is None or "films" in parts):
+            publish_film_marks(book, bdir)
         views.append(collect(site, book, bdir, lock, models))
     langs = list(site.languages) or ["zh", "en"]
     frame = Frame(site=site, bi=Bi(langs), versions=write_assets(out), lock=lock)

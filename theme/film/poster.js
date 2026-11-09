@@ -2,8 +2,9 @@
 // Adapted from trureturing-film films/*/poster.js (Apache-2.0, the-omega-institute).
 //
 // usage: node theme/film/poster.js <out dir> <cover file name> [<committed poster path>]
-//   <out dir>/<cover>   1920×1080 JPEG (q 92), the release asset
-//   <poster path>       1280×720 JPEG under 300 KB for the repository (books/<slug>/films/<dir>/poster.jpg)
+//   <out dir>/<cover>   1920×1080 JPEG (q 92), the cover the build publishes with the videos
+//   <poster path>       1280×720 JPEG under 300 KB for the repository (books/<slug>/films/<dir>/poster.jpg);
+//                       only the `poster` step passes it (by hand): the build never writes a committed file
 import { writeFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { launch, openFilm, frameJPEG } from './lib.js';

@@ -7,7 +7,7 @@
   "subject": "https://github.com/the-omega-institute/trureturing",
   "subject_commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
   "released": "2026-11-08",
-  "duration": "0:57",
+  "duration": "0:50",
   "resolution": "1920x1080@30",
   "style": "trureturing cyberpunk · Zeckendorf digits, golden carries, a three-valued deficit",
   "narration": {
@@ -23,8 +23,6 @@
     "D5/S1/Deficit/DeficitThreeValued.deficit_three_valued",
     "D5/S1/Deficit/DeficitInteger.deficit_integer"
   ],
-  "release_tag": "film-example-monograph-001-v1",
-  "published_tag": null,
   "outputs": {
     "narrated": "example-monograph_001_narrated_EN_subs_ZH-EN.mp4",
     "music_only": "example-monograph_001_music_only_subs_ZH-EN.mp4",

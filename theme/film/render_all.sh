@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Render every frame of a film in parallel headless-Chromium workers → out/seg_<i>.mp4, then the poster.
-# usage: theme/film/render_all.sh <film dir> [--no-poster]
+# Render every frame of a film in parallel headless-Chromium workers → out/seg_<i>.mp4. Writes nothing outside
+# out/: the cover is the `cover` step (film.sh), the committed poster.jpg the `poster` step, run by hand.
+# usage: theme/film/render_all.sh <film dir>
 # Env: FILM_WORKERS (default: min(3, CPUs)), FFMPEG, PW_CHROMIUM_PATH, FILM_STRICT=1 (no provisional timing).
 # Adapted from trureturing-film films/*/render_all.sh (Apache-2.0, the-omega-institute).
 set -euo pipefail
@@ -24,7 +25,3 @@ done
 [ "$fail" = 0 ] || exit 1
 grep -h done "$OUT"/r*.log
 printf "%s\n" "$N" > "$OUT/segments.txt"
-if [ "${1:-}" != "--no-poster" ]; then
-  COVER="$("$PYTHON" -c 'import json,sys;print(json.load(open(sys.argv[1]))["outputs"]["cover"])' "$FILM/film.json")"
-  node "$HERE/poster.js" "$OUT" "$COVER" "$FILM/poster.jpg"
-fi
