@@ -31,7 +31,8 @@ Staging (:func:`stage`):
 * fenced and indented code blocks, HTML comments and inline code are never rewritten
   (:func:`_code_mask`);
 * links between chapter files (``other.md``, ``other.md#x``, ``#x``) become internal ``#ids``
-  (a heading slug resolves within the linked chapter, as in HTML); relative images of
+  (a fragment resolves within the linked chapter, as in HTML; one that chapter lacks is
+  rendered as text with a warning); relative images of
   nested chapters are rebased onto the staging root and files inside the edition are
   copied to ``_book/<lang>/…`` (looked up by the decoded path, so ``<a b.png>`` and
   ``a%20b.png`` both work, and written percent-encoded); plain links to files (not
@@ -330,9 +331,10 @@ _LABEL = r"(?P<label>[^\s^\[\]]+)"
 FOOTNOTE_DEF_RE = re.compile(r"^(?P<lead>" + mdscan.CONTAINER + r")\[\^" + _LABEL + r"\]:")
 # What makes ``[^a]`` the text of a link for mdBook instead of a reference: a destination ``(…)``
 # (``[^a](1972)``, ``[^a]()``) or a link label ``[x]`` (``[^a][x]``, also ``[^a]\[x]``; text when x
-# is no link reference). ``[^a][^b]``, ``[^a][]``, ``[^a] (1972)`` and ``[^a]\(1972)`` are references.
+# is no link reference; a label has a character other than whitespace). ``[^a][^b]``, ``[^a][]``,
+# ``[^a][ ]``, ``[^a] (1972)`` and ``[^a]\(1972)`` are references.
 _LINK_TAIL = (r"\([ \t]*(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*+\))++)?(?:[ \t]+" + mdscan.LINK_TITLE
-              + r")?[ \t]*\)|\\?\[(?!\^)(?:[^\[\]\\]|\\.)+\]")
+              + r")?[ \t]*\)|\\?\[(?!\^)\s*+(?:[^\[\]\\\s]|\\.)(?:[^\[\]\\]|\\.)*+\]")
 # A footnote reference that is not escaped (``\[^a]`` is text; ``\\[^a]`` is a backslash and a
 # reference), with the escaped backslashes before it, and not the text of a link.
 _NOTE_REF_RE = re.compile(r"(?<!\\)(?P<esc>(?:\\\\)*)\[\^" + _LABEL + r"\](?!" + _LINK_TAIL + ")")
@@ -355,8 +357,14 @@ _HTML_BLOCKS = [
     (re.compile(r"<!\[CDATA\["), re.compile(r"\]\]>")),
     (re.compile(r"</?(?:" + _HTML_BLOCK_TAGS + r")(?=[\s/>]|$)", re.I), None),
 ]
-# Block-quote and list markers before a line's own text (an HTML block may sit in either).
-_MARKERS_RE = re.compile(r"(?: {0,3}(?:>[ \t]?|(?:[-*+]|\d{1,9}[.)])[ \t]+))*")
+# Block-quote and list-item markers before a line's own text (an HTML block may sit in either).
+_QUOTE_RE = re.compile(r" {0,3}>")
+_SPACES_RE = re.compile(r" *")
+_LIST_ITEM_RE = re.compile(r"(?:[-*+]|\d{1,9}[.)])(?= |$)")
+# A complete open or closing HTML tag, with CommonMark's attribute names: raw HTML, in which mdBook
+# reads no footnote reference (``<b and [^a] c>`` is no tag: "[^a]" is no attribute name).
+_TAG_RE = re.compile(r"""</?[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"""
+                     r"""(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>""")
 # Inline link or image (text kept) and raw HTML tags: what heading slugs strip; a trailing
 # brace block that Pandoc cannot parse ({weird stuff}) stays text in Pandoc, but mdBook
 # reads it as attributes and drops it from the id.
@@ -366,6 +374,8 @@ _UNPARSED_ATTRS_RE = re.compile(r"\{[^{}]*\}\s*$")
 _MARK = 0xE000  # private-use placeholders for a heading's formulas and footnote numbers (_mdbook_plain)
 _ATTR_BLOCK_RE = re.compile(r"\{([^{}\n]*)\}")
 _ATTR_ID_RE = re.compile(r"(?:^|\s)#([^\s{}#.=\"']+)")
+# An id in raw HTML (``<a id="x">``), which tools/filters/tr-book.lua also counts as a link target.
+_HTML_ID_RE = re.compile(r'<[A-Za-z][^<>]*?\sid="([^"]+)"')
 # Files a Pandoc image can embed (a reference definition to anything else is a plain link).
 IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
 # What a written destination percent-encodes, as tbook.render does: a fragment (whitespace,
@@ -417,20 +427,40 @@ def _code_mask(lines: list[str]) -> list[bool]:
     return mdscan.scan_blocks(lines).hidden
 
 
+def _in_formula(lines: list[str]) -> list[bool]:
+    """True for each line that a formula begun on an earlier line goes on over: like
+    :func:`tbook.mdscan.scan_blocks`, which pairs ``$`` as :func:`tbook.mathrender.find_math` does,
+    no block (and so no setext underline) starts there."""
+    out = [False] * len(lines)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line) + 1)
+    for span in mathrender.find_math("\n".join(lines))[0]:
+        k = span.line  # the line after the formula's first
+        while k < len(lines) and starts[k] < span.end:
+            out[k] = True
+            k += 1
+    return out
+
+
 def normalize_setext(md: str) -> str:
-    """Rewrite setext headings (``Title`` + ``===``/``---``) as ATX so later passes see one form."""
+    """Rewrite setext headings (``Title`` + ``===``/``---``) as ATX so later passes see one form.
+    A pair inside a formula (``$$`` + ``=``) is no heading."""
     lines = md.split("\n")
     mask = _code_mask(lines)
+    formula: list[bool] | None = None  # _in_formula, once a pair needs it
     out: list[str] = []
     i = 0
     while i < len(lines):
         line = lines[i]
         if (not mask[i] and i + 1 < len(lines) and not mask[i + 1] and SETEXT_RE.match(lines[i + 1])
                 and not NOT_PARAGRAPH_RE.match(line) and (i == 0 or not lines[i - 1].strip())):
-            level = 1 if SETEXT_RE.match(lines[i + 1]).group("ch")[0] == "=" else 2
-            out.append("#" * level + " " + line.strip())
-            i += 2
-            continue
+            formula = formula or _in_formula(lines)
+            if not formula[i + 1]:
+                level = 1 if SETEXT_RE.match(lines[i + 1]).group("ch")[0] == "=" else 2
+                out.append("#" * level + " " + line.strip())
+                i += 2
+                continue
         out.append(line)
         i += 1
     return "\n".join(out)
@@ -501,31 +531,85 @@ def chapter_slug(path: str) -> str:
     return "ch-" + (SAFE_ID_RE.sub("-", stem).strip("-").lower() or "chapter")
 
 
+def _containers(line: str) -> tuple[list[int], int]:
+    """The block quotes and list items that the markers at the start of ``line`` (tabs expanded)
+    open, kept as :func:`tbook.mdscan.scan_blocks` keeps containers (-1 for a block quote, else the
+    columns of a list item's content), and where the line's own text starts."""
+    stack: list[int] = []
+    pos = 0
+    while True:
+        start = _SPACES_RE.match(line, pos).end()
+        if start - pos >= 4:
+            return stack, pos
+        if line.startswith(">", start):
+            stack.append(-1)
+            pos = start + 1 + line.startswith(" ", start + 1)
+            continue
+        m = _LIST_ITEM_RE.match(line, start)
+        if not m:
+            return stack, pos
+        after = _SPACES_RE.match(line, m.end()).end()
+        gap = after - m.end()
+        stack.append(m.end() - pos + (1 if after == len(line) or gap > 4 else gap))
+        pos += stack[-1]
+
+
+def _goes_on(line: str, stack: list[int]) -> int | None:
+    """Where the text of ``line`` (tabs expanded) starts inside the containers ``stack``
+    (:func:`_containers`), or None if the line is outside one of them: a block quote goes on with
+    its ``>``, a list item with a blank line or a line indented to its content."""
+    pos = 0
+    for col in stack:
+        if col < 0:
+            m = _QUOTE_RE.match(line, pos)
+            if not m:
+                return None
+            pos = m.end() + line.startswith(" ", m.end())
+        else:
+            start = _SPACES_RE.match(line, pos).end()
+            if start < len(line):  # a blank line goes on with a list item
+                if start - pos < col:
+                    return None
+                pos += col
+    return pos
+
+
 def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
     """True for each line that mdBook passes on as raw HTML: the lines of CommonMark HTML blocks
     (:data:`_HTML_BLOCKS`, also in block quotes and list items) and the ``:::`` lines of divs,
-    which the HTML edition writes as HTML between blank lines (an environment's title too)."""
+    which the HTML edition writes as HTML between blank lines (an environment's title too).
+
+    An HTML block also ends with the block quote or list item it is in (it has no lazy lines): at a
+    line without that ``>``, or not blank and indented less than that list item's content. The
+    containers are those whose markers stand on the block's first line; a first line indented
+    1-3 columns past them counts as the content of a list item opened on an earlier line, so the
+    block ends at a line indented less (at the top level mdBook would go on)."""
+    hidden = scan.hidden
     raw = [False] * len(lines)
     end: re.Pattern | None = None  # what ends the open HTML block (None: a blank line)
+    inside: list[int] = []  # the containers of the open HTML block (_containers)
     open_ = para = False  # an HTML block goes on; the line before goes on with a paragraph
     for i, line in enumerate(lines):
-        if scan.hidden[i] or mdscan.DIV_OPEN_RE.match(line) or mdscan.DIV_CLOSE_RE.match(line):
-            raw[i] = not scan.hidden[i]
+        if hidden[i] or mdscan.DIV_OPEN_RE.match(line) or mdscan.DIV_CLOSE_RE.match(line):
+            raw[i] = not hidden[i]
             open_ = para = False
             continue
-        body = line[_MARKERS_RE.match(line).end():]
-        text = body.lstrip(" \t")
+        line = line.expandtabs(4)
         if open_:
-            if end is None and not text:
-                open_ = False
+            pos = _goes_on(line, inside)
+            if pos is None or (end is None and not line[pos:].strip(" ")):
+                open_ = False  # its container ended, or a blank line ended it
             else:
                 raw[i] = True
-                open_ = end is None or not end.search(body)
+                open_ = end is None or not end.search(line, pos)
                 continue
+        stack, pos = _containers(line)
+        body = line[pos:]
+        text = body.lstrip(" ")
         if not text:
             para = False
             continue
-        if len(body.expandtabs(4)) - len(text) < 4:
+        if len(body) - len(text) < 4:
             for start, stop in _HTML_BLOCKS:
                 m = start.match(text)
                 if m:
@@ -533,9 +617,12 @@ def _raw_html_lines(lines: list[str], scan: mdscan.BlockScan) -> list[bool]:
                     open_ = stop is None or not stop.search(text, m.end())
                     break
             else:
-                if not para and mathrender.TAG_RE.fullmatch(text.rstrip()):  # type 7
+                if not para and _TAG_RE.fullmatch(text.rstrip()):  # type 7
                     raw[i], end, open_ = True, None, True
-        para = not raw[i] and not text.startswith("#")
+            if raw[i]:
+                inside = stack + ([len(body) - len(text)] if body != text else [])
+        # A heading ends the paragraph: an ATX heading, or the underline of a setext heading.
+        para = not raw[i] and not ATX_RE.match(text) and not (para and SETEXT_RE.match(text))
     return raw
 
 
@@ -558,7 +645,7 @@ def _not_read(line: str, carry: tuple[bool, bool] = (False, False),
     """The parts of a line where mdBook reads no footnote reference: code spans, HTML comments,
     formulas (``math``), HTML tags, autolinks and link destinations and titles."""
     spans = mdscan.hidden_spans(line, carry) + list(math or [])
-    for pattern in (mathrender.TAG_RE, mathrender.AUTOLINK_RE, mathrender.LINK_DEST_RE):
+    for pattern in (_TAG_RE, mathrender.AUTOLINK_RE, mathrender.LINK_DEST_RE):
         spans += [m.span() for m in pattern.finditer(line)]
     return spans
 
@@ -586,11 +673,12 @@ def _note_lines(md: str) -> list[tuple[int, str, re.Match | None, list[tuple[int
     read (:func:`_not_read`, and the definition's own label)."""
     lines = md.split("\n")
     scan = mdscan.scan_blocks(lines)
+    hidden = scan.hidden
     raw = _raw_html_lines(lines, scan)
     math = _math_spans(lines)
     out = []
     for i, line in enumerate(lines):
-        if scan.hidden[i] or raw[i]:
+        if hidden[i] or raw[i]:
             continue
         d = _footnote_def(lines, i)
         spans = _not_read(line, scan.carry[i], math[i]) + ([(0, d.end())] if d else [])
@@ -680,8 +768,13 @@ def _heading_plain(text: str) -> str:
     """Heading Markdown as the plain text its automatic id is made from (approximately).
 
     Footnote references stay as written: Pandoc's id keeps the label (``注释[^a]`` → ``注释a``),
-    and :func:`_mdbook_plain` puts mdBook's numbers in first.
+    and :func:`_mdbook_plain` puts mdBook's numbers in first. HTML comments (outside code spans)
+    show nothing, as tags do.
     """
+    comments = [(a, b) for a, b in mdscan.code_spans(text, comments=True) if text.startswith("<!--", a)]
+    if comments:
+        ends = [0] + [b for _, b in comments]
+        text = "".join(text[ends[k]:a] for k, (a, _) in enumerate(comments)) + text[ends[-1]:]
     text = _HEADING_LINK_RE.sub(r"\1", text)
     text = _HEADING_TAG_RE.sub("", text)
     text = re.sub(r"(?<!\w)_+|_+(?!\w)", "", text)  # _emphasis_ (intraword "_" stays)
@@ -738,11 +831,12 @@ def _slug_pair(text: str, shown: str, math: dict[tuple[str, bool], str] | None,
     mdBook makes its id from the text of the rendered heading (``shown``, which lacks a trailing
     ``{…}`` that only mdBook reads as attributes; formulas as KaTeX shows them, footnote
     references as their numbers in the chapter, ``notes``); Pandoc from the text it reads,
-    formulas as TeX, footnote references as their labels and a run of spaces as one.
+    formulas as TeX, footnote references as their labels and a run of spaces as one (the spaces on
+    both sides of a comment stay two).
     """
     mdbook = "".join("-" if ch.isspace() else ch for ch in _mdbook_plain(shown, math, notes).strip().lower()
                      if ch.isalnum() or ch in "-_" or ch.isspace())
-    gfm = "".join("-" if ch.isspace() else ch for ch in re.sub(r"[ \t]+", " ", _heading_plain(text)).lower()
+    gfm = "".join("-" if ch.isspace() else ch for ch in _heading_plain(re.sub(r"[ \t]+", " ", text)).lower()
                   if ch.isspace() or ch.isalnum() or ch in "-_"
                   or unicodedata.category(ch) in ("Mn", "Mc", "Me", "Pc"))
     return mdbook, gfm
@@ -796,7 +890,8 @@ class HeadingIds:
     """Ids given to the headings without one, and the fragments that reach them."""
 
     by_line: dict[str, dict[int, str]] = field(default_factory=dict)  # chapter → line → id
-    anchors: dict[str, dict[str, str]] = field(default_factory=dict)  # chapter → fragment → id
+    # chapter → fragment → id: every fragment the chapter's page has (heading slugs, explicit and HTML ids)
+    anchors: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def _heading_math(heads: list[Heading], render_math) -> dict[tuple[str, bool], str]:
@@ -818,8 +913,8 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
     keeps its mdBook slug when no other chapter uses it, otherwise it becomes
     ``<chapter id>--<slug>``. ``anchors`` resolves a fragment within its chapter as the
     chapter's HTML page does (its own explicit ids first, then mdBook's automatic heading
-    ids, then Pandoc's), so ``other.md#summary`` reaches the "Summary" of ``other.md``, not
-    the first in the book.
+    ids, then Pandoc's, then ids in raw HTML), so ``other.md#summary`` reaches the "Summary"
+    of ``other.md``, not the first in the book.
 
     ``render_math(items)`` returns the text the HTML edition shows for each ``(tex, display)``
     formula in a heading (:func:`tbook.mathrender.formula_texts`), or None when it cannot;
@@ -858,18 +953,21 @@ def assign_heading_ids(chapters: list[tuple[str, str]], chapter_ids: dict[str, s
             reach.append((mdbook, new))
             reach_pandoc.append((gfm, new))
         anchors = out.anchors.setdefault(path, {})
+        anchors.update((frag, frag) for frag in sorted(own))
         for frag, new in reach + reach_pandoc:
             if frag and frag not in own:
                 anchors.setdefault(frag, new)
+        for frag in _HTML_ID_RE.findall(md):
+            anchors.setdefault(frag, frag)
     return out
 
 
 class _Linker:
     """Rewrites a chapter's relative links for the flattened book.md at the staging root.
 
-    ``anchors`` (chapter → fragment → id, :func:`assign_heading_ids`) resolves heading
-    fragments per chapter; ``env_ids`` are the environment ids that ``[@id]`` references
-    point to (never re-resolved); ``online`` is the published edition's URL
+    ``anchors`` (chapter → fragment → id, :func:`assign_heading_ids`) resolves fragments per
+    chapter; ``env_ids`` are the environment ids that ``[@id]`` references point to (never
+    re-resolved); ``online`` is the published edition's URL
     (``site.book_url(slug, lang)``, '' when unknown), where plain links to files point.
     """
 
@@ -886,8 +984,18 @@ class _Linker:
         self.online = online.rstrip("/")
 
     def anchor(self, chapter: str, frag: str) -> str:
-        """The book-wide id that ``frag`` names on the page of ``chapter``."""
-        return self.anchors.get(chapter, {}).get(unquote(frag), frag)
+        """The book-wide id that ``frag`` (as written, maybe percent-encoded) names on the page of
+        ``chapter``. A fragment that page lacks (no heading slug, explicit or HTML id there, and no
+        environment id) leads nowhere in the HTML edition, so it must not land on another chapter's
+        id: it becomes ``<chapter>#<frag>``, which no id of book.md is, and tools/filters/tr-book.lua
+        renders the link as text with a warning. Without ``anchors`` for the chapter, ``frag``."""
+        ids = self.anchors.get(chapter)
+        name = unquote(frag)
+        if ids is None or name in self.env_ids:
+            return frag
+        if name in ids:
+            return _url_quote(_DEST_UNSAFE_RE, ids[name])
+        return _url_quote(_DEST_UNSAFE_RE, chapter) + "#" + _url_quote(_DEST_UNSAFE_RE, frag)
 
     def published(self, rel: str, hash_: str, frag: str, chapter_path: str, url: str) -> str | None:
         """Absolute URL of the HTML edition's copy of ``rel`` (a plain link to a file: Pandoc

@@ -406,10 +406,12 @@ class HeadingHelpersTest(unittest.TestCase):
         ids = tp.assign_heading_ids(chapters, {"a.md": "ch-a", "b.md": "b-title"}, taken)
         self.assertEqual(list(ids.by_line["a.md"].values()), ["summary", "summary-1"])
         self.assertEqual(list(ids.by_line["b.md"].values()), ["b-title--summary", "b-title--own", "b-title--thm-x"])
-        self.assertEqual(ids.anchors["a.md"], {"a": "ch-a", "summary": "summary", "summary-1": "summary-1"})
+        # Explicit ids reach themselves, in their own chapter only.
+        self.assertEqual(ids.anchors["a.md"], {"own": "own", "a": "ch-a", "summary": "summary", "summary-1": "summary-1"})
         # b.md: its title has an explicit id; "thm-x" is an id of its own (the remark), so the
         # heading slug "thm-x" does not take it over.
-        self.assertEqual(ids.anchors["b.md"], {"summary": "b-title--summary", "own": "b-title--own"})
+        self.assertEqual(ids.anchors["b.md"], {"b-title": "b-title", "thm-x": "thm-x", "summary": "b-title--summary",
+                                               "own": "b-title--own"})
         self.assertLessEqual({"summary", "summary-1", "b-title--summary"}, taken)
 
     def test_file_links_without_base_url_keep_their_text(self):

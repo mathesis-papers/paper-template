@@ -20,13 +20,15 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
+import zipfile
 from pathlib import Path
 
 from tbook import config, mathrender, mdscan, paths
 from tbook import pandoc as tp
 from tbook.model import load_edition
-from test_pandoc import HAVE_KATEX, fixture_site, have_pandoc
+from test_pandoc import HAVE_KATEX, fixture_site, have_pandoc, have_typst
 
 MDBOOK = os.environ.get("MDBOOK") or shutil.which("mdbook")
 
@@ -424,6 +426,33 @@ FOOTNOTE_HEADINGS = [
      ["甲", "注释2"]),
     ("an indented line under a paragraph line is no definition",
      "# 甲\n\n正文[^b]。\n    [^b]: 不是定义\n\n## 注释[^a]\n\n[^a]: A。\n", ["甲", "注释1"]),
+    # An HTML block has no lazy lines: it ends with the block quote or list item it is in, and
+    # the text after it is read (also after an unclosed <pre>); inside the container it goes on.
+    ("an HTML block ends with its block quote",
+     "# 甲\n\n> <div class=\"tip\">\n> 提示。\n> </div>\n正文[^b]。\n\n> > <div>\n> > x\n> 又[^c]。\n\n"
+     "## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n", ["甲", "注释3"]),
+    ("an HTML block ends with its list item",
+     "# 甲\n\n- 第一项\n- <div>第二项</div>\n后文[^b]。\n\n> - <div>x</div>\n> 又[^c]。\n\n1. 项\n2. <p>段</p>\n"
+     "再[^d]。\n\n- <span>\n标签后[^e]\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n[^e]: E。\n",
+     ["甲", "注释5"]),
+    ("an unclosed HTML block ends with its container",
+     "# 甲\n\n> <pre>\n> 代码\n\n后文[^b]。\n\n- <pre>\n  x\n\n正文[^c]。\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n",
+     ["甲", "注释3"]),
+    ("an HTML block in a list item opened on an earlier line",
+     "# 甲\n\n- 项\n\n  <div>\n  里面[^d]\n正文[^b]。\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^d]: D。\n", ["甲", "注释2"]),
+    ("an HTML block goes on in its container",
+     "# 甲\n\n> <div>\n> [^b]\n> </div>\n\n> <pre>\n>\n> [^b]\n> </pre>\n\n- <pre>\n  x\n\n  [^b]\n  </pre>\n\n"
+     "> <div>\n> > [^b]\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n", ["甲", "注释1"]),
+    # "[ ]" is no link label (a label has a character other than whitespace), "[^c]" no attribute
+    # name, "#标签" no heading (so <b> under it is inline HTML in its paragraph); a setext
+    # heading ends its paragraph, so a lone tag under it starts an HTML block.
+    ("what only looks like a link label, a tag or a heading",
+     "# 甲\n\n正文[^b][ ]、若 a <b and [^c] c> 则。\n\n#标签\n<b>\n正文[^d]。\n\n标题\n===\n<img src=\"x.png\">\n"
+     "正文[^e]。\n\n## 注释[^a]\n\n[^a]: A。\n[^b]: B。\n[^c]: C。\n[^d]: D。\n[^e]: E。\n", ["甲", "标题", "注释4"]),
+    # An HTML comment shows nothing, so it adds nothing to the id; two references with a comment
+    # between them are not side by side.
+    ("comments", "# 甲\n\n## 注释[^a]<!-- c -->[^b]\n\n## 小结 <!-- 待补 -->\n\n## 前 <!-- x --> 后\n\n"
+                 "## 码 `<!-- c -->`\n\n[^a]: A。\n[^b]: B。\n", ["甲", "注释12", "小结", "前--后", "码----c---"]),
 ]
 # mdBook reads "[^a](…)" in a heading as a link (text "^a"); Pandoc's own slug differs, so these
 # are not part of test_fallback_is_pandocs_own_slug.
@@ -769,6 +798,193 @@ class FootnoteIdsInTheBookTest(unittest.TestCase):
             self.assertIn("[ch01.md](#注释1)\n[ch02.md](#ch-ch02--注释1)\n[ch03.md](#注释2)", md)
             self.assertIn("## 注释[^ch-ch02--a] {#ch-ch02--注释1}", md)
             self.assertNotIn("dangling", pandoc_stderr(staged))
+
+
+# --------------------------------------------------------------------------- HTML blocks, setext pairs, fragments
+
+
+class HtmlBlockContainerTest(unittest.TestCase):
+    """An HTML block has no lazy lines: it ends with the block quote or list item it is in (also an
+    unclosed ``<pre>``), so a footnote reference right after it is one for mdBook and is scoped."""
+
+    def test_reference_after_the_block_is_scoped(self):
+        cases = ["> <div class=\"tip\">\n> 提示内容。\n> </div>\n正文继续[^a]。\n\n[^a]: 甲注。\n",
+                 "- 第一项\n- <div>第二项</div>\n后文[^a]。\n\n[^a]: 乙注。\n",
+                 "> <pre>\n> 代码\n\n后文[^a]。\n\n[^a]: 丙注。\n",
+                 "- <pre>\n  x\n\n正文[^a]。\n\n[^a]: 丁注。\n",
+                 "- 项\n\n  <div>\n  里面\n正文[^a]。\n\n[^a]: 戊注。\n"]
+        for md in cases:
+            with self.subTest(md):
+                self.assertEqual(tp.scope_footnotes(md, "P"), md.replace("[^a]", "[^P--a]"))
+                self.assertEqual(tp.footnote_numbers(md), {"a": 1})
+
+    def test_block_goes_on_in_its_container(self):
+        for md in ("> <div>\n> 里面[^a]\n> </div>\n\n[^a]: A\n", "- <pre>\n  x\n\n  里面[^a]\n  </pre>\n\n[^a]: A\n"):
+            with self.subTest(md):
+                self.assertEqual(tp.scope_footnotes(md, "P"), md.replace("[^a]: ", "[^P--a]: "))
+                self.assertEqual(tp.footnote_numbers(md), {})
+
+
+class FootnoteGrammarTest(unittest.TestCase):
+    """mdBook reads ``[^a][ ]`` (no link label), ``<b and [^a] c>`` (no tag) and ``[^a]`` under
+    ``#标签`` + ``<b>`` (no heading, so ``<b>`` is inline HTML) as references (FOOTNOTE_HEADINGS)."""
+
+    MD = ["正文[^a][ ]。\n\n[^a]: A\n", "若 a <b and [^a] c> 则。\n\n[^a]: A\n", "#标签\n<b>\n正文[^a]。\n\n[^a]: A\n"]
+
+    def test_references(self):
+        for md in self.MD:
+            with self.subTest(md):
+                self.assertEqual(tp.footnote_numbers(md), {"a": 1})
+                self.assertEqual(tp.scope_footnotes(md, "P"), md.replace("[^a]", "[^P--a]"))
+                self.assertEqual(tp.footnote_problems(md), [])
+
+    def test_still_links_and_tags(self):
+        self.assertEqual(tp.footnote_numbers("正文[^a][ x ]、<b data-x=\"[^a]\">。\n\n[^a]: A\n"), {})
+        # A setext heading ends its paragraph: the lone tag under it starts an HTML block.
+        self.assertEqual(tp.footnote_numbers("标题\n---\n<img src=\"x.png\">\n正文[^a]。\n\n[^a]: A\n"), {})
+
+
+class SetextInFormulaTest(unittest.TestCase):
+    """A ``$$`` line followed by ``=`` or ``---`` inside the formula is no setext heading: the
+    formula takes the lines up to its end into its paragraph, as for mdscan.scan_blocks."""
+
+    def test_formula_stays(self):
+        for md in ("求和：\n\n$$\n=\n$$\n", "式：\n\n$$\n---\n$$\n", "$$\n=\n$$\n"):
+            with self.subTest(md):
+                self.assertEqual(tp.normalize_setext(md), md)
+        self.assertEqual(tp.normalize_setext("标题\n===\n\n$x$\n---\n\n$$\n=\n$$\n"), "# 标题\n\n## $x$\n\n$$\n=\n$$\n")
+
+
+class ChapterFragmentTest(unittest.TestCase):
+    """``other.md#x`` (and ``#x``) resolves within that chapter as its HTML page does: a heading
+    slug, an explicit ``{#id}``, an id in raw HTML or an environment id. A fragment the chapter
+    lacks leads nowhere, also in the PDF/EPUB: it never lands on another chapter's id."""
+
+    CHAPTERS = [("a.md", "# 甲\n\n## 注释[^a]\n\n[^a]: A\n"),
+                ("b.md", "# 乙\n\n正文[^x]。\n\n## 注释[^b]\n\n## 小节 {#sec-own}\n\n<a id=\"raw-x\"></a>锚点。\n\n"
+                         "[^x]: X\n[^b]: B\n")]
+
+    def test_anchors_hold_every_id_of_the_page(self):
+        ids = tp.assign_heading_ids(self.CHAPTERS, {"a.md": "ch-a", "b.md": "ch-b"}, {"ch-a", "ch-b"})
+        self.assertEqual(ids.anchors["a.md"], {"甲": "ch-a", "注释1": "注释1", "注释a": "注释1"})
+        self.assertEqual(ids.anchors["b.md"], {"sec-own": "sec-own", "乙": "ch-b", "注释2": "注释2", "注释b": "注释2",
+                                               "raw-x": "raw-x"})
+
+    def test_missing_fragment_dangles(self):
+        ids = tp.assign_heading_ids(self.CHAPTERS, {"a.md": "ch-a", "b.md": "ch-b"}, {"ch-a", "ch-b"})
+        with tempfile.TemporaryDirectory() as tmp:
+            ed = write_book(Path(tmp), dict(self.CHAPTERS))
+            linker = tp._Linker(Path(tmp) / "stage", ed, {"a.md": "ch-a", "b.md": "ch-b"}, [], set(),
+                                anchors=ids.anchors, env_ids={"rem-x"})
+            line = ("[错](b.md#注释1) [对](b.md#注释2) [显式](b.md#sec-own) [原始](b.md#raw-x) [环境](b.md#rem-x) "
+                    "[甲](a.md#注释1) [章](b.md) [无](<b.md#a b>) [本章](#注释1) [本章对](#注释2)")
+            self.assertEqual(linker.rewrite_line(line, "b.md"),
+                             "[错](#b.md#注释1) [对](#注释2) [显式](#sec-own) [原始](#raw-x) [环境](#rem-x) "
+                             "[甲](#注释1) [章](#ch-b) [无](#b.md#a%20b) [本章](#b.md#注释1) [本章对](#注释2)")
+            # Without anchors (no heading ids known) a fragment stays as written.
+            bare = tp._Linker(Path(tmp) / "stage", ed, {"a.md": "ch-a", "b.md": "ch-b"}, [], set())
+            self.assertEqual(bare.rewrite_line("[x](b.md#注释1)", "a.md"), "[x](#注释1)")
+
+
+@unittest.skipUnless(have_pandoc() and have_typst(), "pandoc and typst are required")
+class EditionsReadTheBookTest(unittest.TestCase):
+    """The PDF and EPUB of a book with HTML blocks in containers, a setext-looking pair in a formula
+    and links to fragments: every note keeps its text, the formula stays a formula, and a fragment
+    the linked chapter lacks is text."""
+
+    CHAPTERS = {
+        "ch01.md": "# 一 提示框\n\n> <div class=\"tip\">\n> 提示内容。\n> </div>\n正文继续[^a]。\n\n## 注释[^a]\n\n[^a]: 甲注。\n",
+        "ch02.md": "# 二 列表\n\n- 第一项\n- <div>第二项</div>\n后文[^a]。\n\n[^a]: 乙注。\n",
+        "ch03.md": "# 三 未闭合\n\n> <pre>\n> 代码\n\n后文[^a]。\n\n[^a]: 丙注。\n",
+        "ch04.md": ("# 四 求和\n\n求和：\n\n$$\n=\n$$\n\n正文[^c]。\n\n## 注释[^b]\n\n::: {.remark #rem-x}\n说明。\n:::\n\n"
+                    "## 小节 {#sec-own}\n\n[^b]: 丁注。\n[^c]: 戊注。\n"),
+        "ch05.md": ("# 五 链接\n\n见[错](ch04.md#注释1)、[对](ch04.md#注释2)、[环境](ch04.md#rem-x)、[显式](ch04.md#sec-own)、"
+                    "[甲](ch01.md#注释1)，本章[无](#注释1)。\n\n正文[^a][ ]。\n\n[^a]: 己注。\n"),
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-test-editions-"))
+        ed = write_book(cls.tmp, cls.CHAPTERS, "tbook-test-editions")
+        model = load_edition(ed)
+        assert not model.issues, [i.format() for i in model.issues]
+        old = os.environ.get("TBOOK_EPUBCHECK")
+        os.environ["TBOOK_EPUBCHECK"] = "0"
+        try:
+            epub = tp.build_epub(fixture_site(), ed.book, ed, model, None, cls.tmp / "book.epub",
+                                 stage_dir=cls.tmp / "stage-epub")
+        finally:
+            if old is None:
+                os.environ.pop("TBOOK_EPUBCHECK", None)
+            else:
+                os.environ["TBOOK_EPUBCHECK"] = old
+        with zipfile.ZipFile(epub) as z:
+            cls.xhtml = {n: z.read(n).decode("utf-8") for n in z.namelist() if re.search(r"text/ch\d+\.xhtml$", n)}
+        tp.build_pdf(fixture_site(), ed.book, ed, model, None, "screen", cls.tmp / "book.pdf",
+                     stage_dir=cls.tmp / "stage-pdf")
+        cls.typst = (cls.tmp / "stage-pdf" / "main.typ").read_text(encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def chapter(self, text: str) -> str:
+        return next(t for t in self.xhtml.values() if text in t)
+
+    def test_every_note_keeps_its_text(self):
+        for text, note in (("提示内容", "甲注。"), ("第二项", "乙注。"), ("代码", "丙注。"), ("求和", "戊注。"),
+                           ("本章", "己注。")):
+            with self.subTest(note):
+                self.assertIn(note, self.chapter(text))
+                self.assertIn(f"#footnote[{note}]", self.typst)
+        texts = "".join(self.xhtml.values())
+        self.assertNotIn("[^", texts)
+        self.assertNotIn("[^", self.typst)
+
+    def test_formula_stays_a_formula(self):
+        self.assertIn("$ = $", self.typst)
+        self.assertNotIn("$$", self.typst)
+
+    def test_fragments_resolve_in_their_chapter(self):
+        links = self.chapter("本章")
+        self.assertIn('<span class="tr-dangling">错</span>', links)
+        self.assertIn('<span class="tr-dangling">无</span>', links)
+        self.assertRegex(links, r'<a href="ch\d+\.xhtml#注释2">对</a>')
+        self.assertRegex(links, r'<a href="ch\d+\.xhtml#rem-x">环境</a>')
+        self.assertRegex(links, r'<a href="ch\d+\.xhtml#sec-own">显式</a>')
+        first = re.search(r'<a href="(ch\d+\.xhtml)#注释1">甲</a>', links)
+        self.assertTrue(first and "甲注。" in self.xhtml["EPUB/text/" + first.group(1)], links)
+        self.assertIn("#link(<注释2>)[对]", self.typst)
+        self.assertNotIn("#link(<注释1>)[错]", self.typst)
+
+
+class ScanTimeTest(unittest.TestCase):
+    """The footnote, HTML block, setext and heading scanners stay linear: a few thousand lines take
+    well under a second (the bounds are generous)."""
+
+    def timed(self, fn, *args) -> float:
+        start = time.perf_counter()
+        fn(*args)
+        return time.perf_counter() - start
+
+    def test_footnotes(self):
+        md = ("正文[^a] 与 $x$ 与 `c` 与 <span>x</span>。\n\n" * 3000) + "[^a]: A\n"
+        self.assertLess(self.timed(tp.footnote_numbers, md), 2.0)
+        self.assertLess(self.timed(tp.scope_footnotes, md, "P"), 2.0)
+
+    def test_html_blocks_in_containers(self):
+        md = ("- <div>项</div>\n正文[^a]。\n\n> - <p>\n>   x\n>\n- 项\n\n  <div>\n  x\n正文\n\n" * 2000) + "[^a]: A\n"
+        lines = md.split("\n")
+        scan = mdscan.scan_blocks(lines)
+        self.assertLess(self.timed(tp._raw_html_lines, lines, scan), 1.0)
+        # Many markers on a line: each is read once.
+        lines = ["> " * 3000 + "<div>"] + ["> " * 3000 + "- x"] * 100
+        scan = mdscan.scan_blocks(lines)
+        self.assertLess(self.timed(tp._raw_html_lines, lines, scan), 1.0)
+
+    def test_setext_and_headings(self):
+        self.assertLess(self.timed(tp.normalize_setext, "标题\n===\n\n$$\n=\n$$\n\n正文 `x` 与 $y$。\n\n" * 2000), 2.0)
+        self.assertLess(self.timed(tp.heading_slugs, "甲 <!-- c --> 乙" * 5000), 0.5)
 
 
 if __name__ == "__main__":
