@@ -2,7 +2,7 @@
 # 01 封面（cover 版式：无页眉页脚，自带书代号、所钉提交与页码）
 theme: ../../../../theme/slides
 title: "黄金整数与可观测性 · 概览"
-info: "示例专著《黄金整数与可观测性》的概览：模板的保证、两章的主要定理、一个开放问题与全部输出。"
+info: "示例专著《黄金整数与可观测性》的概览：模板的保证、第一章与第二章的主要定理、一个开放问题与全部输出。"
 htmlAttrs:
   lang: "zh-CN"
 deck:
@@ -10,7 +10,7 @@ deck:
   book: "黄金整数与可观测性"
   title: "概览"
   version: "0.1.0"
-  blurb: "两章、四条 Lean 定理、一个开放问题：十页看懂这本示例专著。"
+  blurb: "模板的保证、第一章与第二章的主要定理、一个开放问题与全部输出：十页看懂这本示例专著。"
 layout: cover
 ---
 
@@ -34,8 +34,8 @@ section: "模板的保证"
     <div class="step ok"><span class="i">04 · 内核</span><b><LeanBadge gid="D5/S1/Deficit/DeficitThreeValued.deficit_three_valued" /></b><p>徽章链接到所钉提交上的 Lean 源码。</p></div>
   </div>
   <div class="g3 mt-l">
-    <Stat value="4" label="条定理，全部经 Lean 内核验证" tone="ok" />
-    <Stat value="1" label="个开放问题，明确标为 OPEN" tone="warn" />
+    <Stat value="33" label="条形式结论（全书），全部经 Lean 内核验证" tone="ok" />
+    <Stat value="4" label="个开放问题与猜想（全书），标为 OPEN" tone="warn" />
     <Stat value="0" label="条未验证的引用：./tbook check 拒绝发布" />
   </div>
 </div>
@@ -107,7 +107,7 @@ section: "第二章"
 
 <p class="kicker">Chapter 2</p>
 <h2 class="t">反驳与<em>可观测性</em></h2>
-<p class="lead">对正整数 <Tex t="n" />，令 <Tex t="a(n)" /> 为满足 <Tex t="(1 + 1/n)^k \le 2" /> 的最大整数 <Tex t="k" />。Greathouse 为 OEIS A175406 猜想了一个取整公式：</p>
+<p class="lead">对正整数 <Tex t="n" />，令 <Tex t="a(n)" /> 为满足 <Tex t="(1 + 1/n)^k \le 2" /> 的最大自然数 <Tex t="k" />。Greathouse 为 OEIS A175406 猜想了一个取整公式：</p>
 <div class="card hot mt">
   <h4>猜想 · Greathouse（OEIS A175406）</h4>
   <Tex display t="a(n) = \left\lfloor \left(n + \tfrac{1}{2}\right) \log 2 \right\rfloor \qquad (n \ge 1)" />
@@ -122,17 +122,20 @@ section: "第二章 · 反驳"
   <p class="kicker">Theorem 2.1 · Open problem 2.2</p>
   <h2 class="t">一个反例推翻猜想；它是否最小<em class="warn">仍然开放</em></h2>
   <div class="g2 mt-s">
-    <TheoremCard class="compact" label="定理2.1" title="该取整公式不成立" gid="D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result" cite="thm-greathouse-refuted">
-      <p>猜想的公式并非对所有 <Tex t="n \ge 1" /> 成立：</p>
+    <div>
+      <TheoremCard class="compact" label="定理2.1" title="该取整公式不成立" gid="D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result" cite="thm-greathouse-refuted">
+        <p>猜想的公式并非对所有 <Tex t="n \ge 1" /> 成立。</p>
+      </TheoremCard>
+      <p class="kicker mt-s">证明中的见证 · 不在定理陈述中</p>
       <dl class="readout">
-        <dt><Tex t="n" /></dt><dd class="cy">1121626023352383</dd>
+        <dt><Tex t="n_0" /></dt><dd class="cy">1121626023352383</dd>
         <dt>公式</dt><dd>777451915729368</dd>
-        <dt><Tex t="a(n)" /></dt><dd class="hot">777451915729367<small>小一</small></dd>
+        <dt><Tex t="a(n_0)" /></dt><dd class="hot">777451915729367<small>小一</small></dd>
       </dl>
-    </TheoremCard>
+    </div>
     <TheoremCard class="compact" label="开放问题2.2" title="最小反例" status="open" cite="prob-greathouse-minimal">
-      <p><Tex t="n" /> = <span class="mono">1121626023352383</span> 是否是使公式失效的最小 <Tex t="n" />？使公式失效的输入有怎样的刻画？</p>
-      <p>trureturing 只证明了这个反例，不主张它最小。</p>
+      <p><Tex t="n_0" /> = <span class="mono">1121626023352383</span> 是否是使公式失效的最小 <Tex t="n" />？使公式失效的输入有怎样的刻画？</p>
+      <p>trureturing 只证明了公式并非处处成立，不主张 <Tex t="n_0" /> 最小。</p>
     </TheoremCard>
   </div>
 </div>
@@ -171,7 +174,7 @@ section: "输出"
     <div class="tile"><i>TYPST</i><b>PDF</b><span>屏幕版深色、印刷版白底，同一套编号与徽章。</span></div>
     <div class="tile"><i>EPUB 3</i><b>Apple Books</b><span>MathML 数学，在 iPhone、iPad 与 Mac 上阅读。</span></div>
     <div class="tile"><i>TRURETURING-VISUALIZE</i><b>可视化</b><span>交互页面嵌入章节；PDF 与 EPUB 中给出缩略图与地址。</span></div>
-    <div class="tile"><i>TRURETURING-FILM</i><b>视频</b><span>脚本、场景与字幕在仓库中，成片随 Release 发布。</span></div>
+    <div class="tile"><i>TRURETURING-FILM</i><b>视频</b><span>脚本、场景与字幕在仓库中，成片随站点构建。</span></div>
     <div class="tile now"><i>SLIDEV · 当前</i><b>演示文稿</b><span>就是这一份：在线演示，并附可下载的 PDF。</span></div>
   </div>
 </div>

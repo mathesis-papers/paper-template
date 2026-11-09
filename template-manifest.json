@@ -320,7 +320,7 @@
       "mode": "100644"
     },
     "theme/mdbook/tr-book.css": {
-      "sha256": "ade3c85ad265ed4bf9250a32c66ee910846fe6083422727b9acfbae562c07ca1",
+      "sha256": "de47d64ab10919c7bcb3dc3d375b243a30d464e83be06f4f4df2d43cd00e71ac",
       "mode": "100644"
     },
     "theme/mdbook/tr-book.js": {
@@ -420,7 +420,7 @@
       "mode": "100644"
     },
     "theme/slides/styles/deck.css": {
-      "sha256": "a9b2f14aebf9225bf965ba52b0fa09cc867df583f762484241bd775ab8aad7e8",
+      "sha256": "8f9c15ab5b70ac5caa299a3c45562f9d4396f8c6be616b026d90e5ade410ed24",
       "mode": "100644"
     },
     "theme/slides/styles/index.ts": {
@@ -684,7 +684,7 @@
       "mode": "100644"
     },
     "tools/tests/test_html.py": {
-      "sha256": "b1df748512dbe758ccd3e38ed839bf87b159d005fca1295eadcf956777fea210",
+      "sha256": "0d664844d259f371ad82e3299df79edd959867efcf0c3326c75fff558ff3e0c2",
       "mode": "100644"
     },
     "tools/tests/test_links.py": {

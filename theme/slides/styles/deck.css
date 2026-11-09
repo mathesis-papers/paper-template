@@ -350,6 +350,8 @@ ul.plain.tight li { margin-bottom: 8px; }
 /* ---------- table ---------- */
 table.t { width: 100%; border-collapse: collapse; font-size: 24px; line-height: 1.45; }
 table.t th { text-align: left; font-family: var(--mono); font-weight: 500; font-size: 17px; letter-spacing: .14em; text-transform: uppercase; color: var(--tr-cyan); padding: 0 18px 14px 0; border-bottom: 2px solid var(--tr-line-hot); }
+/* Math and code keep their case in the capitalized header cells ($\varphi$ must not become $\Phi$). */
+table.t th :is(.katex, code) { text-transform: none; letter-spacing: normal; }
 table.t td { padding: 16px 18px 16px 0; border-bottom: 1px solid var(--tr-panel-edge); vertical-align: top; color: var(--ink-2); }
 table.t td:first-child { color: var(--tr-ink); }
 table.t td.num { font-family: var(--mono); text-align: right; white-space: nowrap; }

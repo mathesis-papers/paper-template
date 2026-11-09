@@ -9,7 +9,7 @@ Counterexample
 : A concrete input at which a universal claim fails; the most common kind of certificate.
 
 Counterexample search
-: An enumeration of finitely many candidates in a fixed order that returns the first one violating the claim. A hit is a certificate; a miss shows nothing.
+: An enumeration of finitely many candidates in a fixed order that returns the first one violating the claim. A hit is a certificate; a miss shows only that none of these candidates is a counterexample, not that the claim holds.
 
 Dual certificate
 : Data that points at no candidate at all but rules out every candidate at once, such as Farkas weights ([@thm-farkas]).
@@ -59,7 +59,7 @@ Why $36$ terms? In 90-digit decimal arithmetic we find $(n_0 + \tfrac12)\log 2 -
 Is $n_0 = 1121626023352383$ the least $n \ge 1$ at which the formula fails? What characterizes the $n$ at which it fails? trureturing proves only `¬ claim` and does not claim that $n_0$ is least. The problem file `Problems/oeis-a175406-log-two-floor-refutation.md` mentions a minimality argument from the search and marks it as unverified and not formalized.
 :::
 
-As a computation, not a proof: we checked every $1 \le n \le 3000$ in exact integer arithmetic, and every $n \le 20000$ in 90-digit decimal arithmetic, and the formula holds for all of them; for $n = 1, \dots, 10$, $a(n) = 1, 1, 2, 3, 3, 4, 5, 5, 6, 7$. Such computations say nothing about the range between $20000$ and $n_0$.
+As a computation, not a proof: we checked every $1 \le n \le 20000$, and the formula holds for all of them. For $n \le 3000$, $a(n)$ was computed in exact integer arithmetic (since $(1 + 1/n)^k \le 2$ is equivalent to $(n+1)^k \le 2n^k$); all other values were computed with at least 60 significant digits, after checking that each floor was taken well away from an integer. For $n = 1, \dots, 10$, $a(n) = 1, 1, 2, 3, 3, 4, 5, 5, 6, 7$. Such computations say nothing about the range between $20000$ and $n_0$.
 
 ## What observations can recover
 
@@ -93,7 +93,7 @@ The hand computation also shows what the conjecture missed. The four residues al
 For every positive integer $n$: $n$ is 13-rough if and only if $n^{24} \bmod 2310 \in \{1, 421, 631, 841, 1681\}$.
 :::
 
-This characterization is recorded in the problem file `Problems/oeis-a008365-detlefs-rough-residue-characterization-refutation.md` as "disclosed but not claimed": trureturing does not prove it, and the Blueprint states that it asserts neither the corrected characterization nor its converse. The file gives the structural reason. If $n$ is coprime to $2310$, then $n^{24} \equiv 1 \pmod{210}$, while modulo $11$ we have $n^{24} \equiv n^4$, which takes only the five quartic residues $1, 3, 4, 5, 9$; the five listed residues are all congruent to $1$ modulo $210$, and modulo $11$ they are exactly these five values. This is a paper argument that Lean has not checked. Our computation, which is not a proof: for $1 \le n \le 200000$ the corrected characterization has no exception, while the original four-residue version has $8311$ exceptions, all of them 13-rough numbers outside the four residues; the first five are $17, 61, 71, 83, 127$. What remains to be done is to prove both directions in Lean and freeze them; until then, the statement is only a conjecture in this book.
+This characterization is recorded in the problem file `Problems/oeis-a008365-detlefs-rough-residue-characterization-refutation.md` as "disclosed but not claimed": trureturing does not prove it, and the Blueprint states that it asserts neither the corrected characterization nor its converse. The file gives the structural reason. If $n$ is coprime to $2310$, then $n^{24} \equiv 1 \pmod{210}$, while modulo $11$ we have $n^{24} \equiv n^4$, which takes only the five quartic residues $1, 3, 4, 5, 9$; the five listed residues are all congruent to $1$ modulo $210$, and modulo $11$ they are exactly these five values. This shows only that the residues of 13-rough numbers lie among these five values, which is one direction of the characterization; the file does not discuss the other direction (that an $n$ which is not 13-rough lands outside them). This is a paper argument that Lean has not checked. Our computation, which is not a proof: for $1 \le n \le 200000$ the corrected characterization has no exception, while the original four-residue version has $8311$ exceptions, all of them 13-rough numbers outside the four residues; the first five are $17, 61, 71, 83, 127$. What remains to be done is to prove both directions in Lean and freeze them; until then, the statement is only a conjecture in this book.
 
 The second kind of certificate shows that "find a counterexample" is a general pattern.
 
@@ -108,7 +108,7 @@ $$
 Left to right: take a rejected history $h$ and use its length as the bound $n$. The search is complete, so it returns a value $\mathrm{some}\ h'$ when a rejected history lies within the bound, and it is sound, so the returned $h'$ really satisfies $D(h') = \mathrm{false}$. Right to left: a rejected $h$ contradicts the universal claim directly. The full proof is checked by the Lean kernel.
 :::
 
-In Lean, $\mathrm{find}$ is `findCounterexample`, defined in the module `D5/S0/History/MarkerHistorySearch`, where trureturing checks one instance with `rfl`: if $D$ accepts the empty word and the words that start with $E_0$, then $\mathrm{find}(D, 1)$ returns the single marker $E_1$. [@thm-finite-counterexample] is not a decision procedure: no bound $n$ is computed from $D$, and when $D$ is true everywhere the search returns $\mathrm{none}$ for every $n$. So bounded search only semi-decides the failure of a universal claim. Nor does the theorem say that the returned counterexample is a shortest one.
+In Lean, $\mathrm{find}$ is `findCounterexample`, defined in the module `D5/S0/History/MarkerHistorySearch`, where trureturing checks one instance with `rfl`: if $D$ accepts the empty word and the words that start with $E_0$, then $\mathrm{find}(D, 1)$ returns the history consisting of the single marker $E_1$. [@thm-finite-counterexample] is not a decision procedure: it does not say how to obtain the bound $n$ from $D$, and when $D$ is true everywhere the search returns $\mathrm{none}$ for every $n$. So bounded search only semi-decides the failure of a universal claim. Nor does the theorem say that the returned counterexample is a shortest one.
 
 The third kind of certificate is not a counterexample.
 
@@ -171,7 +171,7 @@ where $c$ is the deficit of [@def-deficit].
 The proof takes $v_1 = v_1' = 1$ and lets $v_2, v_2'$ be multiples of $m$, so the congruences hold automatically. Write $p(v) = \{(v+1)\varphi\}$ for the golden phase (the fractional part); then $p(1) = 2\varphi - 3 \approx 0.236$. By [@thm-beatty-deficit], $c$ equals its Beatty form (the module carries its own proof of this identity), and by [@thm-golden-phase], $c(1, v) = 1$ when $p(v) < (2 - \varphi)/2$, and $c(1, v) = 0$ when $2 - \varphi < p(v) < (3 - \varphi)/2$. Since $m\varphi$ is irrational, the phases $p(mn)$ for $n = 0, 1, 2, \dots$ are dense in $[0, 1)$, so each of the two intervals contains some $p(mn)$. The proof obtains these $n$ from density alone and does not exhibit them. The full proof is checked by the Lean kernel.
 :::
 
-Together with [@thm-target-recovery], take the state space $\mathbb{N} \times \mathbb{N}$, the readout $(v_1 \bmod m, v_2 \bmod m)$ and the target $c$: [@thm-modulus-blind] supplies two states with the same reading and different targets, so no function computes the deficit from the residues modulo $m$. It is the residues that cannot see the deficit, not every readout: [@thm-golden-phase] says that the two golden phases determine it exactly. The theorem only asserts that a disagreement exists; it gives no witnesses and says nothing about how often disagreements occur.
+Together with [@thm-target-recovery], take the state space $\mathbb{N} \times \mathbb{N}$, the readout $(v_1 \bmod m, v_2 \bmod m)$ and the target $c$: [@thm-modulus-blind] supplies two states with the same reading and different targets, so no function computes the deficit from the residues modulo $m$. It is the residues that cannot see the deficit, not every readout: [@thm-beatty-deficit] and [@thm-golden-phase] together say that the two golden phases determine it exactly. The theorem only asserts that a disagreement exists; it gives no witnesses and says nothing about how often disagreements occur.
 
 ::: {.example #ex-mod-two title="A pair of witnesses modulo 2"}
 Take $m = 2$. The input pairs $(1, 2)$ and $(1, 4)$ agree coordinatewise modulo $2$: $1 \equiv 1$ and $2 \equiv 4$. From $\beta(1) = \varphi^2$, $\beta(2) = \varphi^3$, $\beta(3) = \varphi^4$, $\beta(4) = \varphi^4 + \varphi^2$, $\beta(5) = \varphi^5$ and $\varphi^{k+2} = \varphi^{k+1} + \varphi^k$,
@@ -197,5 +197,5 @@ This agrees with [@thm-golden-phase] (with $p$ the golden phase from the proof a
 ## Slides
 
 ::: {.slides src="overview"}
-A ten-slide overview of the book's main results and open questions.
+Ten slides: the book at a glance, and the main results of chapters 1 and 2.
 :::

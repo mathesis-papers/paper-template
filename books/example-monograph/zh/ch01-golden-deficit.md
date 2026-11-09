@@ -90,7 +90,7 @@ $$
 即 $\varphi - 3 \le c(v_1, v_2) \le \varphi$，约为 $-1.382 \le c \le 1.618$。这个区间中的整数只有 $-1$、$0$、$1$，这就是 [@thm-deficit-three-valued]。完整证明由 Lean 内核检查。
 :::
 
-[@thm-deficit-integer] 的第三部分把同一个整数读成进位的计数。按 [@thm-zeck-add]，$v_1 + v_2$ 的 Zeckendorf 数位，就是把两组数位逐位相加、再用进位规范化的结果。内部的进位在两个面上都不改变值（[@lem-face-invariant]）；只有最低的两条重复进位改变 $\beta$：$2F_2 = F_3$ 使它减少 $1$，$2F_3 = F_2 + F_4$ 使它增加 $1$，亏量等于前者的次数减去后者的次数。无论按什么顺序进位，终点与带符号的总数都相同（[@thm-charge-unique]）。进位规则见[附录 A 的“进位”一节](appendix-a-zeckendorf.md#sec-carries)。
+[@thm-deficit-integer] 的第三部分把同一个整数读成进位的计数。按 [@thm-zeck-add]，$v_1 + v_2$ 的 Zeckendorf 数位，就是把两组数位逐位相加、再用进位规范化的结果。内部的进位在两个面上都不改变值（[@lem-face-invariant]）；只有最低的两条重复进位改变 $\beta$：$2F_2 = F_3$ 使它减少 $1$，$2F_3 = F_2 + F_4$ 使它增加 $1$，亏量等于前者的次数减去后者的次数。无论按什么顺序进位，只要最后得到规范的数位，终点与带符号的总数都相同（[@thm-charge-unique]）。进位规则见[附录 A 的“进位”一节](appendix-a-zeckendorf.md#sec-carries)。
 
 ## 亏量何时取哪个值 {#sec-phases}
 
@@ -178,7 +178,7 @@ $P$ 是图中左下三角形 $\{p_1 + p_2 < 1/\varphi\}$ 的面积，按竖直�
 ::: {.remark #rem-areas-not-frequencies title="面积还不是频率"}
 若把 $(p(v_1), p(v_2))$ 换成单位正方形中均匀分布的随机点，[@thm-golden-phase] 中每块区域的概率就是它的面积：$P$、$N$ 分别是取 $+1$、$-1$ 的概率，$P - N$ 是期望。Lean 中两个积分因此名为 `positiveFrequency` 与 `negativeFrequency`，trureturing 的 Blueprint 页面 `Blueprint/D5/S1/Deficit/GoldenPhaseDistribution.md` 也把这三个数写成 freq(+1)、freq(−1) 与 E(c)。
 
-但 [@prop-phase-areas] 只计算面积。关于整数的频率说法，即在 $0 \le v_1, v_2 < n$ 的 $n^2$ 对中，$c = 1$ 与 $c = -1$ 所占的比例当 $n \to \infty$ 时分别趋于 $P$ 与 $N$，并不在所引声明之中，trureturing 也没有冻结这一结论。它可以由相位的等分布推出[^equi]，这是文献中的经典结果，未在本书形式化。它不是开放问题，只是还没有 Lean 证明。
+但 [@prop-phase-areas] 只计算面积。关于整数的频率说法，即在 $0 \le v_1, v_2 < n$ 的 $n^2$ 对中，$c = 1$ 与 $c = -1$ 所占的比例当 $n \to \infty$ 时分别趋于 $P$ 与 $N$，并不在所引声明之中，trureturing 也没有冻结这一结论。它可以由相位的等分布推出[^equi]。一维的等分布在 trureturing 中有对应的声明（模块 `D5/S1/Phase/IntervalSampling` 中的 `irrational_rotation_interval_sampling`），本书没有引用它；从一维推到相位对、再推到亏量比例的经典论证未在本书形式化。所以这一结论不是开放问题，只是还没有 Lean 证明。
 
 下表的比例是计算，只说明数值上很接近：
 

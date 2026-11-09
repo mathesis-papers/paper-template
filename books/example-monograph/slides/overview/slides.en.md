@@ -2,7 +2,7 @@
 # 01 Cover (cover layout: no header or footer; shows the book code, the pinned commit and the page)
 theme: ../../../../theme/slides
 title: "Golden Integers and Observability · Overview"
-info: "An overview of the sample monograph Golden Integers and Observability: what the template guarantees, the main theorems of both chapters, one open problem, and every output."
+info: "An overview of the sample monograph Golden Integers and Observability: what the template guarantees, the main theorems of Chapters 1 and 2, one open problem, and every output."
 htmlAttrs:
   lang: "en"
 deck:
@@ -10,7 +10,7 @@ deck:
   book: "Golden Integers and Observability"
   title: "Overview"
   version: "0.1.0"
-  blurb: "Two chapters, four Lean theorems, one open problem: the sample monograph in ten slides."
+  blurb: "The template's guarantees, the main theorems of Chapters 1 and 2, one open problem and every output: the sample monograph in ten slides."
 layout: cover
 ---
 
@@ -34,8 +34,8 @@ section: "Guarantees"
     <div class="step ok"><span class="i">04 · Kernel</span><b><LeanBadge gid="D5/S1/Deficit/DeficitThreeValued.deficit_three_valued" /></b><p>The badge links to the Lean source at the pinned commit.</p></div>
   </div>
   <div class="g3 mt-l">
-    <Stat value="4" label="theorems, all kernel-verified in Lean" tone="ok" />
-    <Stat value="1" label="open problem, marked OPEN" tone="warn" />
+    <Stat value="33" label="formal results in the whole book, all kernel-verified in Lean" tone="ok" />
+    <Stat value="4" label="open problems and conjectures in the whole book, marked OPEN" tone="warn" />
     <Stat value="0" label="unverified citations: ./tbook check refuses to publish" />
   </div>
 </div>
@@ -107,7 +107,7 @@ section: "Chapter 2"
 
 <p class="kicker">Chapter 2</p>
 <h2 class="t">Refutation and <em>observability</em></h2>
-<p class="lead">For a positive integer <Tex t="n" />, let <Tex t="a(n)" /> be the greatest integer <Tex t="k" /> with <Tex t="(1 + 1/n)^k \le 2" />. For OEIS A175406, Greathouse conjectured a floor formula:</p>
+<p class="lead">For a positive integer <Tex t="n" />, let <Tex t="a(n)" /> be the greatest natural number <Tex t="k" /> with <Tex t="(1 + 1/n)^k \le 2" />. For OEIS A175406, Greathouse conjectured a floor formula:</p>
 <div class="card hot mt">
   <h4>Conjecture · Greathouse (OEIS A175406)</h4>
   <Tex display t="a(n) = \left\lfloor \left(n + \tfrac{1}{2}\right) \log 2 \right\rfloor \qquad (n \ge 1)" />
@@ -122,17 +122,20 @@ section: "Chapter 2 · Refutation"
   <p class="kicker">Theorem 2.1 · Open problem 2.2</p>
   <h2 class="t">A counterexample refutes it; <em class="warn">minimality is open</em></h2>
   <div class="g2 mt-s">
-    <TheoremCard class="compact" label="Theorem 2.1" title="The floor formula is false" gid="D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result" cite="thm-greathouse-refuted">
-      <p>The conjectured formula does not hold for all <Tex t="n \ge 1" />:</p>
+    <div>
+      <TheoremCard class="compact" label="Theorem 2.1" title="The floor formula is false" gid="D5/S0/Certificates/GreathouseLogTwoFloorRefutation.result" cite="thm-greathouse-refuted">
+        <p>The conjectured formula does not hold for all <Tex t="n \ge 1" />.</p>
+      </TheoremCard>
+      <p class="kicker mt-s">From the proof · not the statement</p>
       <dl class="readout">
-        <dt><Tex t="n" /></dt><dd class="cy">1121626023352383</dd>
+        <dt><Tex t="n_0" /></dt><dd class="cy">1121626023352383</dd>
         <dt>formula</dt><dd>777451915729368</dd>
-        <dt><Tex t="a(n)" /></dt><dd class="hot">777451915729367<small>one less</small></dd>
+        <dt><Tex t="a(n_0)" /></dt><dd class="hot">777451915729367<small>one less</small></dd>
       </dl>
-    </TheoremCard>
+    </div>
     <TheoremCard class="compact" label="Open problem 2.2" title="The least counterexample" status="open" cite="prob-greathouse-minimal">
-      <p>Is <Tex t="n" /> = <span class="mono">1121626023352383</span> the least <Tex t="n" /> at which the formula fails? What characterizes the inputs where it fails?</p>
-      <p>trureturing proves this counterexample only; it does not claim minimality.</p>
+      <p>Is <Tex t="n_0" /> = <span class="mono">1121626023352383</span> the least <Tex t="n" /> at which the formula fails? What characterizes the inputs where it fails?</p>
+      <p>trureturing proves only that the formula does not always hold; it does not claim that <Tex t="n_0" /> is the least.</p>
     </TheoremCard>
   </div>
 </div>
@@ -171,7 +174,7 @@ section: "Outputs"
     <div class="tile"><i>TYPST</i><b>PDF</b><span>A dark screen edition and a white print edition, with the same numbers and badges.</span></div>
     <div class="tile"><i>EPUB 3</i><b>Apple Books</b><span>MathML math, for reading on iPhone, iPad and Mac.</span></div>
     <div class="tile"><i>TRURETURING-VISUALIZE</i><b>Visualizations</b><span>Interactive pages inside chapters; thumbnails and links in PDF and EPUB.</span></div>
-    <div class="tile"><i>TRURETURING-FILM</i><b>Films</b><span>Script, scenes and subtitles live in the repository; renders ship with each release.</span></div>
+    <div class="tile"><i>TRURETURING-FILM</i><b>Films</b><span>Script, scenes and subtitles live in the repository; films are built with the site.</span></div>
     <div class="tile now"><i>SLIDEV · NOW</i><b>Slides</b><span>This deck: present it online or download the PDF.</span></div>
   </div>
 </div>
