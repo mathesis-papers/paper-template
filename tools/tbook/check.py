@@ -269,6 +269,11 @@ def check_lean(models_by_book: dict[str, dict[str, EditionModel]], lock: lean.Lo
         _err(issues, paths.SITE_TOML, 0,
              f"[trureturing] branch {branch!r} {problem}: trureturing enforces its freeze rule on a branch "
              "(default 'dev'), and only a branch can show that the pinned commit was merged")
+    elif anc.no_branch:
+        _err(issues, paths.SITE_TOML, 0,
+             f"[trureturing] branch {branch!r} does not exist in {lock.repo} ({anc.detail}); set it to an existing "
+             f"branch (default 'dev'), then run ./tbook pin --refresh to keep commit {lock.commit[:12]} if it is on "
+             "that branch, or ./tbook pin")
     elif anc.on_branch is False:
         _err(issues, paths.LOCK_FILE, 0,
              f"pinned commit {lock.commit[:12]} is not on {where} ({anc.detail}); trureturing enforces the freeze "

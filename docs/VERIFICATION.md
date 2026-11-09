@@ -24,14 +24,14 @@ trureturing 的冻结律（其 `CLAUDE.md` §1.3）规定：**模块的状态片
 
 第一步只看名字，不问任何人。下列写法都是错误：`git check-ref-format --branch` 不接受的名字（含 `^`、`~`、`:`、`?`、`*`、`[`、`\`、`..`、`@{`、空白或控制字符；以 `-` 开头或以 `.` 结尾；有空的分量，即以 `/` 开头或结尾或含 `//`；有以 `.` 开头或以 `.lock` 结尾的分量；`HEAD`）；单独的 `@`（在修订表达式里 git 把它当作 `HEAD`）与含 Unicode 空白或不可见字符的名字（git 接受，但不同的名字会显示得一模一样）；完整 SHA、所钉提交的缩写 SHA 与 `refs/…`。
 
-第二步核对这个分支确实存在，并且只把它当分支查，不当修订表达式解析（§2）：本地 checkout 只认恰好同名的 ref（`git show-ref --verify` 核对 `refs/remotes/<远程>/<分支>` 或 `refs/heads/<分支>`）；GitHub 上先问 `repos/<repo>/branches/<分支>`，再用它回答的分支头提交的完整 SHA（而不是名字）去比较。GitHub 回答仓库里没有这个分支，或回答的是另一个分支（改过名的分支会被重定向到新名字），`./tbook check` 报错，`./tbook pin` 拒绝（**Refused**）。形如 describe 输出的名字、`pull/123/head` 与拼错的名字在语法上都是合法的分支名，就在这一步被拒绝；真有一个这样命名的分支时，按那个分支本身核对。本地 checkout 里没有同名 ref 时，它说不清 GitHub 上有没有这个分支，只能算“无法判定”（规则见 §2 的表）。
+第二步核对这个分支确实存在，并且只把它当分支查，不当修订表达式解析（§2）：本地 checkout 只认恰好同名的 ref（`git show-ref --verify` 核对 `refs/remotes/<远程>/<分支>` 或 `refs/heads/<分支>`）；GitHub 上先问 `repos/<repo>/branches/<分支>`，再用它回答的分支头提交的完整 SHA（而不是名字）去比较。GitHub 回答仓库里没有这个分支，或回答的是另一个分支（改过名的分支会被重定向到新名字），`./tbook check` 把错误报在 `site.toml` 上：说明该分支不存在，提示把它改成现有分支（默认 `dev`），再运行 `./tbook pin --refresh`（所钉提交也在那个分支上时保留它）或 `./tbook pin`；`./tbook pin` 拒绝（**Refused**）。形如 describe 输出的名字、`pull/123/head` 与拼错的名字在语法上都是合法的分支名，就在这一步被拒绝；真有一个这样命名的分支时，按那个分支本身核对。本地 checkout 里没有同名 ref 时，它说不清 GitHub 上有没有这个分支，只能算“无法判定”（规则见 §2 的表）。
 
 ## 2. 每个 PR 都运行的检查（`./tbook check`）
 
 | 检查 | 失败时 |
 | --- | --- |
 | 形式结论必须有 `lean`；开放条目不得有 `lean` | 错误 |
-| 所钉提交可从 `site.toml` 的 trureturing 分支到达，且该分支存在（§1） | 错误（GitHub 回答没有这个分支时也是错误）；无法判定时：GitHub Actions 中为错误，本地或 `--offline` 下为警告 |
+| 所钉提交可从 `site.toml` 的 trureturing 分支到达，且该分支存在（§1） | 错误，报在锁文件上，提示 `./tbook pin`；GitHub 回答没有这个分支时报在 `site.toml` 上，提示改成现有分支（§1）；无法判定时：GitHub Actions 中为错误，本地或 `--offline` 下为警告 |
 | 锁文件的 `branch` 与 `site.toml` 的 trureturing 分支相同；该分支是合法的分支名（`git check-ref-format --branch` 接受，且不是 `@`、SHA、`refs/…`，见 §1） | 错误，提示 `./tbook pin`；分支名不合法时指出原因 |
 | GID 语法（与 trureturing Blueprint 相同的地址格式；声明名是 Lean 名，分量可含希腊字母等类字母符号、下标与 `'` `!` `?`，其他分量写成 `«…»`；不得含空白或逗号） | 错误 |
 | 每个被引用的 GID 都在锁文件中 | 错误，提示 `./tbook pin --refresh` |

@@ -1361,6 +1361,41 @@ class NoSuchBranchTests(unittest.TestCase):
             anc = lean.Ledger(TRU, offline=True).branch_contains(COMMIT, f"dev-12-g{COMMIT[:7]}")
             self.assertIsNone(anc.on_branch)
 
+    def test_check_reports_a_missing_branch_under_site_toml(self):
+        """A branch the repository does not have is a mistake in site.toml: check says so there and names the
+        fix, instead of asking for a pin on that branch (re-review 5, item 18)."""
+        branch = "no-such-branch"
+        with CoreRepo(site=SITE.replace('"dev"', json.dumps(branch))) as repo:
+            repo.book()
+            for key in API_TOKENS:
+                os.environ.pop(key, None)
+            os.environ.pop("GITHUB_ACTIONS", None)
+            lock = make_lock()
+            lock.branch = branch
+
+            def run(**kw) -> list[model.Issue]:
+                issues: list[model.Issue] = []
+                check.check_lean({"demo": model.load_book_models(config.load_book("demo"))}, lock,
+                                 config.load_site(), issues, **kw)
+                return issues
+
+            gh = FakeGitHub({**raw_states(COMMIT), f"repos/{TRU}": {"full_name": TRU}})  # branches/<branch>: 404
+            with mock.patch.object(lean.urllib.request, "urlopen", gh):
+                issues = run(offline=False)
+            self.assertEqual([(i.severity, i.path) for i in issues], [("error", paths.SITE_TOML)], messages(issues))
+            message = issues[0].message
+            self.assertIn(f"[trureturing] branch {branch!r} does not exist in {TRU} "
+                          f"(GitHub: {TRU} has no branch {branch!r}", message)
+            self.assertIn(f"set it to an existing branch (default 'dev'), then run ./tbook pin --refresh to keep "
+                          f"commit {COMMIT[:12]} if it is on that branch, or ./tbook pin", message)
+            self.assertNotIn("Pin a commit on", message)
+            # a branch that exists but does not contain the commit: unchanged, under the lock file
+            with mock.patch.object(lean, "Ledger", lambda r, **kw: FakeLedger(on_branch=False)):
+                issues = run(offline=True)
+            self.assertEqual([(i.severity, i.path) for i in issues], [("error", paths.LOCK_FILE)], messages(issues))
+            self.assertIn(f"is not on branch {branch!r} of {TRU} (fake: not on branch)", issues[0].message)
+            self.assertIn(f"Pin a commit on {branch}: ./tbook pin", issues[0].message)
+
     def test_doctor_reports_a_missing_branch(self):
         from tbook import doctor
 
