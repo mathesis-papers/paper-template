@@ -10,7 +10,8 @@ unicode-range subsets the film's text needs) and referenced by relative URL, so 
 served over local http (render.js, poster.js and shot.js start their own server).
 
 The timeline is out/timeline.json from tts.py; without it (or when it no longer matches
-script.json) a provisional timeline at a fixed speaking rate is used, unless --strict.
+script.json) a provisional timeline at a fixed speaking rate is used, unless --strict (or FILM_STRICT=1,
+which the site build sets), which also refuses to fall back to system fonts.
 Adapted from trureturing-film films/*/build.py (Apache-2.0, the-omega-institute).
 """
 
@@ -24,18 +25,13 @@ import shutil
 import sys
 from pathlib import Path
 
-from common import ROOT, HERE, fail, film_dir_arg, load, out_dir, cache_dir, timeline, tfilm
+from common import ROOT, HERE, fail, film_dir_arg, load, out_dir, timeline, tfilm
 
 TOKENS_MJS = ROOT / "theme" / "generated" / "tokens.mjs"
-# (npm package under @fontsource, CSS family, weights). Families follow theme/tokens.json "font":
-# film-display (Orbitron), display (Chakra Petch), data (JetBrains Mono), film-subtitle (Rajdhani), body (Noto Sans SC).
-FONT_PLAN = (
-    ("orbitron", "Orbitron", (400, 700, 900)),
-    ("chakra-petch", "Chakra Petch", (400, 600, 700)),
-    ("jetbrains-mono", "JetBrains Mono", (400, 700)),
-    ("rajdhani", "Rajdhani", (500, 600, 700)),
-    ("noto-sans-sc", "Noto Sans SC", (400, 700, 900)),
-)
+# (npm package under @fontsource, CSS family, weights): tools/tbook/film.py, which also checks the packages are
+# present before a build renders, and keys the build on their versions in package-lock.json.
+FONT_PLAN = tfilm.FONT_PLAN
+font_package = tfilm.font_package
 # Semantic roles (tokens "semantic", named by the screen palette) → the film palette's names.
 SCREEN_TO_FILM = {"ok": "green", "warn": "red", "violet": "vio", "amber": "gold", "cyan": "cyan",
                   "magenta": "mag", "blue": "blue", "orange": "orange", "dim": "dim"}
@@ -81,20 +77,9 @@ def _ranges(spec: str) -> list[tuple[int, int]]:
     return out
 
 
-def font_package(pkg: str) -> Path | None:
-    candidates = []
-    if os.environ.get("FILM_FONTS_DIR"):
-        base = Path(os.environ["FILM_FONTS_DIR"])
-        candidates += [base / "@fontsource" / pkg, base / pkg]
-    candidates += [ROOT / "node_modules" / "@fontsource" / pkg, cache_dir() / "fonts" / pkg]
-    for c in candidates:
-        if (c / "files").is_dir():
-            return c
-    return None
-
-
-def font_faces(chars: set[int], out: Path) -> tuple[str, list[list]]:
-    """@font-face CSS for the subsets covering ``chars``; copies the WOFF2 files to out/fonts/."""
+def font_faces(chars: set[int], out: Path, *, strict: bool = False) -> tuple[str, list[list]]:
+    """@font-face CSS for the subsets covering ``chars``; copies the WOFF2 files to out/fonts/. A missing
+    font package is a warning (system fonts stand in), or an error with ``strict`` (a render for the build)."""
     css: list[str] = []
     loaded: list[list] = []
     points = sorted(chars)
@@ -141,8 +126,10 @@ def font_faces(chars: set[int], out: Path) -> tuple[str, list[list]]:
                 used += 1
             if used:
                 loaded.append([family, w])
+    if missing and strict:
+        fail(f"fonts not found ({', '.join(missing)}); run `npm ci` or theme/film/setup.sh")
     if missing:
-        print(f"film: warning: fonts not found ({', '.join(missing)}); run `npm ci` or theme/film/film.sh <dir> setup. "
+        print(f"film: warning: fonts not found ({', '.join(missing)}); run `npm ci` or theme/film/setup.sh. "
               "Falling back to system fonts.", file=sys.stderr)
     return "".join(css), loaded
 
@@ -180,7 +167,7 @@ def build(film_dir: Path, *, strict: bool = False) -> Path:
     scenes = _script((film_dir / "scenes.js").read_text(encoding="utf-8"), f"{film.id}/scenes.js")
     corpus = engine + scenes + json.dumps(data, ensure_ascii=False) + "".join(chr(c) for c in range(0x20, 0x7F))
     chars = {ord(ch) for ch in corpus if ord(ch) >= 0x20}
-    faces, loaded = font_faces(chars, out)
+    faces, loaded = font_faces(chars, out, strict=strict)
     data["fonts"] = loaded
     data["fontText"] = "".join(sorted(chr(c) for c in chars))
     title = f"{film.title('en')} · {film.title('zh')}"

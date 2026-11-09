@@ -39,7 +39,7 @@ def main(argv: list[str]) -> int:
         import soundfile as sf
         from scipy.signal import butter, sosfilt
     except ImportError as exc:
-        fail(f"{exc.name} is not installed; run theme/film/film.sh <film dir> setup")
+        fail(f"{exc.name} is not installed; run theme/film/setup.sh")
     film_dir = film_dir_arg(argv)
     film = load(film_dir)
     script = film.script or {}

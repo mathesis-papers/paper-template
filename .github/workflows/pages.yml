@@ -1,8 +1,13 @@
-# Build every book (HTML, PDF, EPUB, visualizations, films pages, slides) and deploy _site/ to
-# GitHub Pages (managed by the template).
+# Build every book (HTML, PDF, EPUB, visualizations, films, slides) and deploy _site/ to GitHub Pages
+# (managed by the template).
 #
 # One-time setup: Settings → Pages → Build and deployment → Source: GitHub Actions.
 # Until then the probe job warns and the site is built but not deployed.
+#
+# Build cache (docs/PUBLISHING.md §5): a unit whose inputs did not change is restored, from the Actions
+# cache that earlier runs of this workflow saved or else from the newest published releases, instead of
+# being built again. This is the only workflow that saves the Actions cache (on the default branch), and
+# the group "pages" runs it one at a time, so two runs never render the same film for the same entry.
 name: Pages
 
 on:
@@ -60,7 +65,10 @@ jobs:
     name: Build the site
     needs: probe
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # Rendering a film that no cache holds takes long (frames, narration, encoding). The build step has a
+    # shorter limit of its own: a step that runs out of time fails, while a job that does is cancelled and
+    # skips the save, so every unit built until then would be lost and the next run would start over.
+    timeout-minutes: 240
     permissions:
       contents: read
       # actions/configure-pages reads the Pages configuration (GET /repos/{owner}/{repo}/pages), which
@@ -76,6 +84,7 @@ jobs:
           browsers: 'true'
           fonts: 'true'
           mdbook: 'true'
+          films: 'true'
 
       - name: Cache trureturing frozen state
         # Only on the default branch: a run dispatched on another branch could restore what that branch's
@@ -92,16 +101,11 @@ jobs:
         if: needs.probe.outputs.enabled == 'true'
         uses: actions/configure-pages@v6
 
-      - name: Use the Pages URL for absolute links
-        if: needs.probe.outputs.enabled == 'true' && steps.pages.outputs.base_url != ''
-        env:
-          PAGES_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          # site.toml [site].base_url wins when set; otherwise use the real Pages URL (custom domains included).
-          if python3 -c 'import sys, tomllib; sys.exit(1 if tomllib.load(open("site.toml", "rb")).get("site", {}).get("base_url") else 0)'; then
-            echo "TBOOK_BASE_URL=${PAGES_URL%/}/" >> "$GITHUB_ENV"
-            echo "base URL: ${PAGES_URL%/}/"
-          fi
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
 
       - name: Check
         env:
@@ -113,7 +117,25 @@ jobs:
         run: ./tbook check
 
       - name: Build everything
+        id: build
+        # Below the job's limit, so that the save below still runs: what was built is kept, and a re-run
+        # (or the next push) continues from there.
+        timeout-minutes: 210
+        env:
+          # Units missing from the Actions cache are looked up in the newest published releases.
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          # The site never goes out without a film: one that cannot be rendered fails the build.
+          TBOOK_FILMS: require
         run: ./tbook build all
+
+      - name: Save the build cache
+        # Also after a failed build: every unit that was built is stored complete (a film rendered before
+        # an unrelated failure is not rendered again). The action saves only on the default branch.
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        uses: ./.github/actions/build-cache
+        with:
+          mode: save
 
       - name: Upload the Pages artifact
         if: needs.probe.outputs.enabled == 'true'

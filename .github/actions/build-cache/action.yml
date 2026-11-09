@@ -1,0 +1,119 @@
+# The build cache store .cache/artifacts (tools/tbook/buildcache.py) on GitHub-hosted runners (managed by
+# the template).
+#
+#   - uses: ./.github/actions/build-cache       # before ./tbook build
+#     with:
+#       mode: restore
+#       pages-url: ${{ steps.pages.outputs.base_url }}   # actions/configure-pages; may be empty
+#   - run: ./tbook build all                     # with TBOOK_CACHE_REMOTE=1 and GITHUB_TOKEN
+#   - uses: ./.github/actions/build-cache       # after the build (only pages.yml saves)
+#     with:
+#       mode: save
+#
+# restore sets TBOOK_BASE_URL to the Pages URL unless site.toml sets [site].base_url: every key includes
+# the site's address, so CI, Pages and release builds that share entries must build for the same one.
+# It then restores the newest saved store (key build-cache-v1-<run id> never exists, so the prefix
+# build-cache-v1- picks the newest entry of the run's own ref, then of the default branch).
+#
+# save runs ./tbook cache prune (only the entries of the current inputs stay) and saves the store under
+# <./tbook cache key>-r<run id>-<run attempt>: ./tbook cache key is a digest of the stored (unit, key) pairs,
+# and the store is saved only when that digest differs from the one in the key restore found (an
+# unchanged store is not uploaded again). The run suffix makes every saved key new: cache keys are
+# immutable, so a store that returns to an earlier content (a revert) could not be saved under that
+# earlier key again, and restore, which takes the newest entry of the prefix, would keep the newer one.
+#
+# Trust. A restored entry replaces a build: its files go into the site and the releases as they are.
+# So the store is saved only from runs of the default branch's own code: push to the default branch,
+# and workflow_dispatch or schedule there. It is restored in every event except pull-request events
+# (pull_request, pull_request_target, pull_request_review…): a pull request's runs execute its own copy of
+# the workflows, so one push can save a planted entry in the pull request's cache scope and the next push,
+# with a clean final diff, would restore it (restore looks in that scope first). Runs of other branches and
+# tags read their own scope (which only their own code can write) and then the default branch's.
+# Pull-request runs may still restore from published releases (TBOOK_CACHE_REMOTE=1), which only the
+# tag workflows (release.yml, template-release.yml; contents: write) create: docs/VERIFICATION.md §2.
+name: tbook build cache
+description: Restore or save the build cache store .cache/artifacts, outside pull-request events.
+
+inputs:
+  mode:
+    description: restore (before ./tbook build) or save (after it).
+    required: true
+  pages-url:
+    description: restore only. The Pages URL (actions/configure-pages base_url), or empty when Pages is not set up.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Check the mode
+      if: inputs.mode != 'restore' && inputs.mode != 'save'
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        echo "::error title=build-cache::mode must be restore or save, got '$MODE'"
+        exit 1
+
+    - name: Use the Pages URL for absolute links and cache keys
+      if: inputs.mode == 'restore' && inputs.pages-url != ''
+      shell: bash
+      env:
+        PAGES_URL: ${{ inputs.pages-url }}
+      run: |
+        # site.toml [site].base_url wins when set; otherwise use the real Pages URL (custom domains included).
+        if python3 -c 'import sys, tomllib; sys.exit(1 if tomllib.load(open("site.toml", "rb")).get("site", {}).get("base_url") else 0)'; then
+          echo "TBOOK_BASE_URL=${PAGES_URL%/}/" >> "$GITHUB_ENV"
+          echo "base URL: ${PAGES_URL%/}/"
+        fi
+
+    - name: Restore the build cache
+      id: restore
+      if: inputs.mode == 'restore' && !startsWith(github.event_name, 'pull_request')
+      uses: actions/cache/restore@v5
+      with:
+        path: .cache/artifacts
+        key: build-cache-v1-${{ github.run_id }}
+        restore-keys: build-cache-v1-
+
+    - name: Remember the restored store
+      if: inputs.mode == 'restore'
+      shell: bash
+      env:
+        MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
+      run: |
+        echo "TBOOK_BUILD_CACHE_RESTORED=$MATCHED" >> "$GITHUB_ENV"
+        if [ -n "$MATCHED" ]; then echo "restored $MATCHED"; else echo "no build cache restored"; fi
+
+    - name: Prune the build cache
+      id: prune
+      if: >-
+        !cancelled() && inputs.mode == 'save' &&
+        (github.event_name == 'schedule' ||
+        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+      shell: bash
+      run: |
+        set -euo pipefail
+        ./tbook cache prune
+        content="$(./tbook cache key)"
+        restored="${TBOOK_BUILD_CACHE_RESTORED:-}"
+        restored="${restored%-r*}"
+        echo "key=$content-r$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+        if [ "$content" = "$restored" ]; then
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "the store is the one restored ($content); not saved again"
+        else
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Save the build cache
+      if: >-
+        !cancelled() && inputs.mode == 'save' && steps.prune.outputs.changed == 'true' &&
+        (github.event_name == 'schedule' ||
+        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
+      uses: actions/cache/save@v5
+      with:
+        path: .cache/artifacts
+        key: ${{ steps.prune.outputs.key }}

@@ -1303,6 +1303,44 @@ class WorkflowTests(unittest.TestCase):
                                       f"{wf.name}, job {name}: {action} needs {scope}: {' or '.join(levels)}")
         self.assertEqual(seen, set(needs), "the reader found every action it checks")
 
+    def test_called_workflows_get_the_permissions_they_ask_for(self):
+        """A reusable workflow's token has at most what its caller's job grants; a job of the called workflow
+        that asks for more makes the whole run fail (template-release.yml calls ci.yml, whose build and media
+        jobs read the Pages configuration)."""
+        rank = {"none": 0, "read": 1, "write": 2}
+        calls = 0
+        for wf in sorted(WORKFLOWS.glob("*.yml")):
+            top, jobs = read_workflow(wf)
+            for name, job in jobs.items():
+                for uses in job["uses"]:
+                    m = re.fullmatch(r"\./\.github/workflows/([\w.-]+)", uses)
+                    if not m:
+                        continue
+                    calls += 1
+                    given = job["permissions"] if job["permissions"] is not None else top
+                    called_top, called_jobs = read_workflow(WORKFLOWS / m.group(1))
+                    for called_name, called in called_jobs.items():
+                        asked = called["permissions"] if called["permissions"] is not None else called_top
+                        scopes = {"contents", "pages", "id-token", "pull-requests", "actions"} if "*" in asked else asked
+                        for scope in scopes:
+                            self.assertLessEqual(rank[granted(asked, scope)], rank[granted(given, scope)],
+                                                 f"{wf.name}, job {name} calls {m.group(1)}: its job {called_name} "
+                                                 f"asks for {scope}: {granted(asked, scope)}")
+        self.assertGreaterEqual(calls, 2, "release.yml calls lean-verify.yml, template-release.yml calls ci.yml")
+
+    def test_films_are_built_with_the_site(self):
+        """Films are build units like the others (pages.yml, release.yml): there is no film workflow and no
+        film-* release tag (release.yml's plan only recognises a legacy one to skip it: test_release_plan)."""
+        self.assertFalse((WORKFLOWS / "film.yml").exists())
+        for path in sorted((WORKFLOWS.parent).rglob("*.yml")):
+            text = path.read_text(encoding="utf-8")
+            if path.name == "release.yml":  # the plan's skip of legacy per-film tags
+                text = re.sub(r'(?ms)^ *elif tag\.startswith\("film-"\):\n.*?sys\.exit\(0\)\n', "", text)
+            self.assertNotRegex(text, r"film\.yml|['\"!]film-|\bfilm-(\*|<|\$\{\{)", path.name)
+        text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        tags = re.search(r"(?m)^on:\n  push:\n    tags:\n((?:      - .*\n)+)", text).group(1)
+        self.assertEqual(re.findall(r"- '([^']*)'", tags), ["*-v*", "v*"])
+
     def test_reader(self):
         _, jobs = read_workflow(WORKFLOWS / "pages.yml")
         self.assertEqual(set(jobs), {"probe", "build", "deploy"})
@@ -1346,8 +1384,15 @@ class NoBooksTests(unittest.TestCase):
         self.assertIn("0 book(s), 0 error(s)", self.run_ok(root, tbook, "check"))
         self.run_ok(root, tbook, "theme", "--check")
         self.run_ok(root, tbook, "build", "html", "pdf", "epub")  # ci.yml build job
-        self.run_ok(root, tbook, "build", "all")  # pages.yml
+        self.run_ok(root, tbook, "build", "films")  # ci.yml media job
+        self.run_ok(root, tbook, "build", "all")  # pages.yml, release.yml
         self.assertTrue((root / "_site" / "index.html").is_file())
+        # the build cache: .github/actions/build-cache (save) and release.yml (export)
+        self.run_ok(root, tbook, "cache", "prune")
+        self.assertRegex(self.run_ok(root, tbook, "cache", "key").strip(), r"^build-cache-v1-[0-9a-f]{64}$")
+        self.run_ok(root, tbook, "cache", "export", str(root / "release" / "cache"))
+        manifest = json.loads((root / "release" / "cache" / "build-cache.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["entries"], [])
         if shutil.which("node"):
             for script in ("viz-validate.mjs", "slides-check.mjs", "viz-test.mjs"):  # ci.yml check and media jobs
                 self.run_ok(root, "node", str(root / "tools" / "node" / script))
@@ -1361,6 +1406,10 @@ class NoBooksTests(unittest.TestCase):
         self.assertIn("there are no books", log)
         self.assertEqual(run_release_plan(root, "v1.0.0", template_repo=True)[1].get("skip"), "true")
         self.run_ok(root, str(root / "tbook"), "new-book", "my-book", "--title", "zh=我的书", "--title", "en=My Book")
+        # a per-film tag of template 0.1.0 (film-<slug>-<NNN>-v<k>) publishes nothing now: skipped, not failed
+        rc, outputs, log = run_release_plan(root, "film-my-book-001-v1")
+        self.assertEqual((rc, outputs.get("skip")), (0, "true"), log)
+        self.assertIn("per-film tag", log)
         # Only a semantic-version pre-release is a GitHub pre-release; date tags are ordinary releases, a
         # same-day suffix included (2026.11.10-2 parses as a semantic version, but it is a date).
         for tag, pre in (("v2026.11.08", "false"), ("v2026-11-08", "false"), ("v20261108", "false"),

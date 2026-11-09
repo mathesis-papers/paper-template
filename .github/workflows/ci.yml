@@ -8,9 +8,15 @@
 #          (template repository only), static checks of visualizations and slides; in the template
 #          repository also the checks and unit tests once more without books/example-monograph
 #   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
-#   media  visualization browser tests and slide decks (Slidev + Chromium)
+#   media  visualization browser tests, slide decks (Slidev + Chromium) and films
 #
-# Also callable from other workflows (workflow_call), e.g. before a release.
+# build and media go through the build cache (docs/PUBLISHING.md §5): outside pull-request events they
+# restore the store that pages.yml saved; in every event they may restore a unit from the newest published
+# releases (TBOOK_CACHE_REMOTE=1). CI never saves the Actions cache. Both use the Pages URL, as pages.yml
+# does, so that their keys are the site's keys.
+#
+# Also callable from other workflows (workflow_call), e.g. before a release. A caller grants contents: read
+# and pages: read (actions/configure-pages in build and media).
 name: CI
 
 on:
@@ -128,6 +134,10 @@ jobs:
     needs: check
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # actions/configure-pages reads the Pages configuration (private repositories refuse it without this).
+      pages: read
     steps:
       - name: Check out
         uses: actions/checkout@v5
@@ -138,7 +148,23 @@ jobs:
           fonts: 'true'
           mdbook: 'true'
 
+      - name: Configure Pages
+        # The site's address is part of every cache key. Without Pages (not enabled, or not readable) this
+        # step fails, the build uses site.toml's address, and so does pages.yml.
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
       - name: Build
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tbook build html pdf epub
 
       - name: Upload downloads (PDF, EPUB)
@@ -158,10 +184,14 @@ jobs:
           retention-days: 14
 
   media:
-    name: Visualizations and slides
+    name: Visualizations, slides and films
     needs: check
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Rendering a film that no cache holds takes long (frames, narration, encoding).
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      pages: read
     steps:
       - name: Check out
         uses: actions/checkout@v5
@@ -172,6 +202,19 @@ jobs:
           browsers: 'true'
           fonts: 'false'
           mdbook: 'false'
+          # Films are rendered here except on pushes to the default branch and to tags (see "Build films").
+          films: ${{ !(github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))) }}
+
+      - name: Configure Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
 
       - name: Visualization browser tests
         if: hashFiles('tools/node/viz-test.mjs') != ''
@@ -189,7 +232,24 @@ jobs:
 
       - name: Build slides (HTML, browser checks, PDF)
         if: steps.decks.outputs.present == 'true'
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tbook build slides
+
+      - name: Build films
+        # Not on pushes to the default branch or to tags: pages.yml and the release workflows build the same
+        # films there (and pages.yml stores them); rendering them here as well would render each one twice.
+        if: >-
+          !(github.event_name == 'push' &&
+          (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          startsWith(github.ref, 'refs/tags/')))
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          # A film that no cache holds is rendered; one that cannot be rendered fails the job.
+          TBOOK_FILMS: require
+        run: ./tbook build films
 
       - name: Upload slide PDFs
         if: steps.decks.outputs.present == 'true'

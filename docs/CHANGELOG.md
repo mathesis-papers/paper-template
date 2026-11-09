@@ -4,7 +4,19 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 构建缓存（`tools/tbook/buildcache.py`，`docs/ARCHITECTURE.md` §5.1、`docs/PUBLISHING.md` §5）：每个构建单元（每个语言版本的 HTML、每种 PDF、EPUB、每本书的幻灯片、每个视频）按全部输入的 SHA-256 定键，输入没有变化就恢复存下的产物，不再构建。示例书 `./tbook build html pdf epub slides` 从约 50 秒降到约 0.5 秒，视频从约 3 分钟降到约 0.3 秒。查找顺序：本地存储 `.cache/artifacts/` → Actions 缓存（只由 `pages.yml` 在默认分支上保存，PR 事件不读不写）→ 最新 5 个附有 `build-cache.json` 的已发布 Release（`TBOOK_CACHE_REMOTE=1`，逐个核对 SHA-256 与 GitHub 的 `digest`）→ 构建。新命令 `./tbook cache status|key|prune|export`；`TBOOK_CACHE=0` 关闭缓存。
+- 每个 Release 都是整站的恢复点：`release.yml` 无论 tag 是单本还是全部书都构建整个站点，把每个单元的 tar 与清单 `build-cache.json` 与读者下载一并附上；先建草稿、上传全部附件再发布，兼容 immutable releases。模板仓库的 `template-release.yml` 为示例站点做同样的事。没有 Actions 缓存的构建（新仓库、缓存被淘汰、PR）由此恢复。
+- 视频是构建产物：`./tbook build films|site|all` 渲染或从缓存恢复每个视频（`TBOOK_FILMS=auto|require|skip`；CI 与 Pages 用 `require`，视频渲染失败则构建失败），成片随站点发布在 `_site/<slug>/films/<id>/`（同源，iOS Safari 可播放），书中播放器用 720p 版本。视频工具链由 `theme/film/setup.sh`（不再需要视频参数）装入 `.cache/film/`，Python 包钉在 `theme/film/requirements.txt`。渲染不再改写提交入库的 `poster.jpg`。站点没有某个视频时，章节显示海报与说明，首页不显示“观看”。
+
 ### 变更
+
+- 视频不再单独发 Release（**需要手动操作**）：删除了 `.github/workflows/film.yml` 与 `theme/film/release.py`（`./tbook template update` 会删除托管副本），`film-*` tag 不再发布任何东西（`release.yml` 遇到不指向任何书的 `film-*` tag 只提示并跳过，这类旧 tag 可以删除）；`film.json` 的 `release_tag`、`published_tag` 不再使用，`./tbook check` 警告，删除即可。GitHub Pages 站点上限 1 GB：每分钟视频约占 85 MB（1080p 两版加 720p 两版），视频多的书库留意站点大小。
+- 以 `workflow_call` 调用 `ci.yml` 的书库工作流须授予 `pages: read`（**需要手动操作**）：`build` 与 `media` 作业用 `actions/configure-pages` 取得 Pages 地址，使 CI 的缓存键与 `pages.yml` 一致。
+- `.github/actions/setup` 的 `fonts: 'true'` 也安装 Playwright `--with-deps` 会装的字体（`fonts-liberation`、`fonts-ipafont-gothic`、`fonts-wqy-zenhei`、`fonts-freefont-ttf` 等）：PDF 与 EPUB 的键包含系统字体族，构建它们的作业（`ci.yml` 的 build、`pages.yml`、发版）因此看到同一套字体，键一致。
+- `./tbook serve` 支持 HTTP 字节范围请求（`Range`，206），本地预览的视频在 Safari/iOS 中也能播放；`./tbook doctor` 按 `$FFMPEG` 查找 ffmpeg，与视频构建一致。
+- `ci.yml` 的 `media` 作业也构建视频（PR 中验证改动的视频能渲染）；在默认分支与 tag 的推送上不构建，由 `pages.yml` 与发版工作流构建，同一次推送不会把一个视频渲染两次。`pages.yml` 的构建步骤有短于作业的时限，超时后已完成的单元照常保存。
 
 - 标题按行内 Markdown 读：环境标题与 SUMMARY 章节标题中 `$…$` 之外的反斜杠转义（`C\*-代数`、`\$5`）在 HTML 页头、侧栏、`<title>`、站点、PDF、EPUB 与账本中都显示为标点本身，`$…$` 内的 TeX 不变。此前 HTML 与站点保留反斜杠；SUMMARY 中 `$…$` 外的 `\{` 现在显示为 `{`。
 - HTML 注释中的内容不再被改写、检查或编号（含注释块里的环境）；以 `<!--` 开头的注释块没有 `-->` 时 `./tbook check` 报错。行内注释可以跨行，到同一段落内的 `-->` 为止，HTML、PDF、EPUB 都隐藏它；段落在 `-->` 之前结束时 `<!--` 是普通文字，后文还有 `-->` 时 `./tbook check` 警告（Pandoc 会一直隐藏到那里）。

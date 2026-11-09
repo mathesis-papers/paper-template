@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from . import __version__, config, paths
 
@@ -82,6 +84,42 @@ def cmd_build(args) -> int:
     for f in result.failures:
         print(f"FAILED {f}", file=sys.stderr)
     return 1 if result.failures else 0
+
+
+def cmd_cache(args) -> int:
+    """./tbook cache status|key|prune|export: the build cache (tools/tbook/buildcache.py,
+    docs/ARCHITECTURE.md)."""
+    from . import buildcache
+
+    if args.cache_cmd == "key":
+        print(buildcache.actions_key())
+        return 0
+    site = config.load_site()
+    current = buildcache.units(site, _books(args))
+    if args.cache_cmd == "status":
+        for unit in current:
+            key = unit.key
+            state = "stored" if buildcache.read_entry(unit.entry_dir(key)) else "not stored"
+            print(f"{unit.target:7} {unit.name:48} {key[:16]}  {state}")
+        entries = buildcache.stored()
+        print(f"{len(current)} unit(s); {len(entries)} entr{'y' if len(entries) == 1 else 'ies'} in "
+              f"{paths.rel(buildcache.store_root())}"
+              + ("" if buildcache.enabled() else "; TBOOK_CACHE=0: builds neither restore nor store"))
+        return 0
+    if args.cache_cmd == "prune":
+        if args.book:
+            print("cache prune keeps the current units of every book; it takes no --book", file=sys.stderr)
+            return 2
+        removed = buildcache.prune(current)
+        print(f"removed {len(removed)} entr{'y' if len(removed) == 1 else 'ies'}; "
+              f"{len(buildcache.stored())} left")
+        return 0
+    if args.cache_cmd == "export":
+        manifest = buildcache.export(Path(args.dir), current, repo=site.repo or "")
+        n = len(json.loads(manifest.read_text(encoding="utf-8"))["entries"])
+        print(f"wrote {n} of {len(current)} unit(s) and {paths.rel(manifest)}")
+        return 0 if n == len(current) else 1
+    return 2
 
 
 def _slides_backdrop(check: bool) -> int:
@@ -244,6 +282,18 @@ def parser() -> argparse.ArgumentParser:
     t = tsub.add_parser("manifest", help="(template repo) regenerate or check template-manifest.json")
     t.add_argument("--check", action="store_true")
     c.set_defaults(fn=cmd_template)
+
+    c = sub.add_parser("cache", help="build cache: status, key, prune, export (see docs/ARCHITECTURE.md)")
+    csub = c.add_subparsers(dest="cache_cmd", required=True)
+    t = csub.add_parser("status", help="every build unit, its key and whether the store has it")
+    t.add_argument("--book", action="append")
+    csub.add_parser("key", help="the Actions cache key of the store's content")
+    t = csub.add_parser("prune", help="drop stored entries that are not the current key of a unit")
+    t.add_argument("--book", action="append")
+    t = csub.add_parser("export", help="write each unit's tar and build-cache.json into DIR (for a release)")
+    t.add_argument("dir")
+    t.add_argument("--book", action="append")
+    c.set_defaults(fn=cmd_cache)
 
     for kind in ("viz", "slides", "film"):
         c = sub.add_parser(kind, help=f"{kind} helpers (new, list, …)")

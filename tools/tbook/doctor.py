@@ -297,8 +297,11 @@ def check_chromium(report: Report) -> None:
 
 
 def check_ffmpeg(report: Report) -> None:
-    exe = shutil.which("ffmpeg")
-    report.add(Check("ffmpeg", bool(exe), exe or "not on PATH", "sudo apt-get install ffmpeg", targets=("films",)))
+    from . import film
+
+    exe = film.ffmpeg_path()  # $FFMPEG, else ffmpeg on PATH: what the film build uses
+    report.add(Check("ffmpeg", bool(exe), exe or "not on PATH and FFMPEG not set",
+                     "sudo apt-get install ffmpeg (or set FFMPEG)", targets=("films",)))
 
 
 def _fc_families() -> set[str] | None:

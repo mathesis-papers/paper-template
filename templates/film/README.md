@@ -1,8 +1,8 @@
 # 视频模板 · Film template
 
-本目录是 `./tbook film new` 的起始模板；每部视频按 [trureturing-film](https://github.com/the-omega-institute/trureturing-film) 的方案完全由代码生成：确定性的 Canvas 动画、本地合成的英文旁白（Kokoro-82M）、程序化配乐，内嵌中英双语字幕。仓库只存源码，成片由 CI 构建后作为 GitHub Release 资产发布，书中以 `<video>` 嵌入。
+本目录是 `./tbook film new` 的起始模板；每部视频按 [trureturing-film](https://github.com/the-omega-institute/trureturing-film) 的方案完全由代码生成：确定性的 Canvas 动画、本地合成的英文旁白（Kokoro-82M）、程序化配乐，内嵌中英双语字幕。仓库只存源码；成片与 PDF 一样是构建产物：`./tbook build films|site|all` 渲染（输入未变时从缓存恢复）到 `build/films/<slug>/<id>/`，站点托管在 `<slug>/films/<id>/`，书中以 `<video>` 嵌入。
 
-This directory is the starting point of `./tbook film new`. Every film follows the trureturing-film scheme and is generated entirely by code: a deterministic Canvas animation, English narration synthesized locally with Kokoro-82M, a procedural score, and burned-in Chinese and English subtitles. The repository holds source only; CI renders the film and publishes it as GitHub Release assets, which the book embeds.
+This directory is the starting point of `./tbook film new`. Every film follows the trureturing-film scheme and is generated entirely by code: a deterministic Canvas animation, English narration synthesized locally with Kokoro-82M, a procedural score, and burned-in Chinese and English subtitles. The repository holds source only; the videos are build outputs like the PDFs: `./tbook build films|site|all` renders them (or restores them from the build cache when nothing they depend on changed) into `build/films/<slug>/<id>/`, the site hosts them at `<slug>/films/<id>/`, and the book embeds them.
 
 ## 新建 · Create
 
@@ -19,10 +19,10 @@ This directory is the starting point of `./tbook film new`. Every film follows t
 | `script.json` | 旁白与字幕，唯一的时间来源 · narration and subtitles, the single source of timing |
 | `scenes.js` | 每个场景一个 `SCENES.<id> = S => { … }` · one drawing function per scene |
 | `data/*.json` | 可选数据，内联为 `DATA.data.<名>` · optional data, inlined as `DATA.data.<name>` |
-| `poster.jpg` | 提交入库的小海报（≤ 300 KB，`film.sh <dir> poster` 生成） · the committed poster |
+| `poster.jpg` | 提交入库的小海报（≤ 300 KB，手工运行 `film.sh <dir> poster` 生成；构建从不改写它） · the committed poster, written by hand with the `poster` step, never by the build |
 | `README.md` | 可选：场景说明、每条论断的出处 · optional notes, the source of every claim |
 
-其余一切构建产物都在 `<dir>/out/`（已被 `.gitignore` 忽略）。Every build output goes to `<dir>/out/` (git-ignored).
+流水线的工作文件都在 `<dir>/out/`（已被 `.gitignore` 忽略），构建把成片复制到 `build/films/<slug>/<id>/`。The pipeline works in `<dir>/out/` (git-ignored); the build copies the videos to `build/films/<slug>/<id>/`.
 
 ## film.json
 
@@ -36,13 +36,12 @@ This directory is the starting point of `./tbook film new`. Every film follows t
   "subject": "https://github.com/the-omega-institute/trureturing",
   "subject_commit": "8a24ea4e79de962725aab9d9b49cc605fcc211d8",
   "released": "2026-11-08",
-  "duration": "0:57",
+  "duration": "0:50",
   "resolution": "1920x1080@30",
   "style": "trureturing cyberpunk · …",
   "narration": {"language": "en", "engine": "Kokoro-82M v1.0 (onnx)", "voice": "af_heart"},
   "subtitles": ["zh", "en"],
   "lean": ["D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"],
-  "release_tag": "film-example-monograph-001-v1",
   "outputs": {
     "narrated": "example-monograph_001_narrated_EN_subs_ZH-EN.mp4",
     "music_only": "example-monograph_001_music_only_subs_ZH-EN.mp4",
@@ -59,13 +58,13 @@ This directory is the starting point of `./tbook film new`. Every film follows t
 | `title`, `title_zh` | 英文、中文标题，各一行 · English and Chinese titles, one line each |
 | `summary`, `summary_zh` | 可选，一段简介（落地页与视频页） · optional one-paragraph blurbs |
 | `subject_commit` | 制作时依据的 trureturing 提交，应等于 `trureturing.lock.json` 所钉提交；不等时 `./tbook check` 警告 · the trureturing commit the film was made against; should equal the pinned commit (a warning otherwise) |
-| `released`, `duration` | `YYYY-MM-DD`，`m:ss`（`tts` 步骤会提示实际时长） · the `tts` step prints the narrated length |
+| `released`, `duration` | `YYYY-MM-DD`，`m:ss`：旁白版的实际时长（`tts` 步骤与构建在不一致时提示） · the narrated length; the `tts` step and the build warn when it differs |
 | `resolution` | 固定 `1920x1080@<fps>` · always 1920×1080 |
 | `narration`, `subtitles` | 旁白语言/引擎/声音；字幕只支持 `zh`、`en` · subtitles are `zh` and/or `en` |
-| `lean` | 片中引用的定理 GID，必须都在锁文件中且种类为 `theorem`；片中、视频页与 Release 说明都以 LEAN ✓ 链接到所钉提交 · theorems cited by the film; each must be in the lock with kind `theorem` |
-| `release_tag` | 下一次由 `film.yml` 构建并发布的 tag：`film-<书 slug>-<NNN>-v<k>`；发布后不再改动，新剪辑递增 `v<k>` · the tag film.yml builds and publishes; never changes once published; bump `v<k>` for a new cut |
-| `published_tag` | 已发布的 Release tag（`film.yml` 发布 `release_tag` 之后改成它并提交）；`null` 表示尚未发布：书、落地页与视频页只显示海报和“尚未发布”，不嵌入播放器与下载链接。递增 `release_tag` 时保留旧值，书继续指向已发布的版本 · the published release tag (set it after film.yml has released `release_tag`); `null` until then, and the book shows the poster and a not-released note instead of a dead player |
-| `outputs` | Release 资产文件名；书中的播放地址是 `https://github.com/<repo>/releases/download/<published_tag>/<outputs.narrated>` · release asset names |
+| `lean` | 片中引用的定理 GID，必须都在锁文件中且种类为 `theorem`；片中与视频页都以 LEAN ✓ 链接到所钉提交 · theorems cited by the film; each must be in the lock with kind `theorem` |
+| `outputs` | 成片文件名：`narrated`、`music_only`（1080p）、`narrated_720p`、`music_only_720p`（可省略，取默认名）、`cover`；站点地址为 `<slug>/films/<id>/<文件名>`，播放器播放 `narrated_720p` · the video file names; the site serves `<slug>/films/<id>/<file>` and the players play `narrated_720p` |
+
+旧的 `release_tag`、`published_tag`（逐片 Release）不再使用，`./tbook check` 给出警告，删除即可。The former `release_tag` and `published_tag` (per-film releases) are no longer used: `./tbook check` warns; remove them.
 
 ## script.json
 
@@ -103,24 +102,31 @@ This directory is the starting point of `./tbook film new`. Every film follows t
 ## 流水线 · Pipeline
 
 ```bash
+theme/film/setup.sh                # 每台机器一次：视频 venv 与钉死的包（.cache/film/venv）、Kokoro 模型（.cache/film/models）、字体
 F=books/<slug>/films/<NNN>-<name>
-theme/film/film.sh $F setup        # pip 包、Kokoro 模型（.cache/film/models）、字体（node_modules/@fontsource）
 theme/film/film.sh $F timeline     # 无 TTS 的暂定时间轴（预览用）
 theme/film/film.sh $F shot 2 8 14 --poster   # 单帧截图 → out/shots/
 theme/film/film.sh $F serve        # 浏览器预览 index.html?play
 theme/film/film.sh $F clip 30 3 960x540      # 3 秒无声低清片段 → out/clip.mp4
-theme/film/film.sh $F poster       # out/<cover>.jpg 与提交入库的 poster.jpg
-theme/film/film.sh $F all          # tts → music → mix → render → mux → small
+theme/film/film.sh $F poster       # out/<cover>.jpg 与提交入库的 poster.jpg（只有这一步写它）
+theme/film/film.sh $F all          # tts → music → mix → frames → mux → small → cover（构建运行的就是这一步）
 ```
 
-Chromium：设置 `PW_CHROMIUM_PATH` 使用已有浏览器，否则用 Playwright 自带的（`npx playwright install chromium`）。ffmpeg：`$FFMPEG`、`PATH` 或 `imageio-ffmpeg`。
+Python 包钉在 `theme/film/requirements.txt`，`setup.sh` 装进独立的视频 venv（Python 3.12 或 3.13；设置 `PYTHON` 时装进该解释器），tbook 的 `.venv` 不受影响；`film.sh` 与构建在未设置 `PYTHON` 时使用这个 venv。Chromium：设置 `PW_CHROMIUM_PATH` 使用已有浏览器，否则用 Playwright 自带的（`npx playwright install chromium`）。ffmpeg 来自系统：`$FFMPEG` 或 `PATH`（`apt-get install ffmpeg`）。
 
-## 发布 · Publish
+## 构建与发布 · Build and publish
 
 1. `./tbook check` 无错误；提交 `film.json`、`script.json`、`scenes.js`、`poster.jpg`。
-2. 推送与 `release_tag` 相同的标签：`git tag film-<slug>-<NNN>-v1 && git push origin film-<slug>-<NNN>-v1`。
-3. `.github/workflows/film.yml` 在 CI 上合成旁白、渲染全部帧、编码，并创建 Release（1080p 带旁白版、纯配乐版、720p 版与封面），说明中列出所依据的提交与 Lean 引用。
-4. 在章节中嵌入：`::: {.film src="<NNN>-<name>"}` 或 `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`，块内文字为图注。
+2. `./tbook build films --book <slug>`（`build site`、`build all` 同样）：每部视频是一个构建单元。键覆盖视频依赖的全部输入——git 列出的视频目录文件（不含 `out/`、`poster.jpg`、`README.md`）、`theme/film/`（不含 `site/`）、`theme/generated/tokens.mjs`、`tools/tbook/film.py`、引擎绘制的数据（书的代号、版本与标题，所钉提交，引用的声明及其陈述摘要，片内文字）、`package-lock.json` 中 @fontsource 字体与 Playwright 的版本、Kokoro 模型版本与 Node 主版本；不含站点地址，也不含探测到的 ffmpeg、Chromium 与视频 Python。键未变时从本地缓存恢复，设置 `TBOOK_CACHE_REMOTE=1` 时也从已发布的整站 Release 恢复（本机没有视频工具链的贡献者可用它取得视频）；都没有时以 `FILM_STRICT=1` 运行 `film.sh <dir> all` 并把 `outputs` 的五个文件复制到 `build/films/<slug>/<id>/`。
+3. `TBOOK_FILMS`：`auto`（默认）缓存未命中且工具链齐全时渲染，否则警告，站点只显示海报与“视频未构建”；`require` 缺工具链时失败；`skip` 从不渲染（命中缓存仍恢复）。
+4. 站点把视频放在 `<slug>/films/<id>/<文件名>`（同源，Content-Type 与按字节范围请求正确，iOS Safari 可以播放）；整站 Release 附带构建缓存，没有缓存的构建设置 `TBOOK_CACHE_REMOTE=1` 时可以从中恢复。
+5. 在章节中嵌入：`::: {.film src="<NNN>-<name>"}` 或 `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`，块内文字为图注。
+
+1. `./tbook check` passes; commit `film.json`, `script.json`, `scenes.js`, `poster.jpg`.
+2. `./tbook build films --book <slug>` (or `build site`, `build all`): each film is a build unit. Its key covers everything the videos depend on: the film's files as git lists them (not `out/`, `poster.jpg` or `README.md`), `theme/film/` (not `site/`), `theme/generated/tokens.mjs`, `tools/tbook/film.py`, the data the engine draws (the book's code, version and titles, the pinned commit, the cited declarations and their statement digests, the in-frame strings), the `package-lock.json` versions of the @fontsource fonts and Playwright, the Kokoro model release and Node's major version; not the site's address, nor the probed ffmpeg, Chromium or film Python. An unchanged film is restored from the local cache, and with `TBOOK_CACHE_REMOTE=1` also from the published whole-site releases (the way for contributors without the film toolchain to get the videos); otherwise it is rendered with `film.sh <dir> all` (`FILM_STRICT=1`) and the five `outputs` files are copied to `build/films/<slug>/<id>/`.
+3. `TBOOK_FILMS`: `auto` (default) renders a film the cache does not hold when the toolchain is complete, and otherwise warns and the site shows only the poster and "Video not built"; `require` fails without the toolchain; `skip` never renders (a cached film is still restored).
+4. The site serves the videos at `<slug>/films/<id>/<file>`, same origin with the right Content-Type and byte-range responses, which iOS Safari needs; whole-site releases carry the build cache, from which a build without a cache can restore them with `TBOOK_CACHE_REMOTE=1`.
+5. Embed a film in a chapter with `::: {.film src="<NNN>-<name>"}` or `::: {.film src="trureturing-film:film-<NNN>-v<k>"}`; the text inside the block is the caption.
 
 ## 边界 · Scope
 

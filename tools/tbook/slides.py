@@ -1728,11 +1728,33 @@ def _node() -> str:
 
 def build(site: config.Site, book: config.Book, out_dir: Path) -> Path | None:
     """Build every deck of the book into ``out_dir`` (``build/slides/<slug>``): HTML per language,
-    browser checks, PDFs. Environment: ``PW_CHROMIUM_PATH`` (Chromium binary), ``TBOOK_SLIDES_NO_PDF=1``
-    (skip PDF export), ``TBOOK_SLIDES_NO_CHECK=1`` (skip browser checks), ``NODE`` (node binary)."""
+    browser checks, PDFs; nothing when the decks' inputs did not change (:mod:`tbook.buildcache`).
+    Environment: ``PW_CHROMIUM_PATH`` (Chromium binary), ``TBOOK_SLIDES_NO_PDF=1`` (skip PDF export),
+    ``TBOOK_SLIDES_NO_CHECK=1`` (skip browser checks), ``NODE`` (node binary)."""
+    from . import buildcache
+
     if not deck_names(book):
         print(f"  {book.slug}: no slides", flush=True)
         return None
+    unit = buildcache.slides_unit(site, book, out_dir)
+    done = (unit.key, str(Path(out_dir).resolve()))
+    if done in _BUILT and Path(out_dir).is_dir():  # built or restored earlier in this process (build, then publish)
+        return Path(out_dir)
+    buildcache.run(unit, lambda: _build(site, book, out_dir))
+    _BUILT.add(done)
+    return Path(out_dir)
+
+
+# (key, output directory) of the decks build() produced in this process: `./tbook build all` builds them,
+# then the site step publishes them through build() again, which must not build them a second time when
+# the cache is off (TBOOK_CACHE=0) or could not store them.
+_BUILT: set[tuple[str, str]] = set()
+
+
+def _build(site: config.Site, book: config.Book, out_dir: Path) -> None:
+    out_dir = Path(out_dir)
+    if out_dir.exists():  # a fresh build: no deck or PDF of an earlier one stays behind
+        shutil.rmtree(out_dir)
     cmd = [_node(), str(paths.TOOLS / "node" / "slides-build.mjs"), "--book", book.slug,
            "--out", str(Path(out_dir).resolve()), "--base", base_path(site)]
     if os.environ.get("TBOOK_SLIDES_NO_PDF") == "1":
@@ -1745,7 +1767,6 @@ def build(site: config.Site, book: config.Book, out_dir: Path) -> Path | None:
     r = subprocess.run(cmd, cwd=paths.ROOT, env=env)
     if r.returncode != 0:
         raise RuntimeError(f"slides of {book.slug}: tools/node/slides-build.mjs exited with {r.returncode} (see above)")
-    return Path(out_dir)
 
 
 def read_manifest(out_dir: Path) -> dict[str, Any] | None:
@@ -1787,26 +1808,24 @@ def publish(site: config.Site, book: config.Book, site_dir: Path, *, build_missi
     The book's first language goes to ``<deck>/``, other languages to ``<deck>/<lang>/``, PDFs to
     ``<deck>/<slug>-<deck>-<lang>.pdf``; chapter pages already in ``site_dir.parent/<lang>/`` lose their
     links to PDFs that were not built.
-    Decks not built yet, or built for other paths (another base path or first language, other languages:
-    :func:`_stale`), are built first unless ``build_missing`` is False, in which case a RuntimeError names
-    the problem. Returns :func:`items` for the published decks.
+    The decks are built first (:func:`build`, which only restores the stored build when their inputs did
+    not change), unless ``build_missing`` is False: then a build that does not fit the site (another base
+    path or first language, other languages: :func:`_stale`) is a RuntimeError. Returns :func:`items` for
+    the published decks.
     """
     names = deck_names(book)
     if not names:
         return []
     out = build_dir(book)
     base = base_path(site)
+    if build_missing:
+        build(site, book, out)
     manifest = read_manifest(out)
     why = _stale(book, out, manifest, base)
     if why:
         if not build_missing:
             raise RuntimeError(f"slides of {book.slug}: {why}; run ./tbook build slides --book {book.slug}")
-        print(f"  slides of {book.slug}: {why}; building", flush=True)
-        build(site, book, out)
-        manifest = read_manifest(out)
-        why = _stale(book, out, manifest, base)
-        if why:
-            raise RuntimeError(f"slides of {book.slug}: {why} after building")
+        raise RuntimeError(f"slides of {book.slug}: {why} after building")
     site_dir = Path(site_dir)
     site_dir.mkdir(parents=True, exist_ok=True)
     for deck in names:
