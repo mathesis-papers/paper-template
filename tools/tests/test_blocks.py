@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -523,6 +524,80 @@ class FindingsTest(unittest.TestCase):
             self.assertNotIn("[@def-a]", out)
             self.assertIn("| 一 | 待定 <!-- 稍后补 |", out)
 
+    def test_unpaired_dollar_before_a_fence(self):
+        """A '$' left unpaired right above a fenced code block that holds a '$' does not take the code into a
+        formula (whose closing fence would open a code block to the end of the chapter): check reads what
+        follows and names the '$', which Pandoc does pair over the fence."""
+        lines = UNPAIRED_DOLLAR.split("\n")
+        self.assertEqual(mdscan.scan_blocks(lines).kinds[7:10], [mdscan.FENCE] * 3)
+        self.assertEqual(mathrender.find_math(UNPAIRED_DOLLAR)[0], [])
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", UNPAIRED_DOLLAR)
+            m = model.load_edition(repo.edition)
+            self.assertIn("thm-b", m.envs)
+            out = checked(m)
+        self.assertEqual(len(out), 3, out)
+        self.assertTrue(out[0].startswith("WARNING") and "ch01.md:7: the '$' at column 12 is not closed before the "
+                        "fenced code block on line 8" in out[0], out)
+        self.assertIn("pairs this '$' with the one on line 9", out[0])
+        errors = "\n".join(out[1:])
+        self.assertIn("ch01.md:12: [@def-nope] refers to no environment", errors)
+        self.assertIn("ch01.md:14: not a declaration GID: 'Fake/Module.bad'", errors)
+
+    @unittest.skipUnless(HAVE_KATEX and MDBOOK, "node, katex and mdBook are required")
+    def test_unpaired_dollar_before_a_fence_html(self):
+        from tbook import html
+
+        slug = "tbook-test-blocks-dollar"
+        self.addCleanup(shutil.rmtree, config.paths.BUILD / "stage" / slug, True)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ed = write_book(root, {"ch01.md": UNPAIRED_DOLLAR}, slug)
+            html.build_edition(fixture_site(), ed.book, ed, None, None, root / "html")
+            page = (root / "html" / "ch01.html").read_text(encoding="utf-8")
+        main = page[page.index("<main>"):page.index("</main>")]
+        self.assertIn('<code class="language-bash">export PATH=$HOME/bin:$PATH\n</code>', main)
+        self.assertIn('<section class="tr-env tr-theorem', main)
+        self.assertNotIn("katex", main)
+
+
+UNPAIRED_DOLLAR = textwrap.dedent("""\
+    # 第一章 甲
+
+    ::: {.definition #def-a}
+    甲。
+    :::
+
+    把 bin 目录加入 $PATH：
+    ```bash
+    export PATH=$HOME/bin:$PATH
+    ```
+
+    见 [@def-a] 与 [@def-nope]。
+
+    ::: {.theorem #thm-b lean="Fake/Module.bad"}
+    乙。
+    :::
+    """)
+
+
+class ScanTimeTest(unittest.TestCase):
+    """Pairing '$' over lines stays linear: many '$' left unpaired in one table or paragraph (a price in
+    every row) once made scan_blocks and find_math quadratic."""
+
+    def test_many_unpaired_dollars(self):
+        rows = 3000
+        texts = {"table": "| 项 | 值 |\n| --- | --- |\n" + "".join(f"| 项目{k} | 约 $5 起 |\n" for k in range(rows)),
+                 "paragraph": "".join(f"{k} 行，价格 $5 起，\n" for k in range(rows)),
+                 "line": "价格 $5 起，" * rows + "\n",
+                 "before a fence": "".join(f"{k} 行 $x 与 $5\n" for k in range(rows)) + "```\na=$b\n```\n"}
+        for name, text in texts.items():
+            with self.subTest(name):
+                start = time.perf_counter()
+                mdscan.scan_blocks(text.split("\n"))
+                mathrender.find_math(text)
+                self.assertLess(time.perf_counter() - start, 1.5)
+
 
 # --------------------------------------------------------------------------- the renderers themselves
 
@@ -573,10 +648,14 @@ AGREED = {
     "display math over a list marker": "z01 竖式：\n\n$$\n\\begin{array}{r}\n  z02 \\\\\n+      z03 \\\\\n\\hline\n"
                                        "  z04\n\\end{array}\n$$\n\nz05 之后 $z06$。\n",
     "display math over a setext line": "z01 求和：\n\n$$\n\\sum_{k=1}^n z02\n=\n    \\frac{z03}{2}\n$$\n\nz04 后文\n",
-    "display math over a fence": "z01 a\n\n$$\n```\nz02\n```\n$$\n\nz03 b\n",
     "display math over a heading": "z01 a\n$$\n# z02\n$$\n",
     "display math in a quote": "> z01 引\n>\n> $$\n> z02\n> +      z03\n> $$\n\nz04 后\n",
     "inline math over a code line": "z01 a $z02\n+     z03$ z04\n",
+    # A fenced code block ends a formula that has not closed before it; nobody pairs these '$' over it.
+    "unpaired $ before a fence without $": "z01 价格 $5：\n```\nz02 code\n```\n\nz03 后\n",
+    "unpaired $ before a fence, no closer for Pandoc": "z01 a $x\n```\nz02 $y$\n```\n\nz03 后\n",
+    "four-space fence in a formula is no fence": "z01 a $b\n    ```\n    z02 c$ d\n",
+    "fence after a formula over lines": "z01 a $b\nc$ d\n```\nz02 x=$y\n```\n\nz03 后\n",
     # ':' starts a definition only after its term or another definition (in the same container).
     "colon line after code": "z01 命令：\n\n    z02 lake build\n\n:   z03 冒号开头。\n\n    z04 echo $HOME/$USER 见[二](ch02.md)\n",
     "colon line after an item": "- z01 项\n\n:   z02 定义?\n\n    z03 第二段\n",
@@ -589,6 +668,12 @@ AGREED = {
     "definition right after code in a definition": "z01 术语\n\n:   z02 定义\n\n        z03 代码\n:   z04 第二个\n\n"
                                                    "    z05 第二段\n",
     "definition two blank lines after a definition": "z01 术语\n\n:   z02 定义\n\n\n:   z03 第二个\n\n    z04 第二段\n",
+    # A ':' line that holds nothing starts a definition whose body starts in the column after the ':'.
+    "empty colon definition": "z01 术语\n:\n    z02 定义\n\n    z03 第二段\n\nz04 后\n",
+    "empty colon definition, code": "z01 术语\n:\n    z02 定义\n\n     z03 代码\n\nz04 后\n",
+    "empty colon definition in a list": "- z01 术语\n  :\n      z02 定义\n\n      z03 第二段\n\nz04 后\n",
+    "empty colon definition in a quote": "> z01 术语\n> :\n>     z02 定义\n>\n>     z03 第二段\n\nz04 后\n",
+    "empty colon definition, then another": "z01 术语\n:\n    z02 定义\n:   z03 第二个\n\n    z05 第二段\n\nz04 后\n",
     # Each row of a table is a paragraph of its own for inline comments.
     "table comment closed in its cell": "| z01 a | b |\n| - | - |\n| z02 c <!-- z03 --> z04 | d |\n",
     "table comment open in a header cell": "| z01 a <!-- z02 | b |\n| - | - |\n| z03 c --> z04 | d |\n",
@@ -615,6 +700,22 @@ DISAGREE = {
                                      "| 三 | z05 完成 --> z06 了 |\n", "mdbook", [3]),
     "comment open in a row after a paragraph": ("z00 text\n| z01 a | b |\n| - | - |\n| z02 c <!-- z03 | d |\n"
                                                 "| z04 e --> z05 | f |\n", "mdbook", [4]),
+    # A '$' left unpaired before a fenced code block: Pandoc pairs it with a '$' in the code, the HTML
+    # edition (formulas rendered around code, then mdBook) shows the code block.
+    "unpaired $ over a fence": ("z01 把 bin 目录加入 $PATH：\n```bash\nz02 export PATH=$HOME/bin:$PATH\n```\n\nz03 见\n",
+                                "mdbook", [1]),
+    "currency over a fence": ("z01 费用约 $5（见下）：\n```python\nz02 total=$x\n```\n\nz03 见\n", "mdbook", [1]),
+    "typo over a fence": ("z01 其中 $a 为常数\n```lean\nz02 example : ($x) := by\n```\n\nz03 见\n", "mdbook", [1]),
+    "two lines above a fence": ("z01 a $b\nz02 c\n```\nz03 x=$y\n```\n\nz04 见\n", "mdbook", [1]),
+    "over a fence in a list item": ("1. z01 运行 $PATH：\n   ```bash\n   z02 export PATH=$HOME\n   ```\n\nz03 后\n",
+                                    "mdbook", [1]),
+    "over a fence in a block quote": ("> z01 用 $PATH：\n> ```bash\n> z02 export PATH=$HOME\n> ```\n\nz03 后\n",
+                                      "mdbook", [1]),
+    "display math over a fence": ("z01 a\n\n$$\n```\nz02\n```\n$$\n\nz03 b\n", "mdbook", [3]),
+    "$$ before a fence": ("z01 用 $$ 表示进程号：\n```bash\nz02 echo $$\n```\n\nz03 后\n", "mdbook", [1]),
+    # mdBook ends a definition whose ':' line holds nothing at the blank line after it; Pandoc does not.
+    "empty colon definition, blank line": ("z01 术语\n:\n\n    z02 定义\n\nz04 后\n", "pandoc", [2]),
+    "colon and space, blank line": ("z01 术语\n: \n\n    z02 定义\n\nz04 后\n", "pandoc", [2]),
 }
 
 

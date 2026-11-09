@@ -46,16 +46,19 @@ from .model import FORMAL, MEDIA, ChapterDoc, EditionModel, Env
 LINK_RE = mdscan.LINK_RE
 REFDEF_RE = mdscan.REFDEF_RE
 # ``[label]:`` followed by text on the same line, at the left margin or after block-quote markers, list
-# markers or a list item's indentation. Unless REFDEF_RE accepts it, CommonMark (mdBook) reads it as a
-# paragraph, but Pandoc's Markdown takes a URL of several words (``[1]: Knuth, TAOCP.`` or
-# ``- [注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is escaped so every target shows it.
+# markers or a list item's indentation, on a line where a definition may begin (mdscan.DEF_START: Pandoc,
+# like CommonMark, reads a line that goes on with a paragraph as text). Unless REFDEF_RE accepts it,
+# CommonMark (mdBook) reads it as a paragraph, but Pandoc's Markdown takes a URL of several words
+# (``[1]: Knuth, TAOCP.`` or ``- [注]: 见 ![图](a.svg)``) and drops the line; for Pandoc its "[" is
+# escaped so every target shows it.
 _REFDEF_LIKE_RE = re.compile(r"^(?P<indent>" + mdscan.CONTAINER + r")\[(?!\^)" + mdscan.LINK_TEXT + r"\]:[ \t]*\S")
 # ``[label]:`` with nothing after the colon. CommonMark reads a definition only when the next line of the
-# paragraph holds its destination (and optional title); otherwise the line is text, while Pandoc's
-# Markdown reads a definition with an empty destination (or the next line as one) and drops the lines.
+# paragraph holds its destination (and optional title, mdscan.DEF_DEST); otherwise the line is text, while
+# Pandoc's Markdown reads a definition with an empty destination (or the next line as one) and drops the lines.
 _LABEL_ONLY_RE = re.compile(r"^(?P<indent>" + mdscan.CONTAINER + r")\[(?!\^)" + mdscan.LINK_TEXT + r"\]:[ \t]*$")
-_QUOTE_MARK_RE = re.compile(r"[ \t]*>")
-_NEXT_DEST_RE = re.compile(r"[ \t]*" + mdscan.REFDEF_DEST)
+# A destination on the line after its label (mdscan.DEF_DEST), after the block-quote markers.
+_DEST_LINE_RE = re.compile(r"[ \t>]*" + mdscan.REFDEF_DEST)
+_SCHEME_RE = re.compile(r"[a-z][a-z0-9+.-]*:", re.I)
 EXTERNAL_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|#|/)", re.I)
 # Characters a plain (non ``<…>``) destination cannot hold, and those a decoded file path
 # must also escape to stay one path.
@@ -260,10 +263,12 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
 # --------------------------------------------------------------------------- inline
 
 
-def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
+def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext, role: str = mdscan.DEF_START) -> str:
     """Rewrite the local links and images of ``line`` (see the module docstring); records the files
     they point at in ``ctx.book_files`` / ``ctx.edition_files`` and links that leave the book in
-    ``ctx.issues``."""
+    ``ctx.issues``. ``role`` (:func:`tbook.mdscan.definition_roles`) says whether a reference
+    definition may begin on the line; a destination on the line after its label is not read, only
+    reported (unless it has a scheme: ``lean:`` is :func:`without_stray_lean`'s)."""
     book_dir = ctx.book.dir.resolve()
     edition_dir = ctx.edition.dir.resolve()
     chapter_dir = doc.path.parent.resolve()
@@ -329,48 +334,62 @@ def rewrite_links(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
     def inline(text: str) -> str:
         return mdscan.sub_outside_code(mdscan.LEAN_AUTOLINK_RE, autolink, mdscan.sub_outside_code(LINK_RE, repl, text))
 
-    refdef = mdscan.refdef(line)
+    if role == mdscan.DEF_DEST:
+        dest = _DEST_LINE_RE.match(line.replace(mdscan._HIDDEN_LT, "<"))  # a hidden <lean:…> is a stray
+        url = mdscan.unangle(dest.group("url")) if dest else ""
+        if url and not _SCHEME_RE.match(url):
+            ctx.issues.append(f"{doc.path}: '{url}' is the destination of the reference definition whose label "
+                              "ends the line before (mdBook and Pandoc read it so and show neither line), but the "
+                              "builds do not read a destination there: it is not checked or copied, and PDF/EPUB "
+                              "do not resolve it; write it on the label's line, or the label's '[' as '\\[' if "
+                              "both lines are text")
+        return line
+    refdef = mdscan.refdef(line) if role == mdscan.DEF_START else None
     if refdef:
         # An unresolved ``lean:`` destination becomes "#": never a raw ``lean:`` URL (a dead link,
         # and epubcheck rejects the scheme); PDF/EPUB show such a link as text (tr-book.lua).
         empty(refdef.group("url"), line.strip())
         new = new_url(refdef.group("url"))
         return f"{refdef.group('lead')}{'#' if new is None else new}{refdef.group('rest')}"
-    like = _REFDEF_LIKE_RE.match(line) if ctx.target == "pandoc" else None
+    like = _REFDEF_LIKE_RE.match(line) if ctx.target == "pandoc" and role == mdscan.DEF_START else None
     if like and not mdscan.REF_RE.match(line, like.end("indent")):  # ``[@id]:`` becomes a link anyway
         line = f"{like.group('indent')}\\{line[like.end('indent'):]}"
-    return inline(line)
+    out = inline(line)
+    if out != line and role == mdscan.DEF_START and mdscan.refdef(out):
+        # ``[3]: <lean:GID>，文字`` is text with an autolink; written ``[3]: [GID](url)，文字`` it would be a
+        # definition (a plain destination may start with "[", not with "<"): the label stays text.
+        like = _REFDEF_LIKE_RE.match(out)
+        out = f"{like.group('indent')}\\{out[like.end('indent'):]}"
+    return out
 
 
-def label_only_as_text(lines: list[str]) -> list[str]:
-    """``lines`` (consecutive text lines, for Pandoc) with the ``[`` of each ``[label]:`` that has no
-    destination escaped, so that Pandoc shows it as text like CommonMark (mdBook) does: the next line
-    is blank, missing, or not a destination with an optional title (``# 标题``, words). When the next
-    line holds the destination, both read a definition."""
+def label_only_as_text(lines: list[str], roles: list[str] | None = None) -> list[str]:
+    """``lines`` (consecutive text lines, for Pandoc; ``roles`` their
+    :func:`tbook.mdscan.definition_roles`) with the ``[`` of each ``[label]:`` that has no destination
+    escaped where a definition may begin, so that Pandoc shows it as text like CommonMark (mdBook)
+    does: the next line is blank, missing, or not a destination with an optional title (``# 标题``,
+    words). When the next line holds the destination, both read a definition; on a line that goes on
+    with a paragraph (in a formula over lines too) both read text."""
+    roles = mdscan.definition_roles(lines) if roles is None else roles
     out = list(lines)
     for k, line in enumerate(lines):
-        m = _LABEL_ONLY_RE.match(line)
+        m = _LABEL_ONLY_RE.match(line) if roles[k] == mdscan.DEF_START else None
         if not m or mdscan.REF_RE.match(line, m.end("indent")):  # ``[@id]:`` becomes a link anyway
             continue
-        if k + 1 < len(lines):
-            nxt, pos = lines[k + 1], 0
-            for _ in range(m.group("indent").count(">")):  # the block quotes of the label's line go on
-                q = _QUOTE_MARK_RE.match(nxt, pos)
-                if not q:
-                    break
-                pos = q.end()
-            if _NEXT_DEST_RE.match(nxt, pos):
-                continue
+        if k + 1 < len(lines) and roles[k + 1] == mdscan.DEF_DEST:
+            continue
         out[k] = f"{m.group('indent')}\\{line[m.end('indent'):]}"
     return out
 
 
-def without_stray_lean(lines: list[str], start: int, doc: ChapterDoc, ctx: RenderContext) -> list[str]:
-    """``lines`` (consecutive text lines from line ``start``, already rewritten) with every ``lean:``
-    destination that the line scanner cannot read (a link written across lines, raw HTML) neutralised
-    by :func:`tbook.mdscan.without_stray_lean`: no target ever writes a ``lean:`` URL. ``./tbook check``
-    reports each one (:mod:`tbook.model`); the build warns."""
-    out, strays = mdscan.without_stray_lean(lines)
+def without_stray_lean(lines: list[str], start: int, doc: ChapterDoc, ctx: RenderContext,
+                       cont: list[bool] | None = None) -> list[str]:
+    """``lines`` (consecutive text lines from line ``start``, already rewritten; ``cont`` their
+    :attr:`tbook.mdscan.Text.cont`) with every ``lean:`` destination that the line scanner cannot read
+    (a link written across lines, raw HTML) neutralised by :func:`tbook.mdscan.without_stray_lean`: no
+    target ever writes a ``lean:`` URL. ``./tbook check`` reports each one (:mod:`tbook.model`); the
+    build warns."""
+    out, strays = mdscan.without_stray_lean(lines, cont)
     for s in strays:
         ctx.issues.append(f"{doc.path}:{start + s.line}: a lean: link the tools cannot read (written across "
                           f"lines, or in raw HTML) loses its lean: destination: {lines[s.line].strip()}")
@@ -388,8 +407,8 @@ def _rewrite_refs(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
     return mdscan.sub_outside_code(mdscan.REF_RE, repl, line)
 
 
-def transform_line(line: str, doc: ChapterDoc, ctx: RenderContext) -> str:
-    return _rewrite_refs(rewrite_links(line, doc, ctx), doc, ctx)
+def transform_line(line: str, doc: ChapterDoc, ctx: RenderContext, role: str = mdscan.DEF_START) -> str:
+    return _rewrite_refs(rewrite_links(line, doc, ctx, role), doc, ctx)
 
 
 # --------------------------------------------------------------------------- environments
@@ -477,9 +496,11 @@ def chapter_markdown(doc: ChapterDoc, ctx: RenderContext) -> str:
     envs_by_div = {id(e.div): e for e in doc.envs + doc.media if e.div is not None}
 
     def text_fn(node: mdscan.Text) -> str:
+        roles = mdscan.text_roles(node)
         if ctx.target == "pandoc":
-            node = mdscan.Text(label_only_as_text(node.lines), node.start, node.carry)
-        return "\n".join(without_stray_lean(mdscan.map_text(node, lambda line: transform_line(line, doc, ctx)), node.start, doc, ctx))
+            node = mdscan.Text(label_only_as_text(node.lines, roles), node.start, node.carry, node.cont)
+        lines = mdscan.map_text(node, lambda line, role: transform_line(line, doc, ctx, role), roles)
+        return "\n".join(without_stray_lean(lines, node.start, doc, ctx, node.cont))
 
     def div_fn(div: mdscan.Div, inner: str) -> str:
         out = div_markup(div, inner)

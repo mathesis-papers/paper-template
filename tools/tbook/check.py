@@ -104,19 +104,21 @@ def check_links(model: EditionModel, site: config.Site, issues: list[Issue]) -> 
 
     Runs the builds' own link rewriting (:func:`tbook.render.rewrite_links`), so it reads links and
     images the way the builds do: inline, ``<…>`` and percent-encoded destinations, reference
-    definitions, ``../assets/…``, and nothing in code or HTML comments (which no target shows).
-    Otherwise a missing file is reported only when an edition is built. Warnings, like the
-    build's: a broken link does not make a result unverified.
+    definitions (only where one may begin, :func:`tbook.mdscan.definition_roles`), ``../assets/…``,
+    and nothing in code or HTML comments (which no target shows). Otherwise a missing file is
+    reported only when an edition is built. A definition whose destination is on the line after its
+    label is reported: the builds do not read it there. Warnings, like the build's: a broken link
+    does not make a result unverified.
     """
     ed = model.edition
     for doc in model.chapters:
         ctx = render.RenderContext(site, ed.book, ed, model, None, target="pandoc")
         prefix = f"{doc.path}: "
-        for lineno, line in mdscan.iter_text_lines(doc.blocks):
+        for lineno, line, role in mdscan.iter_text(doc.blocks):
             ctx.book_files.clear()
             ctx.edition_files.clear()
             ctx.issues.clear()
-            render.rewrite_links(line, doc, ctx)
+            render.rewrite_links(line, doc, ctx, role)
             # files outside the edition are copied into the build one by one, so they must be files
             missing = sorted(p for p in ctx.book_files if not p.is_file())
             missing += sorted(p for p in ctx.edition_files if not p.exists())

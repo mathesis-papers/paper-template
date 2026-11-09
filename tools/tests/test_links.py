@@ -16,6 +16,10 @@ Run: PYTHONPATH=tools:tools/tests python -m unittest test_links
 * A link or image with an empty destination made Typst fail ("URL must not be empty") and an empty
   image source failed epubcheck; ``[x]:`` with no destination vanished from PDF/EPUB (Pandoc read an
   empty definition) while HTML showed it.
+* A definition cannot interrupt a paragraph: ``para\\n[fig]: a.svg`` was rewritten, cited or reported
+  as one; ``[1]: <lean:GID> 文字`` (also ``<lean:GID>，文字``) was a definition or a false stray; a
+  ``[0,1]:`` line in a formula over lines was escaped for Pandoc; a destination on the line after its
+  label was neither read nor reported.
 
 The fixtures are those of ``test_markdown`` (a throwaway repository, an in-memory lock); the
 Pandoc tests are skipped when Pandoc is missing.
@@ -23,6 +27,8 @@ Pandoc tests are skipped when Pandoc is missing.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -43,6 +49,22 @@ def pandoc_plain(md: str) -> str:
 
     return subprocess.run([pandoc.pandoc_path(), "-f", pandoc.READER, "-t", "plain", "--wrap", "none"], input=md,
                           capture_output=True, text=True, check=True).stdout
+
+
+MDBOOK = os.environ.get("MDBOOK") or shutil.which("mdbook")
+
+
+def mdbook_html(md: str) -> str:
+    """The ``<main>`` of the page real mdBook makes of ``md`` (a chapter as render writes it)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "book.toml").write_text('[book]\ntitle = "t"\n', encoding="utf-8")
+        (root / "src" / "SUMMARY.md").write_text("# Summary\n\n- [c](c.md)\n", encoding="utf-8")
+        (root / "src" / "c.md").write_text(md, encoding="utf-8")
+        subprocess.run([MDBOOK, "build"], cwd=root, capture_output=True, check=True)
+        page = (root / "book" / "c.html").read_text(encoding="utf-8")
+    return page[page.index("<main>"):page.index("</main>")]
 
 
 # --------------------------------------------------------------------------- finding 2
@@ -518,6 +540,194 @@ class EmptyDestinationTests(unittest.TestCase):
             main = (Path(tmp) / "stage" / "main.typ").read_text(encoding="utf-8")
             self.assertNotIn('link("")', main)
             self.assertIn("\\[x\\]:", main)
+
+
+# --------------------------------------------------------------------------- where a definition may begin
+
+
+class DefinitionStartTests(unittest.TestCase):
+    """A link reference definition cannot interrupt a paragraph, in mdBook and in Pandoc: ``para\\n[fig]: a.svg``
+    is text (it was rewritten, cited or reported as a definition), and ``<lean:GID>`` after a ``[label]:``
+    line that goes on with a paragraph is an autolink (it was reported as a stray and shown as ``[注]: #``).
+    Definitions in a row, also after a title over lines, stay definitions."""
+
+    TEXT = (f"# 第一章\n\n"
+            f"A12 段落续行：先写一句\n[注]:\n<lean:{GID_OK}>\n\n"  # 3-5
+            f"段落\n[fig]: ../assets/fig.svg\n\n"  # 7-8
+            f"段落\n    [lt]: lean:{GID_DEF}\n\n"  # 10-11
+            f"> 引文\n> [lq]: <lean:{GID_DEF}>\n\n"  # 13-14
+            f"[a]: ../assets/fig.svg\n[b]: lean:{GID_OK}\n\n"  # 16-17
+            f"[t]: ../assets/fig.svg \"多行\n标题\"\n[c]: lean:{GID_OK}\n\n"  # 19-21
+            f"[l]:\n  ../assets/fig.svg\n[m]: lean:{GID_OK}\n")  # 23-25
+    CITED = [(5, GID_OK), (14, GID_DEF), (17, GID_OK), (21, GID_OK), (25, GID_OK)]
+
+    def test_roles(self):
+        roles = {n: role for n, _, role in mdscan.iter_text(mdscan.parse_blocks(self.TEXT)) if role}
+        S, D = mdscan.DEF_START, mdscan.DEF_DEST
+        self.assertEqual(roles, {1: S, 2: S, 3: S, 6: S, 7: S, 9: S, 10: S, 12: S, 13: S, 15: S, 16: S, 17: S,
+                                 18: S, 19: S, 21: S, 22: S, 23: S, 24: D, 25: S, 26: S})
+        self.assertEqual(mdscan.stray_lean_links(self.TEXT.split("\n")), [])
+
+    def test_model_and_check(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            m = model.load_edition(repo.edition)
+            self.assertEqual(m.issues, [])
+            self.assertEqual(m.chapters[1].lean_links, self.CITED)
+            issues: list[model.Issue] = []
+            check.check_links(m, config.load_site(), issues)
+            self.assertEqual([(i.line, i.message[:19]) for i in issues], [(24, "'../assets/fig.svg'")])
+
+    def test_render(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                self.assertIn(f"[注]:\n[{mdscan.escape_markdown(GID_OK)}]({SOURCE_OK})\n", out, target)
+                self.assertIn("段落\n[fig]: ../assets/fig.svg\n", out, target)
+                self.assertIn(f"段落\n    [lt]: lean:{GID_DEF}\n", out, target)
+                self.assertIn(f"> 引文\n> [lq]: [{mdscan.escape_markdown(GID_DEF)}]({SOURCE_DEF})\n", out, target)
+                self.assertIn(f"[a]: {FIG}\n[b]: {SOURCE_OK}\n", out, target)
+                self.assertIn(f"[t]: {FIG} \"多行\n标题\"\n[c]: {SOURCE_OK}\n", out, target)
+                self.assertIn(f"[l]:\n  ../assets/fig.svg\n[m]: {SOURCE_OK}\n", out, target)
+                self.assertNotIn("#\n", out, target)
+                self.assertEqual(len(ctx.issues), 1, ctx.issues)
+
+    @unittest.skipUnless(have_pandoc(), "pandoc not installed")
+    def test_pandoc_shows_the_text(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            out, _ = repo.render("ch01.md", target="pandoc")
+        plain = pandoc_plain(out)
+        for text in ("[注]:", GID_OK, "[fig]: ../assets/fig.svg", f"[lt]: lean:{GID_DEF}", "[lq]:", GID_DEF):
+            self.assertIn(text, plain)
+
+    def test_linear(self):
+        lines = ["段落"] + [f"[x{k}]: <lean:{GID_OK}>" for k in range(3000)] + [""]
+        lines += [f"[d{k}]: lean:{GID_OK}" for k in range(3000)] + [""]
+        lines += [f'[t{k}]: a.svg "多行' if k % 2 == 0 else '标题"' for k in range(3000)]
+        start = time.perf_counter()
+        for node in mdscan.walk(mdscan.parse_blocks("\n".join(lines))):
+            if isinstance(node, mdscan.Text):
+                mdscan.stray_lean_links(node.lines, node.cont)
+                mdscan.text_views(node)
+                mdscan.text_roles(node)
+        self.assertLess(time.perf_counter() - start, 2.0)
+
+
+class DefinitionLikeParagraphTests(unittest.TestCase):
+    """``[1]: <lean:GID> 文字`` is no definition (words follow the destination, or ``，`` right after the
+    ``>``: a plain destination cannot start with ``<``) but a paragraph with an autolink: it was a false
+    STRAY_LEAN error (HTML ``[1]: # 文字``) or a definition with ``href="lean:…"``. On two lines too."""
+
+    TEXT = (f"# 第一章\n\n## 参考\n\n[1]: <lean:{GID_OK}> 三值亏量定理\n\n"  # 5
+            f"- [2]: <lean:{GID_OK}> 三值亏量定理（列表）\n\n"  # 7
+            f"> [3]: <lean:{GID_OK}>，引用中\n\n"  # 9
+            f"[4]:\n<lean:{GID_DEF}> 两行\n")  # 11-12
+    LINK = f"[{mdscan.escape_markdown(GID_OK)}]({SOURCE_OK})"
+
+    def test_scanners(self):
+        lines = self.TEXT.split("\n")
+        for k in (4, 6, 8):
+            self.assertIsNone(mdscan.refdef(lines[k]), lines[k])
+            self.assertEqual(mdscan.lean_link_gids(lines[k]), [GID_OK])
+        self.assertEqual(mdscan.stray_lean_links(lines), [])
+
+    def test_model_check_and_render(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            m = model.load_edition(repo.edition)
+            self.assertEqual(m.issues, [])
+            self.assertEqual(m.chapters[1].lean_links, [(5, GID_OK), (7, GID_OK), (9, GID_OK), (12, GID_DEF)])
+            issues: list[model.Issue] = []
+            check.check_links(m, config.load_site(), issues)
+            self.assertEqual(issues, [])
+            repo.model = m
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                self.assertNotIn("lean:", out, target)
+                self.assertIn(f"1]: {self.LINK} 三值亏量定理\n", out, target)
+                self.assertIn(f"2]: {self.LINK} 三值亏量定理（列表）\n", out, target)
+                self.assertIn(f"> \\[3]: {self.LINK}，引用中\n", out, "rewritten, it would be a definition")
+                self.assertIn(f"[4]:\n[{mdscan.escape_markdown(GID_DEF)}]({SOURCE_DEF}) 两行", out, target)
+                self.assertEqual(ctx.issues, [], target)
+
+    @unittest.skipUnless(MDBOOK and (shutil.which(MDBOOK) or os.path.exists(MDBOOK)), "mdBook needed")
+    def test_mdbook_shows_every_line(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            out, _ = repo.render("ch01.md", target="mdbook")
+        html = mdbook_html(out)
+        for gid, text in ((GID_OK, " 三值亏量定理"), (GID_OK, " 三值亏量定理（列表）"), (GID_OK, "，引用中"),
+                          (GID_DEF, " 两行")):
+            self.assertIn(f'">{gid}</a>{text}', html)
+
+
+class DestinationOnTheNextLineTests(unittest.TestCase):
+    """A definition whose destination is on the line after its label is a definition for mdBook and Pandoc,
+    but the builds do not read it there (its file was neither checked nor staged: a dead HTML link and a
+    failing EPUB build while check passed): check and the builds say so. One with a scheme works."""
+
+    TEXT = ("# 第一章\n\n见 [图九][九]、[图十][十] 与 [外][外]。\n\n[九]:\n../assets/fig.svg\n\n"  # 5-6
+            "> [十]:\n> ../assets/missing.svg 'T'\n\n[外]:\n  https://example.org/x.svg\n\n"  # 8-9, 11-12
+            "[文]:\nIntroduction\n")  # 14-15: a word is a destination too (the EPUB failed on it)
+
+    def test_check_warns(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            m = model.load_edition(repo.edition)
+            self.assertEqual(m.issues, [])
+            issues: list[model.Issue] = []
+            check.check_links(m, config.load_site(), issues)
+            self.assertEqual([(i.severity, i.line) for i in issues], [("warning", 6), ("warning", 9), ("warning", 15)])
+            self.assertTrue(issues[0].message.startswith("'../assets/fig.svg' is the destination of the reference "
+                                                         "definition whose label ends the line before"), issues[0])
+            self.assertIn("'../assets/missing.svg'", issues[1].message)
+            self.assertIn("'Introduction'", issues[2].message)
+            repo.model = m
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                self.assertIn("[九]:\n../assets/fig.svg\n", out, target)
+                self.assertEqual(len(ctx.issues), 3, ctx.issues)
+
+
+# --------------------------------------------------------------------------- formulas over lines
+
+
+class LabelInFormulaTests(unittest.TestCase):
+    """A ``[0,1]:`` line inside a formula over lines goes on with its paragraph: the Pandoc target must not
+    escape its ``[`` (``\\[0,1]`` broke the math in PDF/EPUB)."""
+
+    TEXT = ("# 第一章\n\n$$\nf\\colon\n[0,1]:\n\\to \\mathbb{R}\n$$\n\n"
+            "L7 行内公式跨行 $x \\in\n[0,1]:\ny$ 结束。\n\n"
+            "$$\ng\\colon\n[0,1]: \\to \\mathbb{R}\n$$\n")
+
+    def test_not_escaped(self):
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            for target in ("mdbook", "pandoc"):
+                out, ctx = repo.render("ch01.md", target=target)
+                self.assertNotIn("\\[0,1]", out, target)
+                self.assertEqual(out.count("\n[0,1]:"), 3, target)
+                self.assertEqual(ctx.issues, [], target)
+
+    @unittest.skipUnless(have_pandoc(), "pandoc not installed")
+    def test_pandoc_reads_math(self):
+        from tbook import pandoc
+
+        with Repo() as repo:
+            write(repo.edition.dir / "ch01.md", self.TEXT)
+            repo.model = model.load_edition(repo.edition)
+            out, _ = repo.render("ch01.md", target="pandoc")
+        proc = subprocess.run([pandoc.pandoc_path(), "-f", pandoc.READER, "-t", "native"], input=out,
+                              capture_output=True, text=True, check=True)
+        self.assertEqual(proc.stdout.count("Math DisplayMath"), 2, proc.stdout)
+        self.assertEqual(proc.stdout.count("Math InlineMath"), 1, proc.stdout)
+        self.assertNotIn("$", pandoc_plain(out))
 
 
 # --------------------------------------------------------------------------- the PDF/EPUB stager
