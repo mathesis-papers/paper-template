@@ -32,7 +32,7 @@ $$
 
 ## 两张面孔 {#sec-two-faces}
 
-$\beta(v)$ 把 $v$ 的 Zeckendorf 数位放在黄金比 $\varphi$ 的幂上求值，称为展开面读数。$\varphi$ 是方程 $x^2 = x + 1$ 的根，这个方程的另一个根是 $\psi = (1-\sqrt5)/2 = -1/\varphi \approx -0.618$。把同一组数位放在 $\psi$ 的幂上求值，就得到收缩面读数。[@thm-deficit-integer] 说亏量在两个面上读数相同；本节说明其中的道理，并给出 [@thm-deficit-three-valued] 的证明所用的窗口。
+$\beta(v)$ 把 $v$ 的 Zeckendorf 数位放在黄金比 $\varphi$ 的幂上求值，称为展开面读数。$\varphi$ 是方程 $x^2 = x + 1$ 的一个根，这个方程的另一个根是 $\psi = (1-\sqrt5)/2 = -1/\varphi \approx -0.618$。把同一组数位放在 $\psi$ 的幂上求值，就得到收缩面读数。[@thm-deficit-integer] 说亏量在两个面上读数相同；本节说明其中的道理，并给出 [@thm-deficit-three-valued] 的证明所用的窗口。
 
 ::: {.definition #def-beta-contraction title="收缩面读数 $\beta'$" lean="D5/S1/Deficit/DeficitInteger.betaContraction"}
 设自然数 $v$ 的 Zeckendorf 表示为 $v = F_{k_1} + \dots + F_{k_r}$，下标 $k_j \ge 2$ 互不相同且互不相邻（存在与唯一见[附录 A](appendix-a-zeckendorf.md) 的 [@thm-zeckendorf-exists] 与 [@thm-zeckendorf-unique]）。这时 $\beta(v) = \varphi^{k_1} + \dots + \varphi^{k_r}$ 是 $\mathbb{Z}[\varphi]$ 中的元素。对它作 Galois 共轭 $\varphi \mapsto \psi$，再取实数值，得到 $v$ 的收缩面读数
@@ -156,7 +156,7 @@ $$
 
 每一项都按 [@def-deficit] 在 $\mathbb{Z}[\varphi]$ 中精确算出（用 $\varphi^k = F_{k-1} + F_k\varphi$），再与另外三种算法逐一核对：Beatty 形式 $s(v_1) + s(v_2) - s(v_1 + v_2)$，[@thm-golden-phase] 的相位判据，以及逐位相加再进位时的带符号计数。对 $v_1, v_2 < 120$ 的全部 14400 对，四者都一致。这是有限的计算，不是证明；一般情形由 [@thm-beatty-deficit] 与 [@thm-golden-phase] 保证。
 
-以 $c(2, 2) = -1$ 为例。$2 + 2 = 4 = F_4 + F_2$，所以 $c(2, 2) = 2\varphi^3 - \varphi^4 - \varphi^2 = -1$。Beatty 形式给出 $s(2) + s(2) - s(4) = 3 + 3 - 7 = -1$。相位上 $p(2) = \{3\varphi\} \approx 0.854$，两者之和约为 $1.708 \ge \varphi$。进位上，两组数位相加后 $F_3$ 处的数位是 $2$，规范化恰好用一次 $2F_3 = F_2 + F_4$，记 $-1$。第一行与第一列全是 $0$，因为 $\beta(0) = 0$；表关于对角线对称。
+以 $c(2, 2) = -1$ 为例。$2 + 2 = 4 = F_4 + F_2$，所以 $c(2, 2) = 2\varphi^3 - \varphi^4 - \varphi^2 = -1$。Beatty 形式给出 $s(2) + s(2) - s(4) = 3 + 3 - 7 = -1$。相位上 $p(2) = \{3\varphi\} \approx 0.854$，所以 $p(2) + p(2) \approx 1.708 \ge \varphi$。进位上，两组数位相加后 $F_3$ 处的数位是 $2$，规范化恰好用一次 $2F_3 = F_2 + F_4$，记 $-1$。第一行与第一列全是 $0$，因为 $\beta(0) = 0$；表关于对角线对称。
 :::
 
 ::: {.proposition #prop-phase-areas title="三种取值的面积" lean="D5/S1/Deficit/GoldenPhaseDistribution.limiting_deficit_distribution"}
@@ -190,7 +190,7 @@ $P$ 是图中左下三角形 $\{p_1 + p_2 < 1/\varphi\}$ 的面积，按竖直�
 | 10000 | 0.1910 | 0.0729 |
 :::
 
-[^equi]: Weyl 证明：$\alpha$ 为无理数时，序列 $\{n\alpha\}$（$n = 1, 2, 3, \dots$）在 $[0, 1)$ 中等分布，即对任意 $0 \le a < b \le 1$，满足 $\{n\alpha\} \in [a, b)$ 的 $n \le m$ 所占的比例当 $m \to \infty$ 时趋于 $b - a$（H. Weyl, Über die Gleichverteilung von Zahlen mod. Eins, *Math. Ann.* 77 (1916), 313–352）。取 $\alpha = \varphi$ 并把下标平移一位，$p(v) = \{(v+1)\varphi\}$ 也等分布。$v_1$ 与 $v_2$ 各自取遍 $0, \dots, n-1$ 时，相位对的经验分布是两个一维经验分布的乘积，因而趋于正方形上的均匀分布；两个三角形的边界面积为零，所以比例趋于面积。
+[^equi]: 这是 Weyl 等分布定理的特例：$\alpha$ 为无理数时，序列 $\{n\alpha\}$（$n = 1, 2, 3, \dots$）在 $[0, 1)$ 中等分布，即对任意 $0 \le a < b \le 1$，满足 $\{n\alpha\} \in [a, b)$ 的 $n \le m$ 所占的比例当 $m \to \infty$ 时趋于 $b - a$（H. Weyl, Über die Gleichverteilung von Zahlen mod. Eins, *Math. Ann.* 77 (1916), 313–352）。取 $\alpha = \varphi$ 并把下标平移一位，$p(v) = \{(v+1)\varphi\}$ 也等分布。$v_1$ 与 $v_2$ 各自取遍 $0, \dots, n-1$ 时，相位对的经验分布是两个一维经验分布的乘积，因而趋于正方形上的均匀分布；两个三角形的边界面积为零，所以比例趋于面积。
 
 ## 动手看一看
 
