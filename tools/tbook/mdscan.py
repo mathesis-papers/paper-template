@@ -195,9 +195,12 @@ class ScanIssue:
 # the model and tbook.render), the PDF/EPUB stager (tbook.pandoc._code_mask) and the math
 # scanner (tbook.mathrender). It follows the CommonMark block rules, which mdBook
 # (pulldown-cmark) and Pandoc share for these constructs. Tabs count to the next multiple of
-# 4 columns. Not modelled: the inside of raw HTML blocks (Pandoc reads Markdown there, mdBook
-# does not), link reference definitions over several lines, and Pandoc-only list markers
-# (``a.``, ``(1)``, ``#.``).
+# 4 columns. Where the two read the same text differently, it follows one of them and records
+# a warning (:attr:`BlockScan.notes`): a fenced code block that ends without its closing fence
+# (mdBook), a definition list term (Pandoc) and a GFM table (mdBook, for inline comments).
+# Not modelled: the inside of raw HTML blocks (Pandoc reads Markdown there, mdBook does not),
+# link reference definitions over several lines, and Pandoc-only list markers (``a.``,
+# ``(1)``, ``#.``).
 
 TEXT, BLANK, FENCE, CODE, COMMENT = "text", "blank", "fence", "code", "comment"
 
@@ -207,7 +210,7 @@ _FENCE_CLOSE_RE = re.compile(r" {0,3}(`{3,}|~{3,}) *$")
 _HR_RE = re.compile(r"(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})$")
 _SETEXT_RE = re.compile(r"(?:=+|-+) *$")
 _LIST_RE = re.compile(r"(?:[-+*]|([0-9]{1,9})[.)])(?= |$)")
-_DEFINITION_RE = re.compile(r"[:~](?= )")  # a definition (Pandoc, pulldown-cmark): its body is a container
+_DEFINITION_RE = re.compile(r"[:~](?= )")  # a definition (Pandoc; pulldown-cmark only ':'): its body is a container
 _FOOTNOTE_START_RE = re.compile(r"\[\^[^\]\s]+\]:")  # a footnote definition: its body is indented 4 columns
 _ATX_RE = re.compile(r"#{1,6}(?= |$)")
 # HTML blocks that may interrupt a paragraph (CommonMark types 1 and 3-6; type 2 is a comment).
@@ -217,6 +220,36 @@ _HTML_BLOCK_RE = re.compile(
     r"figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|"
     r"noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|"
     r"ul)(?=[\s/>]|$))", re.I)
+# A formula never runs over a line of only spaces, tabs and '>' (tbook.mathrender.BLANK_LINE_RE).
+_MATH_BREAK_RE = re.compile(r"[ \t>]*$")
+# Besides code spans and HTML comments, no formula reaches into raw code-like elements, HTML tags
+# (attribute values), autolinks or link destinations (tbook.mathrender._mask, _formula_end).
+MATH_OPAQUE = (
+    re.compile(r"<(code|pre|script|style|textarea|kbd|samp|math|svg)\b[^>]*>.*?</\1\s*>", re.S | re.I),
+    re.compile(r"""</?[A-Za-z][A-Za-z0-9-]*"""
+               r"""(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>"""),
+    re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>"),
+    re.compile(r"(?<=\])\((?:[^()\s]|\([^()\s]*\))*(?:\s+(?:\"[^\"]*\"|'[^']*'))?\)"),
+)
+
+# What :attr:`BlockScan.notes` says where mdBook and Pandoc read the same text differently.
+_FENCE_CUT = ("the fenced code block opened on line {start} ends at this line without a closing fence, because "
+              "this line is outside the list item, block quote, footnote or definition that holds the block: "
+              "mdBook (HTML) ends the block here, while Pandoc (PDF/EPUB) reads it otherwise (it may take this "
+              "line as the closing fence, or not read a code block at all); indent the block's lines and its "
+              "closing fence like its opening fence")
+_FENCE_OPEN = ("fenced code block is never closed: mdBook (HTML) shows everything after it as code, Pandoc "
+               "(PDF/EPUB) does not read a code block at all, and ./tbook check does not look at what follows; "
+               "add the closing fence")
+_TERM = ("mdBook (HTML) reads this ':' line as a definition of the paragraph before it, Pandoc (PDF/EPUB) does "
+         "not: its term is one line, with at most one blank line before the first definition. The tools follow "
+         "Pandoc; write the term on one line above the definition, or write '\\:' if this is no definition")
+_TILDE = ("'~' starts a definition for Pandoc (PDF/EPUB) but not for mdBook (HTML), which shows the line as "
+          "text; write ':' instead")
+
+
+class _Def(int):
+    """The content column of a definition body, as :func:`scan_blocks` keeps it on its container stack."""
 
 
 @dataclass
@@ -232,6 +265,8 @@ class BlockScan:
     carry: list[tuple[bool, bool]]
     # (line, column) of each ``<!--`` that its paragraph never closes: text, not a comment.
     unclosed: list[tuple[int, int]] = field(default_factory=list)
+    # (line, message): where mdBook and Pandoc read the text differently (``parse_blocks`` warns).
+    notes: list[tuple[int, str]] = field(default_factory=list)
 
     @property
     def hidden(self) -> list[bool]:
@@ -255,23 +290,50 @@ def scan_blocks(lines: list[str]) -> BlockScan:
       paragraph; blank lines between such lines belong to the block;
     * a fence (at least three backticks or tildes, indented at most 3 columns) opens a fenced
       code block, which ends at a fence of the same character, at least as long and with nothing
-      after it, or when its container ends;
+      after it, or when its container ends (as in mdBook; Pandoc reads such a block otherwise,
+      and so a block that is never closed: both are noted);
     * a line that starts with ``<!--`` (indented at most 3 columns) and does not close it opens an
       HTML comment block, which ends at the first line holding ``-->`` (or with the text);
     * anything else is text: headings, thematic breaks, ``:::`` div fences and HTML blocks end
       the paragraph before them, other lines start or go on with one.
+
+    A formula (``$…$`` or ``$$…$$``, paired as :func:`_formula_end` says) that begins on a line
+    of a paragraph and ends on a later line takes the lines up to its end into the paragraph:
+    Pandoc reads it before the block rules, and the HTML edition renders it before mdBook runs,
+    so no list item, heading, code or comment starts inside it.
+
+    A definition follows its term (Pandoc's rule): a paragraph of one line in the same
+    container, right before it or before one blank line; or a definition of the same term,
+    after any blank lines. mdBook takes any paragraph of the container as the term, with any
+    blank lines between, and does not know ``~``: those cases are noted.
+
+    The rows of a GFM table (a line with ``|`` followed by a delimiter row such as
+    ``| --- | :-: |`` with as many cells, as pulldown-cmark reads it) are each a paragraph of
+    their own for inline comments: mdBook shows a ``<!--`` that its cell does not close as text.
     """
     n = len(lines)
     kinds = [TEXT] * n
     blocks: dict[int, int] = {}
     cont = [False] * n  # a text line going on with the paragraph of the line before it
+    notes: list[tuple[int, str]] = []
     # open containers: -1 a block quote, otherwise the columns of its content after its container's
+    # (a definition body's as _Def)
     stack: list[int] = []
     leaf: object = None  # None, "p" (paragraph), "c" (indented code), ("f", char, length, first), ("m", first)
-    before_blank: object = None  # the leaf at the last non-blank line (a definition follows its term)
+    para = -1  # first line of the paragraph (leaf "p"); -1 for an HTML block
+    depth = 0  # len(stack) when the paragraph began: its container
+    table = False  # the paragraph is a GFM table
+    texts: dict[int, str] = {}  # paragraph lines: their text after the containers
+    last: list[int] = []  # the containers of the last non-blank line
+    term: tuple[int, int] | None = None  # its paragraph (a term?): (container depth, lines)
+    formula = (-1, 0)  # a formula goes on to (line, column just past it): the lines up to it are its paragraph's
+    comment = False  # an inline comment is open at the end of the paragraph's last line
     empty_item = 0  # len(stack) after a list item whose first line is blank, on the next line
     code = -1  # first line of the indented code block a code line after blank lines would go on with
     for i, raw in enumerate(lines):
+        if i and kinds[i - 1] != BLANK:
+            last = stack[:]
+            term = (depth, i - para) if leaf == "p" and para >= 0 and not table else None
         line = raw.expandtabs(4)
         pos = keep = 0  # keep: containers this line continues
         fresh, empty_item = empty_item, 0
@@ -302,8 +364,14 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                 if m and m.group(1)[0] == leaf[1] and len(m.group(1)) >= leaf[2]:
                     leaf = None
                 continue
+            notes.append((i, _FENCE_CUT.format(start=leaf[3] + 1)))
             leaf = None  # its container ended, so did the fence
-        while True:  # the blocks this line starts
+        if i <= formula[0]:
+            cont[i] = True  # inside a formula that began on an earlier line: no block starts here
+        elif table and keep < len(stack):
+            leaf = None  # a table has no lazy lines: the line starts a block of its own
+        matched = keep  # keep grows past it when the line opens a container
+        while i > formula[0]:  # the blocks this line starts
             rest = line[pos:]
             body = rest.lstrip(" ")
             ind = len(rest) - len(body)
@@ -313,13 +381,12 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                     code = -1
                 del stack[keep:]
                 kinds[i] = BLANK
-                if i == 0 or kinds[i - 1] != BLANK:
-                    before_blank = leaf
                 leaf = None
                 break
             if ind >= 4:
                 if leaf == "p":
-                    cont[i] = True  # indented code cannot interrupt a paragraph
+                    cont[i] = not table  # indented code cannot interrupt a paragraph; a table row is one
+                    texts[i] = rest
                     break
                 del stack[keep:]
                 kinds[i] = CODE
@@ -353,14 +420,23 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                     kinds[i] = COMMENT
                     blocks[i] = i
                 break
-            if (leaf == "p" and inner and _SETEXT_RE.match(body)) or _HR_RE.match(body):
+            head = texts.get(i - 1, "") if leaf == "p" and inner and not table and para >= 0 else ""
+            if head and (i - 1 == para or (len(head) - len(head.lstrip(" ")) < 4 and head.lstrip(" ")[:1] == "|")):
+                cols = _table_head_cols(rest)  # a GFM table: the line before is its header row
+                if cols and cols == _table_cols(head):
+                    table = True
+                    cont[i - 1] = False
+                    texts[i] = rest
+                    break
+            if (leaf == "p" and inner and not table and _SETEXT_RE.match(body)) or _HR_RE.match(body):
                 del stack[keep:]
                 leaf = None
                 break
             m = _LIST_RE.match(body)
             after = body[m.end():] if m else ""
             empty = not after.strip(" ")
-            if m and not (leaf == "p" and inner and (empty or (m.group(1) is not None and int(m.group(1)) != 1))):
+            if m and not (leaf == "p" and inner and not table
+                          and (empty or (m.group(1) is not None and int(m.group(1)) != 1))):
                 del stack[keep:]
                 gap = len(after) - len(after.lstrip(" "))
                 stack.append(ind + m.end() + (1 if empty or gap > 4 else gap))
@@ -372,11 +448,21 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                 pos += stack[-1]
                 continue
             m = _DEFINITION_RE.match(body)
-            if m and (leaf == "p" or (leaf is None and i and kinds[i - 1] == BLANK and before_blank in ("p", "c"))):
+            defines = False
+            if m and keep == matched:  # a term or definition before it is in its container
+                k = i
+                while k and kinds[k - 1] == BLANK:
+                    k -= 1
+                again = keep < len(last) and isinstance(last[keep], _Def)  # after a definition: one more
+                termed = term is not None and term[0] == keep  # after a paragraph of this container
+                defines = again or (termed and term[1] == 1 and i - k <= 1)
+                if defines != (body[0] == ":" and (again or termed)):  # what mdBook reads
+                    notes.append((i, _TILDE if defines else _TERM))
+            if defines:
                 del stack[keep:]
                 after = body[m.end():]
                 gap = len(after) - len(after.lstrip(" "))
-                stack.append(ind + m.end() + (1 if gap > 4 else gap))
+                stack.append(_Def(ind + m.end() + (1 if gap > 4 else gap)))
                 keep = len(stack)
                 leaf, code = None, -1
                 pos += stack[-1]
@@ -396,16 +482,28 @@ def scan_blocks(lines: list[str]) -> BlockScan:
                 break
             if _HTML_BLOCK_RE.match(body):  # its lines follow as one block, like a paragraph's
                 del stack[keep:]
-                leaf = "p"
+                leaf, para, table = "p", -1, False
                 break
             if leaf == "p":
-                cont[i] = True  # lazily, when containers ended
+                cont[i] = not table  # lazily, when containers ended; a table row is a paragraph of its own
             else:
                 del stack[keep:]
-                leaf = "p"
+                leaf, para, depth, table = "p", i, len(stack), False
+            texts[i] = rest
             break
+        if leaf != "p":
+            table = False
+        elif kinds[i] == TEXT and i >= formula[0]:  # inline comments, and formulas that go on over lines
+            lead = comment and cont[i]
+            if not lead or "-->" in raw:
+                comment = _open_comment(close_comments(raw, (lead, False))) is not None
+                end = _formula_end(lines, i, formula[1] if i == formula[0] else 0, (lead, comment))
+                if end is not None:
+                    formula = end
         if kinds[i] not in (CODE, BLANK):
             code = -1
+    if isinstance(leaf, tuple) and leaf[0] == "f":
+        notes.append((leaf[3], _FENCE_OPEN))
     carry: list[tuple[bool, bool]] = [(False, False)] * n
     unclosed: list[tuple[int, int]] = []
     i = 0
@@ -421,7 +519,112 @@ def scan_blocks(lines: list[str]) -> BlockScan:
         if opened is not None:
             unclosed.append((i + opened[0], opened[1]))
         i = j
-    return BlockScan(list(lines), kinds, blocks, carry, unclosed)
+    return BlockScan(list(lines), kinds, blocks, carry, unclosed, notes)
+
+
+def _escaped(line: str, k: int) -> bool:
+    """True if ``line[k]`` follows an odd number of backslashes."""
+    return (k - len(line[:k].rstrip("\\"))) % 2 == 1
+
+
+def _formula_end(lines: list[str], i: int, start: int, carry: tuple[bool, bool]) -> tuple[int, int] | None:
+    """Where the first formula that begins on line ``i`` at or after column ``start`` and ends on a
+    later line ends: (that line, the column just past its closing ``$`` or ``$$``); None if no
+    formula from there goes on over lines.
+
+    ``$`` pairs as :func:`tbook.mathrender.find_math` pairs it: not escaped and not in a code span, an
+    HTML comment (``carry`` is the line's :attr:`BlockScan.carry`) or a :data:`MATH_OPAQUE` match;
+    ``$$…$$`` is display math; ``$…$`` has no space after the opening ``$`` or before the closing one,
+    which is not followed by a digit; a formula does not go on over a line of only spaces, tabs and
+    ``>``, or past any of those. Unlike ``find_math``, which reads the whole text, this reads them line
+    by line: an HTML tag or element that runs over lines is not seen."""
+    line = lines[i]
+    spans = _math_spans(line, carry)
+    k = start
+    while k < len(line):
+        skip = next((b for a, b in spans if a <= k < b), None)
+        if skip is not None:
+            k = skip
+            continue
+        if line[k] != "$" or _escaped(line, k):
+            k += 1
+            continue
+        display = line.startswith("$$", k) and not _inside(k + 1, spans)
+        if not display and (k + 1 == len(line) or line[k + 1].isspace()):
+            k += 1
+            continue
+        width = 2 if display else 1
+        close = _formula_close(lines, i, k + width, display, spans)
+        if close is None:
+            k += width
+        elif close[0] > i:
+            return close[0], close[1] + width
+        else:
+            k = close[1] + width
+    return None
+
+
+def _formula_close(lines: list[str], i: int, k: int, display: bool,
+                   spans: list[tuple[int, int]]) -> tuple[int, int] | None:
+    """(line, column) of the delimiter that closes a formula whose body starts on line ``i`` at
+    column ``k`` (``spans``: the code spans and comments of that line), or None (:func:`_formula_end`)."""
+    while True:
+        line = lines[i]
+        while k < len(line):
+            if _inside(k, spans):
+                return None
+            if line[k] == "$" and not _escaped(line, k):
+                if display:
+                    if line.startswith("$$", k) and not _inside(k + 1, spans):
+                        return i, k
+                elif k and not line[k - 1].isspace() and not line[k + 1:k + 2].isdigit():
+                    return i, k
+            k += 1
+        i += 1
+        if i == len(lines) or _MATH_BREAK_RE.match(lines[i]):
+            return None
+        spans = _math_spans(lines[i], (False, True))  # a "<!--" left open hides the rest of the line
+        k = 0
+
+
+def _math_spans(line: str, carry: tuple[bool, bool]) -> list[tuple[int, int]]:
+    """The parts of ``line`` no formula reaches into, as tbook.mathrender._mask finds them on one line:
+    code spans and comments (:func:`hidden_spans`), then each :data:`MATH_OPAQUE` match that does
+    not start inside an earlier part."""
+    spans = hidden_spans(line, carry)
+    for pattern in MATH_OPAQUE:
+        spans += [m.span() for m in pattern.finditer(line) if not _inside(m.start(), spans)]
+    return spans
+
+
+def _table_cols(row: str) -> int:
+    """Cells of a GFM table header row as pulldown-cmark counts them (0 without an unescaped ``|``)."""
+    pipes = [k for k, ch in enumerate(row) if ch == "|" and not _escaped(row, k)]
+    if not pipes:
+        return 0
+    cols = len(pipes) - row.lstrip(" ").startswith("|")
+    return cols + bool(row[pipes[-1] + 1:].strip(" \t"))
+
+
+def _table_head_cols(row: str) -> int:
+    """Cells of a GFM table delimiter row (``| --- | :-: |``, indented at most 3 columns) as
+    pulldown-cmark reads one; 0 if ``row`` is none."""
+    body = row.lstrip(" ")
+    if len(row) - len(body) > 3 or not body:
+        return 0
+    cols, start, pipe, hyphen, filled = 0, True, body[0] == "|", False, False
+    for ch in body[pipe:]:
+        if ch == "|":
+            if not filled:  # back to back pipes
+                return 0
+            cols, start, pipe, filled = cols + 1, True, True, False
+        elif ch in ":-":
+            start = False
+            if ch == "-":
+                hyphen = filled = True
+        elif ch != " ":
+            return 0
+    return cols + (not start) if pipe and hyphen else 0
 
 
 def _open_comment(line: str) -> int | None:
@@ -531,6 +734,7 @@ def parse_blocks(text: str, issues: list[ScanIssue] | None = None) -> list[Node]
                                            f"edition shows it as text, while Pandoc (PDF/EPUB) may hide everything "
                                            f"up to the '-->' on line {later + 1}; close it in the paragraph, or write "
                                            f"it as inline code `<!--`", "warning"))
+    issues.extend(ScanIssue(k + 1, message, "warning") for k, message in scan.notes)
     while i < len(lines):
         line = lines[i]
         lineno = i + 1

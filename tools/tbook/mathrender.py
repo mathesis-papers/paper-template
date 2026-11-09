@@ -12,7 +12,12 @@ read the same sources with Pandoc, so all targets agree on what is a formula):
   ``$`` is not preceded by whitespace and not followed by a digit (so ``$5 and $6`` is
   text); a closer that fails these tests is skipped and the search continues;
 * ``$$…$$`` is display math and may span lines;
-* neither crosses a blank line; ``\\$`` (a ``$`` after an odd number of backslashes) is a
+* neither crosses a blank line (or a line of only ``>``); a formula that goes on over lines
+  keeps them in its paragraph: Pandoc reads it before the block rules, and
+  :func:`tbook.mdscan.scan_blocks` pairs ``$`` the same way (:func:`tbook.mdscan._formula_end`),
+  so a line inside it such as
+  ``+      89 \\\\`` or ``=`` starts no list item, code block or heading for any target;
+  ``\\$`` (a ``$`` after an odd number of backslashes) is a
   literal dollar; ``\\|`` inside a formula stays ``\\|`` (the norm bar), in table rows too:
   Pandoc keeps it, and the formula is rendered before mdBook splits the row into cells;
 * nothing inside fenced or indented code blocks, inline code spans, HTML comments, ``<code>``/``<pre>``
@@ -60,13 +65,9 @@ RENDERER = paths.TOOLS / "node" / "katex-render.mjs"
 FALLBACK_CLASS = "katex-fallback"
 BLOCK_CLASS = "tr-math"
 
-RAW_ELEMENT_RE = re.compile(r"<(code|pre|script|style|textarea|kbd|samp|math|svg)\b[^>]*>.*?</\1\s*>", re.S | re.I)
-TAG_RE = re.compile(
-    r"""</?[A-Za-z][A-Za-z0-9-]*"""
-    r"""(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*/?>"""
-)
-AUTOLINK_RE = re.compile(r"<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>")
-LINK_DEST_RE = re.compile(r"(?<=\])\((?:[^()\s]|\([^()\s]*\))*(?:\s+(?:\"[^\"]*\"|'[^']*'))?\)")
+# Raw code-like elements, HTML tags, autolinks and link destinations: no formula reaches into them
+# (defined in tbook.mdscan, whose scanner pairs "$" over lines the same way).
+RAW_ELEMENT_RE, TAG_RE, AUTOLINK_RE, LINK_DEST_RE = mdscan.MATH_OPAQUE
 # Lines that open a CommonMark HTML block: type 6 (block-level tag names) or type 7 (a
 # single complete tag alone on its line). Inside such blocks Markdown is not parsed.
 _BLOCK_TAGS = ("address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
