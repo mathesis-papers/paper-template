@@ -9,10 +9,12 @@ skipped when those tools are missing.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import textwrap
 import tomllib
@@ -517,6 +519,63 @@ class SearchIndexTest(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- end to end
+
+
+@unittest.skipUnless(HAVE_KATEX and MDBOOK, "node, katex and mdBook are required")
+class BuildTitleMathTest(unittest.TestCase):
+    def test_titles_in_both_tocs_metadata_and_nested_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bdir = write_book(root)
+            conf = bdir / "book.toml"
+            conf.write_text(conf.read_text(encoding="utf-8").replace('editions = ["zh"]', 'editions = ["zh", "en"]')
+                            .replace('zh = "演示之书"', 'zh = "演示 $x_1^2$"\nen = "Demo $x_1^2$"'), encoding="utf-8")
+            shutil.copytree(bdir / "zh", bdir / "en")
+            for lang, prefix in (("zh", "界"), ("en", "Bound")):
+                ed_dir = bdir / lang
+                (ed_dir / "SUMMARY.md").write_text(
+                    "# Summary\n\n[Intro](README.md)\n\n# Part $\\varphi$\n\n"
+                    f"- [{prefix} $\\beta_1 < \\beta_2$](a.md)\n"
+                    "  - [C\\*-algebras $\\norm{x}$](part/sec.md)\n"
+                    "- [Literal \\$x\\$ and `$y$`](b.md)\n"
+                    "- [Draft $\\{x\\}$]()\n\n"
+                    "- [Bad $\\frac{1}{$]()\n\n"
+                    "[Appendix $x'$](appendix.md)\n", encoding="utf-8")
+                (ed_dir / "a.md").write_text(f"# {prefix} $\\beta_1 < \\beta_2$\n", encoding="utf-8")
+                (ed_dir / "part" / "sec.md").write_text("# C*-algebras $\\norm{x}$\n", encoding="utf-8")
+            book = config.load_book(bdir)
+            book.raw["html"] = {"section-labels": True}
+            for ed in book.editions:
+                with self.subTest(lang=ed.lang):
+                    out = root / "out" / ed.lang
+                    html.build_edition(config.load_site(), book, ed, None, STAGE_LOCK, out)
+                    toc = (out / "toc.html").read_text(encoding="utf-8")
+                    self.assertEqual(toc.count('role="math"'), 5)  # part, two chapters, draft, appendix
+                    self.assertIn('aria-label="\\varphi"', toc)
+                    self.assertIn('aria-label="\\beta_1 &lt; \\beta_2"', toc)
+                    self.assertIn('aria-label="\\norm{x}"', toc)
+                    self.assertIn('class="msupsub"', toc)  # subscripts retain their layout
+                    self.assertIn('Literal $x$ and `$y$`', toc)
+                    self.assertIn('class="katex-fallback"', toc)
+                    self.assertIn('<strong aria-hidden="true">1.</strong>', toc)
+                    script = next(out.glob("toc-*.js"))
+                    js = script.read_text(encoding="utf-8")
+                    self.assertEqual(js.count('role="math"'), 5)
+                    self.assertIn('aria-label="\\\\norm{x}"', js)  # JS string escaping
+                    self.assertEqual(script.stem, "toc-" + hashlib.sha256(js.encode()).hexdigest()[:8])
+                    # Parse the actual script; a prime or backslash must not break it.
+                    subprocess.run([NODE, "--check", str(script)], check=True, capture_output=True)
+                    for rel in ("index.html", "a.html", "part/sec.html", "print.html"):
+                        page = (out / rel).read_text(encoding="utf-8")
+                        self.assertIn(script.name, page)
+                        self.assertRegex(page, r'<h1 class="menu-title">(?:演示|Demo) <span class="katex"')
+                        title = re.search(r"<title>(.*?)</title>", page)[1]
+                        self.assertNotIn("$", title)
+                        self.assertNotIn("<span", title)
+                    self.assertIn('id="' + ("界" if ed.lang == "zh" else "bound") + '-β1β2"',
+                                  (out / "a.html").read_text(encoding="utf-8"))
+                    search = next(out.glob("searchindex*.js")).read_text(encoding="utf-8")
+                    self.assertNotIn(r"\\beta", search)
 
 
 @unittest.skipUnless(HAVE_KATEX and MDBOOK, "node, katex and mdBook are required")
