@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "b5abd8af5f7eb82917de5ff7624e1527c1bf4c5d772c0684418d57fd219b476c",
+      "sha256": "afadb656ed2ed5f94ae8de686630226f82dfa00f75865a6220252e865ca66478",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -96,7 +96,7 @@
       "mode": "100644"
     },
     "skills/book-export/SKILL.md": {
-      "sha256": "b4248621ff940da9b3d5d9a4d48bf252b9caf0d75aae4a47bfef986ed4af85a4",
+      "sha256": "a5531596d19064d89d71cd41cd976301c1fbe8f0f793de7715648a8e171f526d",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -120,7 +120,7 @@
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
-      "sha256": "3ac29942696e3b3ae29f40873071dc3dc406202cf22c97856a7002ce7d4af9fe",
+      "sha256": "bb1f30ebde05588805575c0808305d7a3b27959a8b6053c3b566c6d7637ac034",
       "mode": "100644"
     },
     "skills/template-update/SKILL.md": {
@@ -436,7 +436,7 @@
       "mode": "100644"
     },
     "theme/typst/book.typ": {
-      "sha256": "5b0ba4506534d48e42b5f0263c120555b3ae2ff5109936c5eb840dafed300869",
+      "sha256": "dcfb1954f8c1c3b8cf7f2f0b3fd6b10ba2b5967a8cbf954b9aaef767b07f8ba5",
       "mode": "100644"
     },
     "theme/typst/cover.typ": {
@@ -484,7 +484,7 @@
       "mode": "100644"
     },
     "tools/filters/typst-compat.lua": {
-      "sha256": "aec141f207b76a42735f851f08d59245813b2958685f53e16c9e7f75f1ba6969",
+      "sha256": "44f3c8ff43ea9fd66c7cd92563cf5ed151e800249a1b1461e32ed33f975465a4",
       "mode": "100644"
     },
     "tools/migrations/README.md": {
@@ -716,11 +716,15 @@
       "mode": "100644"
     },
     "tools/tests/test_pandoc.py": {
-      "sha256": "e7b3c37dd14b02242595aceecb823717a3787087c5f4e07285b097ce2d087e01",
+      "sha256": "f3a0173daa6fd9c0d6bd61272af9496c6f07a7124d8fa49f6483d3a6d6d7efe7",
       "mode": "100644"
     },
     "tools/tests/test_pdf_layout.py": {
       "sha256": "f3972aa090a844c5192a744152b65c2a406089eae2ae29176868e0e9525eecc6",
+      "mode": "100644"
+    },
+    "tools/tests/test_pdf_math.py": {
+      "sha256": "316df6a6d97269abdcc0b9c70254e941a0dcf2063b786ed4eccc05b51d4b748d",
       "mode": "100644"
     },
     "tools/tests/test_serve.py": {

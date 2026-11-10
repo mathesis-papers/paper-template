@@ -55,7 +55,7 @@
 #let ink = pal.ink
 #let link-colour = pal.cyan
 #let heading-colour = if is-print { pal.ink } else { pal.ink }
-#let accent = pal.cyan
+#let accent-colour = pal.cyan
 #let panel-fill = if is-print { pal.void-deep } else { pal.panel-solid }
 // Frame accent per status (same mapping as theme/mdbook/tr-book.css): green only for
 // Lean-verified results; labels stay cyan so green marks the verification itself.
@@ -75,7 +75,7 @@
 
 // ------------------------------------------------------------------ small pieces
 
-#let mono(size: 7.5pt, fill: pal.dim, tracking: 0.08em, body) = text(font: f-mono, size: size, fill: fill, tracking: tracking, body)
+#let mono-text(size: 7.5pt, fill: pal.dim, tracking: 0.08em, body) = text(font: f-mono, size: size, fill: fill, tracking: tracking, body)
 
 #let kicker-colour(section) = (
   numbered: pal.cyan, suffix: pal.cyan, prefix: pal.dim, back: pal.ok, part: pal.magenta,
@@ -119,10 +119,10 @@
     line(length: 100%, stroke: (paint: pal.panel-edge, thickness: 0.4pt, dash: "densely-dotted"))
     v(1pt)
     set par(first-line-indent: 0pt, justify: false, leading: 0.5em)
-    mono(size: 6.8pt, fill: pal.dim)[#upper(S.lean_label) ›]
+    mono-text(size: 6.8pt, fill: pal.dim)[#upper(S.lean_label) ›]
     for e in lean {
       h(5pt)
-      let name = mono(size: 6.8pt, fill: if e.url != "" { link-colour } else { pal.dim }, tracking: 0em, breakable-name(e.name))
+      let name = mono-text(size: 6.8pt, fill: if e.url != "" { link-colour } else { pal.dim }, tracking: 0em, breakable-name(e.name))
       if e.url != "" { link(e.url, name) } else { name }
     }
   })
@@ -176,7 +176,7 @@
   fill: panel-fill, stroke: 0.5pt + pal.panel-edge, inset: 10pt, {
     cut-corner(size: 10pt, dx: 10.25pt, dy: -10.25pt, stroke: 0.5pt + pal.panel-edge)
     set par(first-line-indent: 0pt)
-    mono(size: 6.8pt, fill: pal.cyan, tracking: 0.16em, upper(kind))
+    mono-text(size: 6.8pt, fill: pal.cyan, tracking: 0.16em, upper(kind))
     v(4pt)
     body
   })
@@ -218,7 +218,7 @@
   new-recto()
   [#metadata("part")#chapter-start]
   v(1fr)
-  if kicker != "" { mono(size: 9pt, fill: pal.magenta, tracking: 0.2em, kicker) }
+  if kicker != "" { mono-text(size: 9pt, fill: pal.magenta, tracking: 0.2em, kicker) }
   v(6pt)
   line(length: 100%, stroke: 0.6pt + pal.line-hot)
   v(10pt)
@@ -254,7 +254,7 @@
   let chapter = if before.len() > 0 { before.last().body } else { none }
   let book-title = text(font: f-display, size: 7.5pt, fill: pal.dim, tracking: 0.04em, meta.title)
   let chapter-title = if chapter != none { text(font: f-display, size: 7.5pt, fill: pal.dim, chapter) }
-  let code = mono(size: 6.8pt, fill: pal.faint, meta.code)
+  let code = mono-text(size: 6.8pt, fill: pal.faint, meta.code)
   let verso = is-print and calc.even(here().page())
   set par(first-line-indent: 0pt, justify: false)
   // print: verso = book title (outer left), recto = chapter title (outer right)
@@ -267,9 +267,9 @@
   }
   v(-4pt)
   stack(dir: ltr,
-    if verso or not is-print { box(width: 22pt, height: 0.8pt, fill: accent) },
+    if verso or not is-print { box(width: 22pt, height: 0.8pt, fill: accent-colour) },
     box(width: 1fr, height: 0.4pt, fill: pal.panel-edge),
-    if is-print and not verso { box(width: 22pt, height: 0.8pt, fill: accent) },
+    if is-print and not verso { box(width: 22pt, height: 0.8pt, fill: accent-colour) },
   )
 }
 
@@ -277,7 +277,7 @@
   if on-blank-page() { return }
   let n = counter(page).display(here().page-numbering())
   let num = text(font: f-mono, size: 8pt, fill: pal.cyan, weight: "bold", tracking: 0.08em, n)
-  let tag = mono(size: 6.5pt, fill: pal.faint, [#meta.code #h(4pt) v#meta.version])
+  let tag = mono-text(size: 6.5pt, fill: pal.faint, [#meta.code #h(4pt) v#meta.version])
   set par(first-line-indent: 0pt)
   if is-print {
     if calc.odd(here().page()) { grid(columns: (1fr, auto), align: (left, right), tag, num) }
@@ -300,12 +300,12 @@
 
 // ------------------------------------------------------------------ front matter
 
-#let kv-row(k, v) = (mono(size: 7.5pt, fill: pal.dim, upper(k)), text(size: 9pt, fill: ink, v))
+#let kv-row(k, v) = (mono-text(size: 7.5pt, fill: pal.dim, upper(k)), text(size: 9pt, fill: ink, v))
 
 #let title-page() = page(header: none, footer: none, background: none, {
   set par(first-line-indent: 0pt, justify: false)
   v(16%)
-  mono(size: 9pt, fill: pal.cyan, tracking: 0.22em, meta.code)
+  mono-text(size: 9pt, fill: pal.cyan, tracking: 0.22em, meta.code)
   v(4pt)
   line(length: 34%, stroke: 0.6pt + pal.line-hot)
   v(18pt)
@@ -325,9 +325,9 @@
   text(font: f-display, size: 13pt, weight: "semibold", fill: ink, meta.authors.join(if cjk { "、" } else { ", " }))
   v(10pt)
   grid(columns: (auto, auto, auto), column-gutter: 10pt, align: horizon,
-    mono(size: 8pt, fill: pal.dim, meta.publisher),
-    box(stroke: 0.6pt + pal.magenta, inset: (x: 4pt, y: 2.5pt), mono(size: 7pt, fill: pal.magenta, [#S.lang_short · #S.lang_name])),
-    mono(size: 8pt, fill: pal.faint, [v#meta.version]),
+    mono-text(size: 8pt, fill: pal.dim, meta.publisher),
+    box(stroke: 0.6pt + pal.magenta, inset: (x: 4pt, y: 2.5pt), mono-text(size: 7pt, fill: pal.magenta, [#S.lang_short · #S.lang_name])),
+    mono-text(size: 8pt, fill: pal.faint, [v#meta.version]),
   )
   v(8%)
 })
@@ -397,13 +397,15 @@
     inset: (x: 10pt, y: 8pt), above: 1.1em, below: 1.1em, breakable: true, {
       cut-corner(size: 7pt, dx: 10.25pt, dy: -8.25pt, stroke: 0.5pt + pal.panel-edge)
       if it.lang != none and it.lang != "" {
-        place(top + right, dx: 2pt, dy: -2pt, mono(size: 6pt, fill: pal.faint, tracking: 0.12em, upper(it.lang)))
+        place(top + right, dx: 2pt, dy: -2pt, mono-text(size: 6pt, fill: pal.faint, tracking: 0.12em, upper(it.lang)))
       }
       set par(justify: false, first-line-indent: 0pt, leading: 0.55em)
       set text(size: 8.4pt)
       it
     })
   show math.equation: set text(font: ("New Computer Modern Math",), fallback: true)
+  // TeX keeps the dot of i and j under an accent (\hat{a_i}); Typst would remove it, in subscripts too.
+  set math.accent(dotless: false)
   show math.equation.where(block: true): set block(above: 0.9em, below: 0.9em)
   show math.equation.where(block: true): it => layout(size => fit-width(it, size.width))
   show link: set text(fill: link-colour)

@@ -591,9 +591,9 @@ class LuaFilterTest(unittest.TestCase):
     def test_macros_reach_titles_and_body(self):
         meta = {**self.META, "tr-tex-macros": mathrender.newcommands()}
         typst = run_filters(mathrender.newcommands() + "\n\n" + self.TITLED, "typst", meta)
-        self.assertNotIn("norm", typst)
-        self.assertIn("for $∥v∥$]", typst)  # the title, read by tr-env.lua with the macros
-        self.assertIn("Body $∥w∥$.", typst)
+        self.assertNotIn("\\norm", typst)
+        self.assertIn("for $lr(bar.v.double v bar.v.double)$]", typst)  # the title, read by tr-env.lua with the macros
+        self.assertIn("Body $lr(bar.v.double w bar.v.double)$.", typst)
         html = run_filters(mathrender.newcommands() + "\n\n" + self.TITLED, "html5", meta)
         self.assertNotIn("\\norm", html)
         self.assertNotIn("newcommand", html)
@@ -614,7 +614,8 @@ class TypstSymbolTest(unittest.TestCase):
         formula = r"\Bigl\langle x,y\Bigr\rangle + \bigl\lceil x\bigr\rceil + \bigl\lfloor y\bigr\rfloor"
         out = run_filters(f"${formula}$", "typst", self.META)
         for name in ("chevron.l", "chevron.r", "ceil.l", "ceil.r", "floor.l", "floor.r"):
-            self.assertIn(f"[#sym.{name}]", out)
+            self.assertIn(f"stretch({name}, size: #", out)
+        self.assertNotIn("#scale", out)
         # These delimiters must occupy glyph widths, not the widths of their names.
         svg = typst.compile(('#set page(width: auto, height: auto, margin: 0pt)\n' + out).encode(),
                             format="svg")
@@ -626,7 +627,7 @@ class TypstSymbolTest(unittest.TestCase):
         titled = run_filters(env, "typst", self.META)
         self.assertIn("title: [", titled)
         for name in ("chevron.l", "chevron.r", "ceil.l", "ceil.r", "floor.l", "floor.r"):
-            self.assertIn(f"[#sym.{name}]", titled)
+            self.assertIn(f"stretch({name}, size: #", titled)
         literal = run_filters(r'$\text{chevron.l} + \text{ceil.l} + \text{floor.l}$', "typst", self.META)
         self.assertNotIn("#sym.", literal)
 
@@ -638,7 +639,7 @@ class TypstSymbolTest(unittest.TestCase):
               'tr-number="1.1" tr-ref="Remark 1.1" tr-title="On $A \\\\cap B$"}\nBody.\n::::::\n')
         out = run_filters(md, "typst", self.META)
         for new in ("A inter B", "inter.big", "inter.double", "inter.sq", "dot.o", "dot.o.big", "times.o",
-                    "times.o.big", "minus.o", "dash.o", 'title: [On $A inter B$]', 'upright("sect") inter x'):
+                    "times.o.big", "minus.o", "dash.o", 'title: [On $A inter B$]', 'upright("sect")/**/inter x'):
             self.assertIn(new, out)
         self.assertNotRegex(re.sub(r'"[^"]*"', "", out), r"\bsect\b|\.circle\b")
         self.assertIn("upright(i n t e r s e c t)", out)  # letters, not the name sect
@@ -812,8 +813,8 @@ class BuildTest(unittest.TestCase):
         self.assertNotIn("#cite", main)
         # Macros are expanded in math (no raw TeX fallback), titles included.
         self.assertNotIn("\\norm", main)
-        self.assertIn("a norm $∥x∥$ and $⌊y⌋$", main)
-        self.assertIn("== Bound $x^2$ for $∥x∥$", main)
+        self.assertIn("a norm $lr(bar.v.double x bar.v.double)$ and $⌊y⌋$", main)
+        self.assertIn("== Bound $x^2$ for $lr(bar.v.double x bar.v.double)$", main)
         # b.md#summary reaches B's "Summary", not A's.
         self.assertIn("#link(<ch-b--summary>)[the summary of B]", main)
         self.assertRegex(main, r"== Summary\s*<ch-b--summary>")

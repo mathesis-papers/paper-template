@@ -68,15 +68,16 @@ description: 撰写或修改 books/<slug>/<lang>/ 下的章节时使用：定理
 
 ### 同一个公式要过三条链路
 
-HTML 是 KaTeX，PDF 是 Pandoc 的 TeX→Typst 转换，EPUB 是 MathML。KaTeX 渲染正常不代表另外两端正确，下面这些写法在 HTML 里看不出毛病：
+HTML 是 KaTeX，PDF 是 Pandoc 的 TeX→Typst 转换，EPUB 是 MathML。KaTeX 渲染正常不代表另外两端正确。
 
-- **不用负细空格 `\!`。** PDF 端它被转成整整 `-1em`：`\exp\!\left(x\right)` 印出来函数名压在括号上，`A *_{\!v} x` 的下标被推到运算符底下。直接删掉；需要紧排的两个符号写成文本（如 `\mathbin{\text{++}}`）。
-- **重音只套单个符号。** `\widetilde{A}` 可以；`\widetilde{AB}`、`\widehat{AB}`、`\overrightarrow{AB}`、`\bar{AB}`、`\vec{AB}` 在 PDF 中不印重音，而是印出 `rgb("#…") (AB, ̃)` 这样的文字。改写成 `(AB)^{\sim}`，或给每个符号各加重音。
+PDF 一端由 `tools/filters/typst-compat.lua` 负责与 KaTeX 保持一致：空格（`\;`、`\!`、`\,=\,` 两侧的自动间距）、竖线与范数（`\lvert`、`\|`、`\norm{x}^2`）、算符名（`\operatorname`、`\Tr`）、定尺寸括号（`\bigl(`）、分式（嵌套、`\tfrac`、`\dfrac`）、多符号重音、`\mathbin{…}`、`\xrightarrow{…}`、`smallmatrix` 等都按 TeX 的含义排。正文照常写 LaTeX，不要为了 PDF 改写公式。仍需留意的只有这几条：
+
+- **Pandoc 不认识的命令会让整条公式原样印成 TeX 源码。** `\over`、`\genfrac`、`\tiny`、未在 `TEX_MACROS` 登记的自定义宏都属此类；构建不失败，只在日志里留一行 `Could not convert TeX math`。`./tbook check` 用 KaTeX 判断，发现不了。
 - **定尺寸命令只用于括号。** `\bigl( … \bigr)`、`\Bigl| … \Bigr|` 没有问题；`a\big/b` 在 EPUB 中生成带 `maxsize` 的 `<mi>`，epubcheck 报 RSC-005。写 `\frac{a}{b}` 或普通的 `/`。
-- **范数带上标时写 `\lVert x\rVert^2`。** `\norm{x}^2` 与 `\|x\|^2` 在 PDF 中被转成关系符 `∥`：竖线两侧多出间距，指数叠在右竖线正上方。根因在 `TEX_MACROS` 里 `\norm` 的展开（带 `\left`/`\right`）与 Pandoc 的转换，属于模板；模板修好后本条即可删去。
+- **`\mathcal` 只套大写字母。** 小写字母在 HTML 的字体里没有花体，退回斜体；PDF 的字体有，两端字形不同。
 - **一行里并排几个等式的独立公式要分行。** 用 `aligned` 显式换行（源码换行不产生公式换行）；这类公式在手机宽度和 PDF 定理框里最先出问题。表头也尽量短：宽表靠容器横向滚动，页面本身不应出现横向滚动条。
 
-改动了公式就三种产物都构建一遍（`./tbook build html pdf epub --book <slug>`）；PDF 与 EPUB 的排查方法见 `skills/book-export` 的排错清单。
+改动了公式就三种产物都构建一遍（`./tbook build html pdf epub --book <slug>`）。发现 PDF 与 HTML 排得不一样时，不在正文里绕开，而是修转换：给 `tools/filters/typst-compat.lua` 加一条规则，并在 `tools/tests/test_pdf_math.py` 里加一条按排版结果实测的用例，回馈模板（`skills/template-update`）。排查方法见 `skills/book-export` 的排错清单。
 
 ### 写“文献结果”之前先搜冻结库
 
