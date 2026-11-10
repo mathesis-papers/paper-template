@@ -71,7 +71,7 @@ node tools/node/viz-server.mjs                       # http://127.0.0.1:8766/sit
 1. 在 `books/<book>/viz/<id>/` 中对照 `golden-carry` 编写 `index.html`、`style.css`、`main.js`。
 2. 支持 `?embed=1`（书中 iframe，隐藏页眉）与 `?thumb=1`（缩略图，`[data-thumb]` 充满画面，`window.TRV_THUMB = drawCover`）；手机宽度 390px 无横向滚动；尊重 `prefers-reduced-motion`。
 3. 完善登记表 `books/<book>/viz/visualizations.json`：`title_en`、`summary`/`summary_en`、`tags`/`tags_en`、至少一条 `theory`（本书章节写 `../zh/<chapter>.html`，trureturing 文件写 `{trureturing}/<path>`）、`lean`（GID 列表）。
-4. 写浏览器测试 `books/<book>/viz/tests/<id>.test.mjs`（参照 `golden-carry.test.mjs`：交互、双语、无控制台错误、无横向滚动、关键数值与独立实现互证）。
+4. 写浏览器测试 `books/<book>/viz/tests/<id>.test.mjs`（参照 `golden-carry.test.mjs`：交互、双语、无控制台错误、无横向滚动、关键数值与独立实现互证）。每提交一次输入（`fill` 加回车、点一次步进键或预设）就 `await settle()` 一次，再去动下一个控件：`render()` 在下一帧按状态重写全部数字框，上一次提交排定的那一帧若落在“第二个框已填、回车未按”之间，刚填的值被覆盖，第二次提交不会发生。本地机器快，几乎不触发；CI 上表现为同一条断言偶发失败、重跑又通过。
 5. 生成缩略图并转为发布状态：
 
    ```bash
