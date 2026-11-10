@@ -62,14 +62,59 @@ description: 撰写或修改 books/<slug>/<lang>/ 下的章节时使用：定理
 - 代码块中的链接、`[@id]` 与公式照原样显示、不检查；列表项里的缩进代码要比项的内容再缩进四格（`1. ` 下七格），代码块前空一行。
 - 图片放 `books/<slug>/assets/`，各语言共享；只在一种语言里出现的图放该语言目录。
 
+## 容易踩的坑
+
+以下各条都来自实际写书时出过的问题；`./tbook check` 不会替你发现它们。
+
+### 同一个公式要过三条链路
+
+HTML 是 KaTeX，PDF 是 Pandoc 的 TeX→Typst 转换，EPUB 是 MathML。KaTeX 渲染正常不代表另外两端正确，下面这些写法在 HTML 里看不出毛病：
+
+- **不用负细空格 `\!`。** PDF 端它被转成整整 `-1em`：`\exp\!\left(x\right)` 印出来函数名压在括号上，`A *_{\!v} x` 的下标被推到运算符底下。直接删掉；需要紧排的两个符号写成文本（如 `\mathbin{\text{++}}`）。
+- **重音只套单个符号。** `\widetilde{A}` 可以；`\widetilde{AB}`、`\widehat{AB}`、`\overrightarrow{AB}`、`\bar{AB}`、`\vec{AB}` 在 PDF 中不印重音，而是印出 `rgb("#…") (AB, ̃)` 这样的文字。改写成 `(AB)^{\sim}`，或给每个符号各加重音。
+- **定尺寸命令只用于括号。** `\bigl( … \bigr)`、`\Bigl| … \Bigr|` 没有问题；`a\big/b` 在 EPUB 中生成带 `maxsize` 的 `<mi>`，epubcheck 报 RSC-005。写 `\frac{a}{b}` 或普通的 `/`。
+- **范数带上标时写 `\lVert x\rVert^2`。** `\norm{x}^2` 与 `\|x\|^2` 在 PDF 中被转成关系符 `∥`：竖线两侧多出间距，指数叠在右竖线正上方。根因在 `TEX_MACROS` 里 `\norm` 的展开（带 `\left`/`\right`）与 Pandoc 的转换，属于模板；模板修好后本条即可删去。
+- **一行里并排几个等式的独立公式要分行。** 用 `aligned` 显式换行（源码换行不产生公式换行）；这类公式在手机宽度和 PDF 定理框里最先出问题。表头也尽量短：宽表靠容器横向滚动，页面本身不应出现横向滚动条。
+
+改动了公式就三种产物都构建一遍（`./tbook build html pdf epub --book <slug>`）；PDF 与 EPUB 的排查方法见 `skills/book-export` 的排错清单。
+
+### 写“文献结果”之前先搜冻结库
+
+把一条结论写成“文献结果，未形式化”的 `remark`，或降级为 `conjecture` 之前，先在所钉提交上搜一遍。经典结论常常已经冻结，只是换了名字，或以有限维、固定参数、等价改写的形式出现。trureturing 每个 `D5/**/*.lean` 文件头有一行英文 `digest:` 摘要：
+
+```bash
+T="${TRURETURING_DIR:-../trureturing}"
+C=$(python3 -c "import json; print(json.load(open('trureturing.lock.json'))['commit'])")
+git -C "$T" grep -n -i -E 'digest: .*(stinespring|trace distance)' "$C" -- D5
+git -C "$T" cat-file -e "$C:Golden/Frozen/state/<模块路径>.lean.json" && echo frozen
+```
+
+- 关键词用英文术语及其变体：人名、对象名、结论的形状（`contract`、`no continuous section`、`iff critical line`）都试。
+- 也搜本书自己：`grep -rn '<声明名或关键词>' books/<slug>/ trureturing.lock.json`。别的章节可能已经引用了同一结论的更一般形式，这时注记里不能再把它列为未形式化，应改为交叉引用。
+- 找到的若是特例或等价改写，就照它的原样引用，并在正文写明它与经典表述之间还差哪一步、那一步仍是文献结果。
+- “猜想 ⟺ X”这类冻结定理是等价改写，不是证明：定理框里写等价，`conjecture` 环境照旧保留，正文明说猜想仍然开放。
+
+### 忠实陈述最容易漏掉的细节
+
+- **Lean 的全函数约定。** 除以零得 `0`、`Real.log 0 = 0`、`ZMod` 的 `.val` 取标准代表元、自然数减法截断。陈述涉及这些边界时，把约定写进定义或紧随其后的说明，否则书面陈述在边界情形与 Lean 不一致。
+- **模块里的局部实例与记号。** 同一个 `‖·‖` 可能是算子范数，也可能是模块用 `local instance` 指定的希尔伯特—施密特范数；`star`、`•`、`*ᵥ` 同理。读源文件的 `open`、`variable` 与 `local instance`，不要只读定理那几行。
+- **库里的命题名照定义展开。** 引用 Mathlib 的命名命题（如 `RiemannHypothesis`）时写出它的定义；它与教科书表述的等价若依赖未形式化的事实，要说出来。
+- **Lean 没有陈述的推论不进定理框。** 模块文档写明“不陈述某推论”时，那条推论只能作为“手工推导，未在本书形式化”写在定理框之外。
+
+### 手写的计数、清单与数值
+
+- 新增或删除定理级环境后，更新正文里手写的条数与清单：章首导言、各部小结、文献注记里“本章已验证的 N 条”、附录的对照表。先 `grep -rn '条正式\|条定理\|Lean-verified' books/<slug>/` 找一遍，各语言版本都要改。
+- “GID—源码行—摘要”这类对照行从 `trureturing.lock.json` 生成，不手抄。
+- 算例里的数值独立复算；写“四舍五入到所示位数”时确实是四舍五入而不是截断。各语言版本的数字应当逐个相同，而环境对齐检查不比较数字：把两版同一环境里的数字序列抽出来比对一次。
+
 ## 步骤
 
 1. 确认要写的每条形式结论在 trureturing 中已有冻结声明：在 trureturing checkout 中搜索 `D5/`，或读 `Golden/Frozen/state/<module>.lean.json`。没有 → 先走 `skills/theorem-formalize`，或把它写成 `conjecture`。
 2. 在权威版本中写作；新增 GID 后运行 `./tbook pin --refresh`（不移动提交，只解析新引用）。
 3. 同步其他语言版本（同样的 id、lean、顺序）。
 4. `./tbook check` 必须 0 错误；处理警告（未列入 SUMMARY 的文件、未使用的锁条目）。
-5. `./tbook build html --book <slug>`，用 `./tbook serve` 打开改动的页面，在中英两个版本、深浅两种主题下看一遍；需要时 `./tbook build pdf epub --book <slug>` 检查版面。
-6. 提交：说明改了哪些章节、新增了哪些 GID。
+5. `./tbook build html --book <slug>`，用 `./tbook serve` 打开改动的页面，在中英两个版本、深浅两种主题、桌面与手机宽度（约 390 px）下看一遍。改动了公式或表格时，`./tbook build pdf epub --book <slug>` 也要跑：epubcheck 的错误与 PDF 的转换问题只在各自的构建里暴露（见“容易踩的坑”）。
+6. 提交：说明改了哪些章节、新增了哪些 GID。提交说明与 PR 正文不写模型或生成工具的标识；创建 PR 的工具若在正文末尾自动追加了署名页脚，创建后把正文原样再保存一次，去掉它。
 
 ## 禁止
 

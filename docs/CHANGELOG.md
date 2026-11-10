@@ -2,6 +2,12 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
+## [Unreleased]
+
+### 变更
+
+- skills：把 trureturing-books 为《量子计算的几何直觉》补全内容时遇到的问题写进指引。`book-write` 新增“容易踩的坑”：同一公式过三条渲染链路时的写法（负细空格 `\!` 在 PDF 中变成 `-1em`、多符号重音印成颜色值文字、`\big/` 使 epubcheck 报 RSC-005、带上标的范数指数错位）、写“文献结果”之前在所钉提交上按 `digest:` 搜索冻结库并核对本书已有引用、忠实陈述时的 Lean 全函数约定与局部实例、手写的定理计数与数值的同步核对；步骤中加入手机宽度与三种产物都构建的要求。`book-export` 排错清单新增 PDF 源码泄漏与越界的文字扫描、重叠类问题的来源、epubcheck RSC-005 的定位与最小复现方法。`trureturing-pin` 说明浅克隆 checkout 会让分支可达性判断失败及补救命令。其中多符号重音、`\!` 与范数三项的根因在主题变量名、兼容过滤器与 `\norm` 的宏展开，尚未在模板中修复，skills 先给出正文侧的写法。
+
 ## [0.2.5] - 2026-11-11
 
 ### 修复

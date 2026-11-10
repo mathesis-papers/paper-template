@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "fb1a8fdb479699bdab8b2263a59dc1ad0ef6aa6b01bf32f8e7f606b7813e3e2e",
+      "sha256": "c79d2e650ff233231717c97d40376715fc4a53d9054ea78a378a44aae4f761b5",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -96,7 +96,7 @@
       "mode": "100644"
     },
     "skills/book-export/SKILL.md": {
-      "sha256": "4f81b9d0f6699502eee65664b494bb703b9a22f56cf68fc651bc615049f651ca",
+      "sha256": "b4248621ff940da9b3d5d9a4d48bf252b9caf0d75aae4a47bfef986ed4af85a4",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -120,7 +120,7 @@
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
-      "sha256": "02ad295d126c249da44038f66ba890c8be89ef386ee95da0056e63ed60d3234b",
+      "sha256": "3ac29942696e3b3ae29f40873071dc3dc406202cf22c97856a7002ce7d4af9fe",
       "mode": "100644"
     },
     "skills/template-update/SKILL.md": {
@@ -132,7 +132,7 @@
       "mode": "100644"
     },
     "skills/trureturing-pin/SKILL.md": {
-      "sha256": "047b3adfca30f8bdee50d36739fc11d942edfd78726aa78bde6c317426c301f7",
+      "sha256": "6e88625ea1341445868510eeb650186961179994c6c1d6222e9e7d07f0716de7",
       "mode": "100644"
     },
     "tbook": {
