@@ -2,14 +2,7 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
-## [Unreleased]
-
-### 修复
-
-- 下游书库隐藏 `example-*` 并重新钉版后，依赖示例声明或提交的集成测试跳过，使用合成锁文件的测试照常运行；CI 在隐藏示例书时同时更换锁文件提交并清空声明，覆盖真实的下游状态。
-- 可视化、视频与新书脚手架的默认日期统一使用 UTC，书籍缺省日期也保持一致；补充 UTC+14、UTC−11 跨日边界测试，确保 Python 与 Node 生成的可视化文件相同。
-
-## [0.2.0] - 2026-11-09
+## [0.2.0] - 2026-11-10
 
 升级时迁移 `tools/migrations/v0.2.0.py` 自动处理书库自有的内容：给每个 `books/*/films/*/film.json` 补上缺少的 `outputs.narrated_720p` 与 `outputs.cover`（默认文件名），删除不再使用的 `release_tag`、`published_tag`；已列出的 1080p 与纯配乐输出保持不变。它还在升级摘要中提示：视频如何改用 720p 默认、书库保留示例书时用 `[books] hide = ["example-*"]` 隐藏它们、调用 `ci.yml` 的书库工作流须授予 `pages: read`。
 
@@ -53,6 +46,8 @@
 
 ### 修复
 
+- 下游书库隐藏 `example-*` 并重新钉版后，依赖示例声明或提交的集成测试跳过，使用合成锁文件的测试照常运行；CI 在隐藏示例书时同时更换锁文件提交并清空声明，覆盖真实的下游状态。
+- 可视化、视频与新书脚手架的默认日期统一使用 UTC，书籍缺省日期也保持一致；补充 UTC+14、UTC−11 跨日边界测试，确保 Python 与 Node 生成的可视化文件相同。
 - PDF：`\cap`、`\bigcap`、`\sqcap`、`\odot`、`\otimes`、`\ominus`、`\circleddash` 等不再使整本 PDF 构建失败。Pandoc 的 Typst 输出仍用旧名 `sect` 与修饰符 `.circle`，所钉的 Typst 已改名为 `inter` 与 `.o`；`tools/filters/typst-compat.lua` 在正文与环境标题的公式中改写它们。测试把 KaTeX 支持的每个数学符号经 Pandoc、过滤器与 Typst 编译一遍。
 - HTML 与幻灯片：主题以大写显示的表头、SUMMARY 部分标题与幻灯片表头中，公式与代码保持原样（此前 $\varphi$ 显示为 $\Phi$，$n$ 显示为 $N$）。
 - PDF/EPUB：带 `{-}`（`.unnumbered`）的标题不再与 Pandoc 的自动 id 冲突、导致 Typst 失败；缩进代码块中的脚注、链接与公式原样保留；紧贴在文字行下的标题也是标题，不再显示字面的 `{#id}`；含公式的标题按 HTML 显示的文字生成 id（`#关于-β-的估计`），含脚注引用的标题按 mdBook 显示的编号生成 id（`## 注释[^a]` → `#注释1`），从 HTML 版复制来的片段链接在 PDF/EPUB 中同样可达（构建 PDF/EPUB 时用 Node 渲染标题中的公式，不可用时退回 TeX 源码并警告）。
