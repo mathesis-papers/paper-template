@@ -60,15 +60,15 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "d1ebec1d48a8a92a9209a58c18b031b137f3ebca719617e6f38c976b8fb52edc",
+      "sha256": "9e520d3786409a8b7f69b9ba883e8dc0b2afe62183ff5e7d3a23d54bbc332acb",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "8a3ee1ce19abc09104634eda7da419736b6bed25d8b5caeac48d8ad6c023e4d6",
+      "sha256": "c2b399b3e7ce92307876f79fe46cb4eeaf631af61aef06f3242c7d9fb97ff759",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "ae89d7b955d217ec8e1e7f8645c7cc1848ea801ae3f1450a8401dc58c8fa097e",
+      "sha256": "e121d31d2a92685be3c7fb056cce3f064c95233e8d137efaa8dcbff7892c11a0",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -96,7 +96,7 @@
       "mode": "100644"
     },
     "skills/book-export/SKILL.md": {
-      "sha256": "a395175c5fd3394cfcdf4aa0a4495c81bb10cd4596e13e5d7b8d8f5b916d1e69",
+      "sha256": "b30efbbf688d706601c4e76728085eb32957c4baec1d1df218e9302b59401368",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -588,7 +588,7 @@
       "mode": "100644"
     },
     "tools/tbook/html.py": {
-      "sha256": "9938fe2e15cd9ef1075297008e82e889a26d9170a6cdd6bac04dbea3626d2bec",
+      "sha256": "146d714b4d9ef4ab0b383041dc8af83f3274cbaa3adbe01c3cb60e785b12c63e",
       "mode": "100644"
     },
     "tools/tbook/lean.py": {
@@ -696,7 +696,7 @@
       "mode": "100644"
     },
     "tools/tests/test_html.py": {
-      "sha256": "f2916a3806c2ef8a689502290e85cb73b23de8cc9d4d9beadc7ace60770128f3",
+      "sha256": "98cac204517a71fa7b965dd82c553c791993762589a5248358e01bda05f976ff",
       "mode": "100644"
     },
     "tools/tests/test_links.py": {

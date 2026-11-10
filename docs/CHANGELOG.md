@@ -2,6 +2,12 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
+## [Unreleased]
+
+### 修复
+
+- mdBook：SUMMARY 中的章节标题、部分标题与草稿标题的公式在侧栏目录中保留 KaTeX 排版，菜单栏书名同样支持公式；浏览器标签和搜索索引用公式的可见文字。此前目录显示 TeX 源码，直接在 SUMMARY 预渲染又会被 mdBook 剥去排版。修复同时覆盖 JavaScript 目录与无 JavaScript 的 `toc.html`，目录脚本重新计算内容哈希。
+
 ## [0.2.0] - 2026-11-10
 
 升级时迁移 `tools/migrations/v0.2.0.py` 自动处理书库自有的内容：给每个 `books/*/films/*/film.json` 补上缺少的 `outputs.narrated_720p` 与 `outputs.cover`（默认文件名），删除不再使用的 `release_tag`、`published_tag`；已列出的 1080p 与纯配乐输出保持不变。它还在升级摘要中提示：视频如何改用 720p 默认、书库保留示例书时用 `[books] hide = ["example-*"]` 隐藏它们、调用 `ci.yml` 的书库工作流须授予 `pages: read`。
