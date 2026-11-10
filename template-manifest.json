@@ -1,7 +1,7 @@
 {
   "schema": "trureturing-books.template-manifest.v1",
   "template": "trureturing-books-template",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "files": {
     ".claude/skills": {
       "sha256": "c1aefaccb300698f4b7ae764e1fa857f93c0609ba47b078e4806d926f289c23b",
@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "f223ba8d1941a48abef1cf5ca6c88da55eed240652a67d5d41fa95a75ba0df06",
+      "sha256": "fb1a8fdb479699bdab8b2263a59dc1ad0ef6aa6b01bf32f8e7f606b7813e3e2e",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -96,7 +96,7 @@
       "mode": "100644"
     },
     "skills/book-export/SKILL.md": {
-      "sha256": "b30efbbf688d706601c4e76728085eb32957c4baec1d1df218e9302b59401368",
+      "sha256": "4f81b9d0f6699502eee65664b494bb703b9a22f56cf68fc651bc615049f651ca",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -436,7 +436,7 @@
       "mode": "100644"
     },
     "theme/typst/book.typ": {
-      "sha256": "9309882f2f4a8acd5b53cb17e862131486c5e8e768b0eb65e7e2fcdc929e6dd1",
+      "sha256": "5b0ba4506534d48e42b5f0263c120555b3ae2ff5109936c5eb840dafed300869",
       "mode": "100644"
     },
     "theme/typst/cover.typ": {
@@ -484,7 +484,7 @@
       "mode": "100644"
     },
     "tools/filters/typst-compat.lua": {
-      "sha256": "318962993917a91a6b7b2eed538b2c011bfa2052d2f028e3d80d3288ac0a1db7",
+      "sha256": "aec141f207b76a42735f851f08d59245813b2958685f53e16c9e7f75f1ba6969",
       "mode": "100644"
     },
     "tools/migrations/README.md": {
@@ -716,7 +716,11 @@
       "mode": "100644"
     },
     "tools/tests/test_pandoc.py": {
-      "sha256": "3bc7a7fadeddc6cce1cd39e41abdb5843251df6797e61f914b5caf8f574773c5",
+      "sha256": "e7b3c37dd14b02242595aceecb823717a3787087c5f4e07285b097ce2d087e01",
+      "mode": "100644"
+    },
+    "tools/tests/test_pdf_layout.py": {
+      "sha256": "f3972aa090a844c5192a744152b65c2a406089eae2ae29176868e0e9525eecc6",
       "mode": "100644"
     },
     "tools/tests/test_serve.py": {
