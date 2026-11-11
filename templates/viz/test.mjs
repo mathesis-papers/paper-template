@@ -5,7 +5,7 @@
 // cited card, the still for PDF/EPUB, phone, cover, reduced motion). After it come the checks of this page: one for
 // every control, and one for each property the page claims, against an independent computation written here (never
 // by calling the page's own functions).
-import { session, stageFirstChecks, settle } from '../../../../tools/node/viz-testkit.mjs';
+import { session, stageFirstChecks, settle, until } from '../../../../tools/node/viz-testkit.mjs';
 
 const T = await session();
 const { check } = T;
@@ -31,8 +31,9 @@ await page.mouse.move(to[0], to[1]); await page.mouse.down(); await page.mouse.u
 check('pressing on the circle moves the point there', Math.abs(s.theta - 30) < 1.5, `θ = ${s.theta}`);
 await page.locator('body').click({ position: { x: 5, y: 5 } });
 await seek(30); await page.keyboard.press('ArrowRight'); check('→ steps 15°', Math.abs((await state()).theta - 45) < 1e-9);
-await page.keyboard.press('Space'); await page.waitForTimeout(700); s = await state();
-check('Space plays', s.playing && s.theta > 45);
+// playback moves on animation frames: wait for the page to report the move, never for a fixed time
+await page.keyboard.press('Space');
+check('Space plays', await until(page, () => { const d = window.STARTER_DEBUG.state; return d.playing && d.theta > 45; }));
 await page.keyboard.press('Space'); check('Space pauses', !(await state()).playing);
 
 check('no page error, console error or failed request (page-specific part)', T.errors.length === 0, T.errors.slice(0, 4).join(' | '));

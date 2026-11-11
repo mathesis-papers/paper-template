@@ -68,7 +68,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "098d624fa0d7d4b57fa69ad10ff9aecfed11f488192fa758c278e840a0b13a32",
+      "sha256": "b653b080a7cb74c726ef48c9b54e358ea52acf1881944198f9160bd89fc189e1",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
@@ -116,7 +116,7 @@
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
-      "sha256": "c30ec2db718d0372371a2874dfdf228a39a0e9b3a1a89c232e56ddd868ac366c",
+      "sha256": "2ba9d0a9267883689b4d6c2aad9db53f6a0dfba1c9de043249393e828c46706b",
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
@@ -212,7 +212,7 @@
       "mode": "100644"
     },
     "templates/viz/test.mjs": {
-      "sha256": "4fbdc610a21cc03e29bedd868521fd8a3bf5766bfb0d280b65f62454c3be93ba",
+      "sha256": "4a136a88c6de441578ca29606fdb9e6a5abfb4b9a23e82e4db3fc489f4b60dd9",
       "mode": "100644"
     },
     "theme/epub/book.css": {
@@ -544,7 +544,7 @@
       "mode": "100644"
     },
     "tools/node/viz-testkit.mjs": {
-      "sha256": "c41067335a87fc0ce2f62e9a9615e49432cb9a780f3347061d445a5e8e899207",
+      "sha256": "589d2e873aa0abcfd1d290be6f0e102ce7e9b6ca2cc4aa4c007ea63467dbba4f",
       "mode": "100644"
     },
     "tools/node/viz-thumbs.mjs": {

@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { session, stageFirstChecks, settle, cjkLeftovers } from '../../../../tools/node/viz-testkit.mjs';
+import { session, stageFirstChecks, settle, until, cjkLeftovers } from '../../../../tools/node/viz-testkit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const BOOK = 'example-monograph', ID = 'golden-carry';
@@ -132,8 +132,9 @@ await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
 check('→ steps one carry at a time', st.pass === 2, JSON.stringify(st.t));
 await page.keyboard.press('ArrowLeft'); check('← steps back', (await state()).pass === 1);
 await page.keyboard.press('End'); check('End jumps to the normal form', (await state()).pass === 9);
-await page.keyboard.press('Home'); await page.keyboard.press('Space'); await page.waitForTimeout(700); st = await state();
-check('Space plays the carries', st.playing && st.t > 0);
+// playback moves on animation frames: wait for the page to report the move, never for a fixed time
+await page.keyboard.press('Home'); await page.keyboard.press('Space');
+check('Space plays the carries', await until(page, () => { const d = window.GC_DEBUG.state; return d.playing && d.t > 0; }));
 await page.keyboard.press('Space'); check('Space pauses', !(await state()).playing);
 await page.click('#rew'); check('⏮ returns to the start', (await state()).t === 0);
 await seek(9);
@@ -185,8 +186,8 @@ pt = await D(() => window.GC_DEBUG.point.mini(21, 3));
 await page.mouse.click(pt.x, pt.y); st = await state();
 check('clicking the small map under the stage picks a pair too', st.v1 === 21 && st.v2 === 3, JSON.stringify([st.v1, st.v2]));
 check('the row plot under the stage follows v₂', (await text('#pATitle')).includes('c(v₁, 3)'));
-await pick('zoom'); await page.waitForTimeout(500); st = await state();
-check('ZOOM-OUT plays the range outward', st.scene === 'map' && (st.playing || st.t > 0));
+await pick('zoom');
+check('ZOOM-OUT plays the range outward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'map' && d.t > 0; }));
 await page.keyboard.press('End'); st = await state();
 check('at the end the map covers 0 … 987: 976144 cells, three colours', st.N === 987 && st.cells.odd === 0 && (await text('#hudSub')).includes('976144'));
 
@@ -207,8 +208,8 @@ check('the HUD prints the two areas', (await text('#hudSub')).includes(P.toFixed
 await seek(21); pt = await D(() => window.GC_DEBUG.point.phase(4, 7));
 await page.mouse.click(pt.x, pt.y); st = await state();
 check('clicking a point of the phase square picks that pair', st.v1 === 4 && st.v2 === 7, JSON.stringify([st.v1, st.v2]));
-await pick('fill'); await page.waitForTimeout(500); st = await state();
-check('FILL plays n upward', st.scene === 'phase' && (st.playing || st.n > 2));
+await pick('fill');
+check('FILL plays n upward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'phase' && d.n > 2; }));
 await page.keyboard.press('Space');
 
 /* ---------- the window on the contraction face ---------- */
@@ -220,8 +221,8 @@ let inside = true, least = 9, greatest = -9; for (let v = 0; v <= 233; v++) { co
 st = await seek(233);
 check('every β′(v) with v ≤ 233 lies in [−1/φ², 1/φ], here and on the page', inside && near(st.least, least) && near(st.greatest, greatest) && (await text('#hudSub')).includes('✓'));
 check('the window is exactly 1 long and leaves room for −1, 0, 1 only', near(hi - lo, 1) && Math.ceil(2 * lo - hi) === -1 && Math.floor(2 * hi - lo) === 1);
-await pick('sweep'); await page.waitForTimeout(500); st = await state();
-check('SWEEP plays v upward', st.scene === 'window' && (st.playing || st.m > 0));
+await pick('sweep');
+check('SWEEP plays v upward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'window' && d.m > 0; }));
 await page.keyboard.press('Space');
 
 /* ---------- scenes from the keyboard ---------- */
