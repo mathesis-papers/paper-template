@@ -9,7 +9,9 @@
 #          repository also the checks and unit tests once more without books/example-monograph, and once
 #          more with the example books hidden (site.toml [books].hide = ["example-*"])
 #   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
-#   media  visualization browser tests, slide decks (Slidev + Chromium) and films
+#   viz    visualization browser tests, in four parallel shards (one browser suite per page takes about a
+#          minute; a book with thirty pages would otherwise hold every later run for most of an hour)
+#   media  slide decks (Slidev + Chromium) and films
 #
 # build and media go through the build cache (docs/PUBLISHING.md §5): outside pull-request events they
 # restore the store that pages.yml saved; in every event they may restore a unit from the newest published
@@ -225,8 +227,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  viz:
+    name: Visualization browser tests (${{ matrix.shard }}/4)
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # tools/node/viz-test.mjs --shard i/n runs every n-th suite of the sorted list; a shard without suites passes.
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Visualization browser tests
+        if: hashFiles('tools/node/viz-test.mjs') != ''
+        run: node tools/node/viz-test.mjs --shard ${{ matrix.shard }}/4
+
   media:
-    name: Visualizations, slides and films
+    name: Slides and films
     needs: check
     runs-on: ubuntu-24.04
     # Rendering a film that no cache holds takes long (frames, narration, encoding).
@@ -257,10 +284,6 @@ jobs:
         with:
           mode: restore
           pages-url: ${{ steps.pages.outputs.base_url }}
-
-      - name: Visualization browser tests
-        if: hashFiles('tools/node/viz-test.mjs') != ''
-        run: node tools/node/viz-test.mjs
 
       - name: Find slide decks
         id: decks

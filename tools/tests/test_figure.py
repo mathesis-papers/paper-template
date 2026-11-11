@@ -217,6 +217,16 @@ class RenderingTests(unittest.TestCase):
             self.assertIn('<div class="tr-fig-row tr-fig-wrap" style="max-width:420px" role="img" aria-label="Two panels.">', two)
             self.assertEqual(two.count('<svg class="tr-fig tr-fig-part" viewBox="0 0 200 160" style="flex-basis:200px"'), 2)
             self.assertEqual(two.count("</svg>"), 2)
+            grid = PANELS.replace("left, right = fig.row([200, 200], 160)",
+                                                "left, right = fig.row([200, 200], 80)\n    more = fig.row([200, 200], 80, y=80)") \
+                .replace("left.circle(100, 80, 40", "left.circle(100, 40, 30").replace("right.rect(60, 40, 80, 80", "right.rect(60, 10, 80, 60") \
+                .replace("right.text(100, 150,", "more[1].line(20, 40, 180, 40, color=\"cyan\")\n    more[0].text(100, 60,")
+            (repo.root / "books/demo/figures/grid.py").write_text(grid, encoding="utf-8")
+            figure.build(book, ["grid"])
+            rows = figure.inline_html(figure.out_path(book, "grid", "en").read_text(encoding="utf-8"))
+            self.assertTrue(rows.startswith('<div class="tr-fig-rows" style="max-width:420px" role="img" aria-label="Two panels.">'), rows[:120])
+            self.assertEqual(rows.count('<div class="tr-fig-row tr-fig-wrap">'), 2, "one flex row per row of panels")
+            self.assertEqual(rows.count('class="tr-fig tr-fig-part"'), 4)
 
     def ctx(self, book: config.Book, lang: str, target: str) -> tuple[render.RenderContext, model.EditionModel]:
         edition = next(e for e in book.editions if e.lang == lang)

@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 变更
+
+- CI 的可视化浏览器测试从 `media` 作业移到新的 `viz` 作业，分 4 片并行运行（`tools/node/viz-test.mjs --shard i/4` 早已支持分片，工作流此前没有用）。下游《量子计算的几何直觉》的页面由 8 个增到 36 个之后，串行跑一轮要四五十分钟，默认分支上后续的运行都排在它后面被取代。`media` 作业改名为 “Slides and films”，只构建幻灯片与视频。**需要手动操作（仅当分支保护按名字要求了旧的检查）**：把必需检查 “Visualizations, slides and films” 换成 “Slides and films” 与四个 “Visualization browser tests (i/4)”。
+- 静态图：`WRAP = True` 的图多次调用 `fig.row(…, y=…)` 把各栏排成几行时，网页版每行各成一个弹性盒（外层 `tr-fig-rows`）：宽屏上行还是行、同一行的各栏一起缩放，手机上逐栏叠放。此前所有栏都在同一个弹性盒里，宽屏上被压成一行。来源：《量子计算的几何直觉》里要并排比较的小图集超过三张时，一行放不下。
+
 ### 新增
 
 - 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，普通作业不再逐次运行 apt。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
