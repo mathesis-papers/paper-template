@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "84022e7977e4bb9e09a8fb341373123fc9ef5e49cae6a02ac3c7f791b7b2e678",
+      "sha256": "e758f55d7d4103c526eee70bf5c33b1a64570e21ace54f65d7832bb1175edf35",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -452,7 +452,7 @@
       "mode": "100644"
     },
     "theme/typst/fonts.sha256": {
-      "sha256": "ae704536a12506bab4af20a4589472e876788e32bb5a5c670a542f84fafa5847",
+      "sha256": "f39c2bde7757f49a70a1d892b345bd18c72502b203f5479e92a0e2379b52380c",
       "mode": "100644"
     },
     "theme/typst/pandoc-template.typst": {
@@ -500,7 +500,7 @@
       "mode": "100644"
     },
     "tools/fetch-fonts.sh": {
-      "sha256": "072544a78c254b052ff6a6967e27ab76036d83ca8741a3397cc5db660f51164c",
+      "sha256": "9139a06fd0b910d0c1fd41db62decb56d425a2a9705af6ab45c8813eca3f0dcd",
       "mode": "100755"
     },
     "tools/filters/tr-book.lua": {

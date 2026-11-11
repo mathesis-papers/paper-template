@@ -12,5 +12,8 @@ a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f  JetBrainsMono-
 d480f4f97405fac3600652e2e14fd0b14339031c0af4da11582994878f04d919  ChakraPetch-Medium.ttf
 45264de3204ddbd5fb3e14a2402acd5c630d16650ae5fc221d2c52da46a6734b  ChakraPetch-SemiBold.ttf
 65fbf76d95651697275e19db4d717c0e95a789ddd3476478b05292104db278a0  ChakraPetch-Bold.ttf
-# Noto Sans SC / Noto Serif SC (notofonts/noto-cjk SubsetOTF/SC) — TODO: not pinned yet; run
-# tools/fetch-fonts.sh once from a trusted network and copy the lines from .cache/fonts/SHA256SUMS.
+# Noto Sans SC — notofonts/noto-cjk Sans2.004; Noto Serif SC — Serif2.003, SubsetOTF/SC.
+faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9  NotoSansSC-Regular.otf
+c6cb5a93abaa9edc8ee7463b7ebb7f42d618d40e6ed2f7a5371c97b0b64767c0  NotoSansSC-Bold.otf
+e8f396decc1f0963a016a989c3d8852e863d1350996f573860a80767c83a1cd3  NotoSerifSC-Regular.otf
+24693d48bdb9152f0a06b02af625638a1097abd6de4010ebba027f6e82710527  NotoSerifSC-Bold.otf

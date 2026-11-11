@@ -8,6 +8,10 @@
 
 - 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，普通作业不再逐次运行 apt。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
 
+### 修复
+
+- `tools/fetch-fonts.sh` 的 Noto CJK tag 改为实际存在的 `Sans2.004` 与 `Serif2.003`（旧值多了 `R`，四个下载地址均返回 404），并补齐四个字体文件的 SHA-256。容器构建要求这些字体全部下载并通过校验。
+
 ## [0.3.2] - 2026-11-11
 
 ### 修复
