@@ -62,6 +62,7 @@ jobs:
           file: tools/container/Dockerfile
           platforms: linux/amd64
           load: true
+          no-cache: ${{ github.event_name == 'schedule' }}
           tags: tbook-toolchain:test
           cache-from: ${{ !startsWith(github.event_name, 'pull_request') && 'type=gha,scope=toolchain' || '' }}
           cache-to: ${{ !startsWith(github.event_name, 'pull_request') && 'type=gha,scope=toolchain,mode=max' || '' }}

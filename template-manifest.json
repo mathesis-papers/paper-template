@@ -16,7 +16,7 @@
       "mode": "100644"
     },
     ".github/actions/setup/action.yml": {
-      "sha256": "39f42bbec3b8123ef4cee8f79cb22bf03d7cc371364299c4c8ca018edba732e7",
+      "sha256": "21873e6c0ba749ee7723cb4159ee87b01edb74e711875ed8e20c0ff22ec26ef9",
       "mode": "100644"
     },
     ".github/workflows/ci.yml": {
@@ -44,7 +44,7 @@
       "mode": "100644"
     },
     ".github/workflows/toolchain-image.yml": {
-      "sha256": "e299b17ab2e4d9cfa7a6c01d445eb9c9213671dc933313245802d0a218b39f47",
+      "sha256": "6b657ea6869ee72a0f8c3c75c62f9aecb04af8013a2a14bd47971c74a5949299",
       "mode": "100644"
     },
     ".github/workflows/trureturing-bump.yml": {

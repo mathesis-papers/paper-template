@@ -91,7 +91,7 @@ runs:
         REQUESTED_PYTHON: ${{ inputs.python-version }}
       run: |
         if [ -n "${TBOOK_TOOLCHAIN:-}" ]; then
-          python -c 'import os, sys; assert sys.version.startswith(os.environ["REQUESTED_PYTHON"] + "."), "Container Python does not match python-version"'
+          python -c 'import os, sys; actual = sys.version.split()[0]; wanted = os.environ["REQUESTED_PYTHON"]; assert actual == wanted or actual.startswith(wanted + "."), "Container Python does not match python-version"'
           python "$TBOOK_TOOLCHAIN/container/prepare.py"
           echo "preinstalled=true" >> "$GITHUB_OUTPUT"
         else
