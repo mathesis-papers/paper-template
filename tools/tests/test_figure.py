@@ -62,6 +62,24 @@ class KitTests(unittest.TestCase):
     def fig(self, **kw) -> figkit.Figure:
         return figkit.Figure("t", "en", 300, 200, alt="alt", **kw)
 
+    def test_coordinate_rounding_ignores_libm_noise(self):
+        for coordinate in (118.325, 54.075, -118.325, -54.075):
+            with self.subTest(coordinate=coordinate):
+                self.assertEqual(figkit.num(coordinate - 1e-12),
+                                 figkit.num(coordinate + 1e-12))
+        self.assertEqual(figkit.num(-1e-12), "0")
+        self.assertNotEqual(figkit.num(118.32), figkit.num(118.33))
+
+    def test_arc_output_ignores_libm_noise_at_segment_boundary(self):
+        def make(start, end):
+            f = self.fig()
+            f.arc(150, 100, 60, start, end)
+            return f.svg()
+
+        self.assertEqual(make(30 - 1e-12, 90 + 1e-12),
+                         make(30 + 1e-12, 90 - 1e-12))
+        self.assertNotEqual(make(30, 90), make(30, 94))
+
     def test_output_is_deterministic_and_paints_by_role(self):
         def make() -> str:
             f = self.fig()
