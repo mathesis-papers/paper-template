@@ -47,7 +47,7 @@ NODE_SHOTS = paths.TOOLS / "node" / "fig-shots.mjs"
 _FIGURE_WORD_RE = re.compile(r"(?:图|圖|figure|fig|abbildung|abb)\.?", re.I)
 _STYLE_RE = re.compile(r"<style>.*?</style>\n?", re.S)
 _ROOT_RE = re.compile(r"<svg\b[^>]*>")
-_PANEL_RE = re.compile(r'<svg class="tr-fig-panel" x="[^"]*" y="[^"]*" width="(?P<w>[^"]*)" height="(?P<h>[^"]*)" '
+_PANEL_RE = re.compile(r'<svg class="tr-fig-panel" x="[^"]*" y="(?P<y>[^"]*)" width="(?P<w>[^"]*)" height="(?P<h>[^"]*)" '
                        r'viewBox="(?P<vb>[^"]*)">\n(?P<body>.*?)\n</svg>', re.S)
 SCREEN_EXT = ".screen.svg"
 PRINT_EXT = ".print.svg"
@@ -216,9 +216,19 @@ def inline_html(svg: str) -> str:
     fam = (" " + family.group()) if family else ""
     aria = f' role="img" aria-label="{alt}"' if alt else ' role="img"'
     if 'data-wrap="1"' in root.group():
+        panels = list(_PANEL_RE.finditer(body))
         parts = [f'<svg class="tr-fig tr-fig-part" viewBox="{m.group("vb")}" style="flex-basis:{m.group("w")}px"{fam} '
-                 f'aria-hidden="true">\n{m.group("body")}\n</svg>' for m in _PANEL_RE.finditer(body)]
-        return f'<div class="tr-fig-row tr-fig-wrap" style="max-width:{figkit.num(w)}px"{aria}>\n' + "\n".join(parts) + "\n</div>"
+                 f'aria-hidden="true">\n{m.group("body")}\n</svg>' for m in panels]
+        # Panels that share a row sit side by side on a wide screen and shrink together; a figure laid out
+        # in several rows keeps its rows there, and on a phone every panel stacks in reading order.
+        rows: dict[str, list[str]] = {}
+        for m, part in zip(panels, parts):
+            rows.setdefault(m.group("y"), []).append(part)
+        box = f'style="max-width:{figkit.num(w)}px"{aria}'
+        if len(rows) > 1:
+            inner = "\n".join('<div class="tr-fig-row tr-fig-wrap">\n' + "\n".join(r) + "\n</div>" for r in rows.values())
+            return f'<div class="tr-fig-rows" {box}>\n{inner}\n</div>'
+        return f'<div class="tr-fig-row tr-fig-wrap" {box}>\n' + "\n".join(parts) + "\n</div>"
     vb = re.search(r'viewBox="[^"]*"', root.group()).group()  # type: ignore[union-attr]
     return (f'<div class="tr-fig-row">\n<svg class="tr-fig" {vb} style="max-width:{figkit.num(w)}px"{fam}{aria}>\n'
             f"{body}\n</svg>\n</div>")
