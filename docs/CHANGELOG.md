@@ -4,9 +4,11 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
 ### 新增
 
-- 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，普通作业不再逐次运行 apt。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
+- 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，采用容器的作业不再逐次运行 apt。容器为可选接入，默认 CI 与 Pages 继续使用现有的 Ubuntu 工具安装与缓存流程。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
 
 - 静态图的标准、工具与检查（`skills/book-figure`）。此前模板对静态图只有 `![图注](../assets/x.svg)` 一种写法，没有标准、工具与检查；下游《量子计算的几何直觉》的 29 张图因此全部把深色底写死在文件里、两种语言共用一个文件、四章的图注只有“图 13”这样的编号。现在：
   - **脚本生成**：一张图是一个脚本 `books/<slug>/figures/<name>.py`，用画图库 `tools/tbook/figkit.py` 画（线、箭头、面、文字、坐标系、球面投影、分栏）。脚本只写颜色的角色名（`ink`、`cyan`、`lean`、`now`…），不写色值；每种语言生成一份 `figures/<name>.<语言>.svg` 并提交入库，输出逐字节可复现。画图库拒绝不合标准的图：字号小于 12、线宽小于 1、文字超出画布、未知角色、宽度超过 760。
