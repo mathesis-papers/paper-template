@@ -84,14 +84,29 @@ runs:
           if [ "$WANTED" = "true" ]; then echo "No film (books/*/films/*/film.json of a book that site.toml [books].hide does not hide): the film toolchain is not installed."; fi
         fi
 
+    - name: Use the preinstalled container toolchain
+      id: toolchain
+      shell: bash
+      env:
+        REQUESTED_PYTHON: ${{ inputs.python-version }}
+      run: |
+        if [ -n "${TBOOK_TOOLCHAIN:-}" ]; then
+          python -c 'import os, sys; actual = sys.version.split()[0]; wanted = os.environ["REQUESTED_PYTHON"]; assert actual == wanted or actual.startswith(wanted + "."), "Container Python does not match python-version"'
+          python "$TBOOK_TOOLCHAIN/container/prepare.py"
+          echo "preinstalled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "preinstalled=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Set up Python
+      if: steps.toolchain.outputs.preinstalled != 'true'
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Restore the pip cache
       id: pip-cache
-      if: ${{ !startsWith(github.event_name, 'pull_request') }}
+      if: steps.toolchain.outputs.preinstalled != 'true' && (!startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/restore@v5
       with:
         path: ~/.cache/pip
@@ -99,6 +114,7 @@ runs:
         key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-films-${{ steps.films.outputs.install }}-${{ hashFiles('requirements.txt', 'theme/film/requirements.txt') }}
 
     - name: Install Python packages
+      if: steps.toolchain.outputs.preinstalled != 'true'
       shell: bash
       env:
         FILMS: ${{ steps.films.outputs.install }}
@@ -109,13 +125,14 @@ runs:
         fi
 
     - name: Save the pip cache
-      if: steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/save@v5
       with:
         path: ~/.cache/pip
         key: ${{ steps.pip-cache.outputs.cache-primary-key }}
 
     - name: Set up Node
+      if: steps.toolchain.outputs.preinstalled != 'true'
       uses: actions/setup-node@v5
       with:
         node-version: '22'
@@ -123,6 +140,7 @@ runs:
         cache-dependency-path: package-lock.json
 
     - name: Install Node packages
+      if: steps.toolchain.outputs.preinstalled != 'true'
       shell: bash
       env:
         # Browsers are installed explicitly below (with their system libraries) when requested.
@@ -131,32 +149,32 @@ runs:
 
     - name: Restore Playwright browsers
       id: browsers-cache
-      if: inputs.browsers == 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/restore@v5
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
 
     - name: Install Chromium for Playwright
-      if: inputs.browsers == 'true'
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true')
       shell: bash
       run: npx playwright install --with-deps chromium
 
     - name: Save Playwright browsers
-      if: inputs.browsers == 'true' && steps.browsers-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true' && steps.browsers-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/save@v5
       with:
         path: ~/.cache/ms-playwright
         key: ${{ steps.browsers-cache.outputs.cache-primary-key }}
 
     - name: Install mdBook
-      if: inputs.mdbook == 'true'
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.mdbook == 'true')
       uses: taiki-e/install-action@v2
       with:
         tool: mdbook@0.5.4
 
     - name: Install system fonts and ffmpeg
-      if: inputs.fonts == 'true' || steps.films.outputs.install == 'true'
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' || steps.films.outputs.install == 'true')
       shell: bash
       env:
         FONTS: ${{ inputs.fonts }}
@@ -181,21 +199,21 @@ runs:
 
     - name: Restore fetched fonts
       id: fonts-cache
-      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/restore@v5
       with:
         path: .cache/fonts
         key: fonts-${{ hashFiles('tools/fetch-fonts.sh', 'theme/typst/fonts.sha256') }}
 
     - name: Fetch PDF fonts
-      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != ''
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '')
       shell: bash
       run: |
         # The build falls back to system fonts, so a failed download is a warning, not an error.
         bash tools/fetch-fonts.sh || echo "::warning title=Fonts::tools/fetch-fonts.sh failed; PDFs fall back to system fonts"
 
     - name: Save fetched fonts
-      if: inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && steps.fonts-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && steps.fonts-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/save@v5
       with:
         path: .cache/fonts
@@ -203,7 +221,7 @@ runs:
 
     - name: Restore the film models
       id: film-models-cache
-      if: steps.films.outputs.install == 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/restore@v5
       with:
         path: .cache/film/models
@@ -211,14 +229,14 @@ runs:
         key: film-models-${{ hashFiles('theme/film/setup.sh') }}
 
     - name: Install the film toolchain
-      if: steps.films.outputs.install == 'true'
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true')
       shell: bash
       env:
         PYTHON: python
       run: bash theme/film/setup.sh
 
     - name: Save the film models
-      if: steps.films.outputs.install == 'true' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
       uses: actions/cache/save@v5
       with:
         path: .cache/film/models

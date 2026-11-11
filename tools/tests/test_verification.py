@@ -1035,7 +1035,8 @@ class PullRequestCacheTests(unittest.TestCase):
         for path, save in saves.items():
             restore = restores[path]
             self.assertEqual(save["with"]["key"], f"${{{{ steps.{restore['id']}.outputs.cache-primary-key }}}}", path)
-            inputs = {"inputs.browsers": "true", "inputs.fonts": "true", "steps.films.outputs.install": "true"}
+            inputs = {"inputs.browsers": "true", "inputs.fonts": "true", "steps.films.outputs.install": "true",
+                      "steps.toolchain.outputs.preinstalled": "false"}
             conds = {name: re.sub(r"hashFiles\([^)]*\)", "'h'", step.get("if", ""))
                      for step, name in ((restore, "restore"), (save, "save"))}
             for name, cond in conds.items():

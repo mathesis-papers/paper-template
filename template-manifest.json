@@ -16,7 +16,7 @@
       "mode": "100644"
     },
     ".github/actions/setup/action.yml": {
-      "sha256": "a6ab152ea80da9ec3b6dea583d26d89aef17ff7417cf02c87d8513445206a6ff",
+      "sha256": "21873e6c0ba749ee7723cb4159ee87b01edb74e711875ed8e20c0ff22ec26ef9",
       "mode": "100644"
     },
     ".github/workflows/ci.yml": {
@@ -41,6 +41,10 @@
     },
     ".github/workflows/template-sync.yml": {
       "sha256": "74ef01a9043c3240a8dc785fa6936b760e2a6e5ec791c1daa50960b7c86b6d2f",
+      "mode": "100644"
+    },
+    ".github/workflows/toolchain-image.yml": {
+      "sha256": "6b657ea6869ee72a0f8c3c75c62f9aecb04af8013a2a14bd47971c74a5949299",
       "mode": "100644"
     },
     ".github/workflows/trureturing-bump.yml": {
@@ -68,11 +72,15 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "139c2fd9ccf09a59623a1eb8cd4f4e6a56e9bcc3b7cab0c0069e21b10572e8f7",
+      "sha256": "13e3d8bcfa50c206ce99edb66eb00b983ccdf5f241ed73573afb7197bf42d582",
+      "mode": "100644"
+    },
+    "docs/CONTAINERS.md": {
+      "sha256": "b96a9add0197ed31044d513d6b783f1c980e20e5a8e53257c8f0023fb712d610",
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
-      "sha256": "6d040e861baa244bf85f15c1e99da1ea265a62b2b4856bc1dd6ab46b527bb762",
+      "sha256": "f088e84410f55fce369e21cf0a21e8ee69abfc053c39b34447ef8ae39fec48c0",
       "mode": "100644"
     },
     "docs/UPGRADING.md": {
@@ -456,7 +464,7 @@
       "mode": "100644"
     },
     "theme/typst/fonts.sha256": {
-      "sha256": "ae704536a12506bab4af20a4589472e876788e32bb5a5c670a542f84fafa5847",
+      "sha256": "f39c2bde7757f49a70a1d892b345bd18c72502b203f5479e92a0e2379b52380c",
       "mode": "100644"
     },
     "theme/typst/pandoc-template.typst": {
@@ -487,8 +495,24 @@
       "sha256": "c271d2721cfd6981ed73d9212e4d1eb37998aa2c6bf6f47c83d0b5f56e21df04",
       "mode": "100644"
     },
+    "tools/container/Dockerfile": {
+      "sha256": "dd02ac8b349cc6d7cc8b7722bff5b82946e0fac29b0b26e171b5876cffb72849",
+      "mode": "100644"
+    },
+    "tools/container/Dockerfile.dockerignore": {
+      "sha256": "10a1bbd5553fe3b4bf8f7d131827cf799a75cc7df3e927250fd50b211733a9de",
+      "mode": "100644"
+    },
+    "tools/container/prepare.py": {
+      "sha256": "d263941c5c47b98882143d498669af80d59fb7cdf52f78c231212a3ca55447d6",
+      "mode": "100644"
+    },
+    "tools/container/smoke.py": {
+      "sha256": "7619e91ff33ad6765a5bd7352b118abc51acf4f600102c8a34dbb6e59f1bc998",
+      "mode": "100644"
+    },
     "tools/fetch-fonts.sh": {
-      "sha256": "072544a78c254b052ff6a6967e27ab76036d83ca8741a3397cc5db660f51164c",
+      "sha256": "9139a06fd0b910d0c1fd41db62decb56d425a2a9705af6ab45c8813eca3f0dcd",
       "mode": "100755"
     },
     "tools/filters/tr-book.lua": {
@@ -707,6 +731,10 @@
       "sha256": "2caa872fc2578f87d622c3594ac2e8fb128599df38d5302ebded59bed687c592",
       "mode": "100644"
     },
+    "tools/tests/test_container.py": {
+      "sha256": "e761b362d37fff48c75c34599d05a1b16330d430a9b2175baad912453a184b84",
+      "mode": "100644"
+    },
     "tools/tests/test_core.py": {
       "sha256": "d812fb94ad4cde0712d0ba98624eb7c15ecb03bf834c39be21d865c3d35b1b79",
       "mode": "100644"
@@ -780,7 +808,7 @@
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
-      "sha256": "bd66fa5af5d79d3294d22f8699c3cb03cc283dc509550989025daa916e46bf9e",
+      "sha256": "4e5fae7621d51b9f7f70f19e9f02988bb49332f16f98eec1b218a0c62c8784e3",
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {

@@ -24,7 +24,7 @@
 # Environment overrides (pin these to commit SHAs for fully reproducible fonts):
 #   GOOGLE_FONTS_REF (default: main — TODO pin to a google/fonts commit SHA)
 #   JETBRAINS_MONO_REF (default: v2.304)
-#   NOTO_CJK_SANS_REF (default: Sans2.004R)   NOTO_CJK_SERIF_REF (default: Serif2.003R)
+#   NOTO_CJK_SANS_REF (default: Sans2.004)   NOTO_CJK_SERIF_REF (default: Serif2.003)
 #   FONTS_SHA256 (default: theme/typst/fonts.sha256)
 set -euo pipefail
 
@@ -33,8 +33,8 @@ DEST="${FONTS_DIR:-$ROOT/.cache/fonts}"
 SUMS_FILE="${FONTS_SHA256:-$ROOT/theme/typst/fonts.sha256}"
 GOOGLE_FONTS_REF="${GOOGLE_FONTS_REF:-main}"
 JETBRAINS_MONO_REF="${JETBRAINS_MONO_REF:-v2.304}"
-NOTO_CJK_SANS_REF="${NOTO_CJK_SANS_REF:-Sans2.004R}"
-NOTO_CJK_SERIF_REF="${NOTO_CJK_SERIF_REF:-Serif2.003R}"
+NOTO_CJK_SANS_REF="${NOTO_CJK_SANS_REF:-Sans2.004}"
+NOTO_CJK_SERIF_REF="${NOTO_CJK_SERIF_REF:-Serif2.003}"
 
 LATIN_ONLY=0
 FORCE=0
