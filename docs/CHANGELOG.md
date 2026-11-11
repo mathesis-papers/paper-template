@@ -2,7 +2,12 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
-## [Unreleased]
+## [0.5.0] - 2026-11-12
+
+### 新增
+
+- 当前 trureturing pin 以锁文件为唯一来源：正文复用 `lean:` 解析器的 `{source}` / `{statement_id}` 标签和 `[{commit}](trureturing:)`，幻灯片增加复用 `pinned` 的 `<PinnedCommit />`，可视化构建与本地预览提供生成的 `assets/trureturing.json`。视频新增 `publication_basis: "pinned"`；可选的 `subject_commit` 保留真实制作历史。旧格式继续受支持。
+- 幂等迁移只移除已明确标记为锁引用的 HTML 锚点的版本回退链接。正文审计表、动态地图与历史记录的选择性迁移见 `docs/UPGRADING.md`，不会自动抹去历史。来源：下游更新 pin 时，当前版本曾复制到正文、八部视频、幻灯片与声明地图，造成同步冲突和行号/摘要漂移。
 
 ### 变更
 
@@ -10,6 +15,10 @@
 
 - CI 的可视化浏览器测试从 `media` 作业移到新的 `viz` 作业，分 4 片并行运行（`tools/node/viz-test.mjs --shard i/4` 早已支持分片，工作流此前没有用）。下游《量子计算的几何直觉》的页面由 8 个增到 36 个之后，串行跑一轮要四五十分钟，默认分支上后续的运行都排在它后面被取代。`media` 作业改名为 “Slides and films”，只构建幻灯片与视频。**需要手动操作（仅当分支保护按名字要求了旧的检查）**：把必需检查 “Visualizations, slides and films” 换成 “Slides and films” 与四个 “Visualization browser tests (i/4)”。
 - 静态图：`WRAP = True` 的图多次调用 `fig.row(…, y=…)` 把各栏排成几行时，网页版每行各成一个弹性盒（外层 `tr-fig-rows`）：宽屏上行还是行、同一行的各栏一起缩放，手机上逐栏叠放。此前所有栏都在同一个弹性盒里，宽屏上被压成一行。来源：《量子计算的几何直觉》里要并排比较的小图集超过三张时，一行放不下。
+
+### 修复
+
+- 本地可视化预览在缺少 `trureturing.lock.json` 时，对 `assets/trureturing.json` 返回 404，避免声明地图把成功响应的 `null` 当作锁数据；锁文件出现后，同一服务即可正常提供数据。
 
 ## [0.4.0] - 2026-11-12
 
