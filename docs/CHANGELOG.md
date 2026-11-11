@@ -2,6 +2,17 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
+## [Unreleased]
+
+### 新增
+
+- `until(page, fn)`（`tools/node/viz-testkit.mjs`）：等页面自己报告某件事发生了，成立返回 `true`，超时返回 `false`，可以直接作为一条检查的结果。用于靠动画帧自己前进的东西，首先是播放：`settle(page)` 走完过渡，但不替时钟往前走。
+
+### 修复
+
+- 示例页 `golden-carry` 的测试与可视化起始模板（`templates/viz/test.mjs`）不再为播放等固定的时间。原先“按空格、等 700 毫秒、再读状态”的写法在动画帧被拉开到 900 毫秒时失败（页面本身没有错）；现在等状态本身，在一秒一帧下通过。三张自动播放的卡（`zoom`、`fill`、`sweep`）的检查同时收紧：原先只看“正在播放”的标志，现在要看到时间轴确实前进。
+- `skills/book-viz`：区分过渡与播放的等待方式，交付前的慢帧复查改为 `VIZ_SLOW_FRAMES=1000`（350 毫秒照不出 700 毫秒的固定等待）。
+
 ## [0.3.0] - 2026-11-11
 
 ### 新增

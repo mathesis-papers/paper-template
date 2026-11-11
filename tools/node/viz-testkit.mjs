@@ -47,6 +47,13 @@ export async function settle(page, ms = 0) {
   await page.evaluate(() => { if (window.TRV && window.TRV.kit && window.TRV.kit.flush) window.TRV.kit.flush(); });
 }
 
+/** Wait until `fn`, evaluated in the page with `arg`, returns something truthy: resolves true as soon as it does and
+    false when `timeout` ms pass first, so the result can be the check itself. Use it for whatever moves by itself on
+    animation frames, playback above all: settle() finishes transitions but does not advance a clock, and a busy
+    runner delivers frames late, so "press Space, wait 700 ms, read t" fails there although the page is right.
+      check('Space plays', await until(page, () => window.MY_DEBUG.state.t > 0)); */
+export const until = (page, fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
+
 /** The fraction of the viewport covered by the visible part of an element (0 when it is absent or off-screen). */
 export const viewportShare = (page, selector) => page.evaluate((sel) => {
   const el = document.querySelector(sel); if (!el) return 0;
@@ -82,7 +89,8 @@ export const labelOverlaps = (page, selector = '.stage .tag', share = 0.5) => pa
  * Returns { page, context, browser, origin, errors, check, goto, url, newPage, finish }.
  */
 /** VIZ_SLOW_FRAMES=<ms> delivers animation frames that far apart, as a busy CI runner does. A suite that waits a fixed
-    time for a transition passes on a fast machine and fails there; run it once this way before trusting it. */
+    time for a transition or for playback passes on a fast machine and fails there; run it once with 1000 (a frame a
+    second, longer than any fixed wait a suite is likely to hold) before trusting it. */
 async function slowFrames(context) {
   const ms = Number(process.env.VIZ_SLOW_FRAMES) || 0;
   if (!ms) return;
