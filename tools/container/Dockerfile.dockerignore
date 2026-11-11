@@ -1,0 +1,16 @@
+**
+!requirements.txt
+!package.json
+!package-lock.json
+!theme/
+!theme/film/
+!theme/film/requirements.txt
+!theme/film/setup.sh
+!theme/typst/
+!theme/typst/fonts.sha256
+!tools/
+!tools/fetch-fonts.sh
+!tools/container/
+!tools/container/**
+**/__pycache__
+**/*.pyc
