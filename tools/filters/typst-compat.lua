@@ -517,6 +517,8 @@ end
 
 -- Typst math code as tokens { kind, text }: ws (blanks), br ("\" before a blank: a line break), str ("…"),
 -- esc (\x), code (#…(…)[…]), name (a.b.c) and char (any other single character).
+-- Match ASCII syntax explicitly: in some locales %a/%w/%s classify individual UTF-8 bytes as letters or
+-- blanks. Consuming one of those bytes would leave the next utf8.offset inside a character (or marker).
 local function lex(code)
   local tokens, i, n = {}, 1, #code
   local function push(kind, j)
@@ -525,8 +527,8 @@ local function lex(code)
   end
   while i <= n do
     local c = code:sub(i, i)
-    if c:match("%s") then
-      push("ws", code:match("^%s+()", i))
+    if c:match("[ \t\r\n\f\v]") then
+      push("ws", code:match("^[ \t\r\n\f\v]+()", i))
     elseif c == '"' then
       local j = i + 1
       while j <= n and code:sub(j, j) ~= '"' do
@@ -536,27 +538,27 @@ local function lex(code)
       push("str", math.min(j, n) + 1)
     elseif c == "\\" then
       local after = code:sub(i + 1, i + 1)
-      if after == "" or after:match("%s") then
-        push("br", code:match("^%s*()", i + 1))
+      if after == "" or after:match("[ \t\r\n\f\v]") then
+        push("br", code:match("^[ \t\r\n\f\v]*()", i + 1))
       else
         push("esc", utf8.offset(code, 2, i + 1) or n + 1)
       end
     elseif c == "#" then
-      local j = code:match("^#[%a_][%w_%-]*()", i)
+      local j = code:match("^#[A-Za-z_][A-Za-z0-9_%-]*()", i)
       if not j then
         push("char", i + 1)
       else
-        while code:sub(j, j) == "." and code:sub(j + 1, j + 1):match("[%a_]") do
-          j = code:match("^%.[%a_][%w_%-]*()", j)
+        while code:sub(j, j) == "." and code:sub(j + 1, j + 1):match("[A-Za-z_]") do
+          j = code:match("^%.[A-Za-z_][A-Za-z0-9_%-]*()", j)
         end
         if code:sub(j, j) == "(" then j = balanced(code, j, "(", ")") end
         if code:sub(j, j) == "[" then j = balanced(code, j, "[", "]") end
         push("code", j)
       end
-    elseif c:match("%a") then
-      local j = code:match("^%a%w*()", i)
-      while code:sub(j, j) == "." and code:sub(j + 1, j + 1):match("%a") do
-        j = code:match("^%.%a%w*()", j)
+    elseif c:match("[A-Za-z]") then
+      local j = code:match("^[A-Za-z][A-Za-z0-9]*()", i)
+      while code:sub(j, j) == "." and code:sub(j + 1, j + 1):match("[A-Za-z]") do
+        j = code:match("^%.[A-Za-z][A-Za-z0-9]*()", j)
       end
       push("name", j)
     else

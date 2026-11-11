@@ -8,11 +8,13 @@ filters) and measure what Typst lays out, with the theme imported the way the ge
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from tbook import mathrender
@@ -70,6 +72,17 @@ class PdfMathTest(unittest.TestCase):
             for name, code in codes.items())
         values = self.query('#import "/_theme/typst/book.typ": *\n#show: tr-book\n' + rows + "\n")
         return {v["name"]: v["w"] for v in values if isinstance(v, dict) and "name" in v}
+
+    def test_utf8_formulas_do_not_depend_on_ctype_locale(self):
+        # macOS classifies some UTF-8 bytes as letters in en_US.UTF-8; Linux's C.UTF-8 does not.
+        # Fractions and bars introduce private-use markers, which must remain whole code points too.
+        formulas = [r"\frac{x}{2}", r"\lvert x\rvert", r"\bigl\langle x\bigr\rangle",
+                    r"\text{café 中文}", r"\frac{α}{β}"]
+        with patch.dict(os.environ, {"LC_ALL": "C"}):
+            expected = typst_code(formulas)
+        for locale in ("C.UTF-8", "en_US.UTF-8"):
+            with self.subTest(locale=locale), patch.dict(os.environ, {"LC_ALL": locale}):
+                self.assertEqual(typst_code(formulas), expected)
 
     def test_explicit_spaces_have_their_tex_width(self):
         spaces = {r"\,": 3, r"\:": 4, r"\;": 5, r"\!": -3, r"\quad": 18, r"\qquad": 36, r"\enspace": 9,
