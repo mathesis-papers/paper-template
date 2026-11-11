@@ -9,9 +9,11 @@
 - CI 的可视化浏览器测试从 `media` 作业移到新的 `viz` 作业，分 4 片并行运行（`tools/node/viz-test.mjs --shard i/4` 早已支持分片，工作流此前没有用）。下游《量子计算的几何直觉》的页面由 8 个增到 36 个之后，串行跑一轮要四五十分钟，默认分支上后续的运行都排在它后面被取代。`media` 作业改名为 “Slides and films”，只构建幻灯片与视频。**需要手动操作（仅当分支保护按名字要求了旧的检查）**：把必需检查 “Visualizations, slides and films” 换成 “Slides and films” 与四个 “Visualization browser tests (i/4)”。
 - 静态图：`WRAP = True` 的图多次调用 `fig.row(…, y=…)` 把各栏排成几行时，网页版每行各成一个弹性盒（外层 `tr-fig-rows`）：宽屏上行还是行、同一行的各栏一起缩放，手机上逐栏叠放。此前所有栏都在同一个弹性盒里，宽屏上被压成一行。来源：《量子计算的几何直觉》里要并排比较的小图集超过三张时，一行放不下。
 
+## [0.4.0] - 2026-11-12
+
 ### 新增
 
-- 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，普通作业不再逐次运行 apt。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
+- 完整出版工具链容器：在固定版本与摘要的官方 Playwright 镜像上预装 Python、Node、mdBook、Pandoc、Typst、EPUB 校验器、中英文字体及视频与语音工具。上游 `Toolchain image` 工作流实际验证断网 PDF/EPUB/语音/浏览器及完整示例构建后发布 GHCR 镜像；组合动作自动核对依赖指纹并复用预装环境，采用容器的作业不再逐次运行 apt。容器为可选接入，默认 CI 与 Pages 继续使用现有的 Ubuntu 工具安装与缓存流程。使用与升级方式见 `docs/CONTAINERS.md`。来源：trureturing-books 的 CI 与 Pages 在 Ubuntu 软件源 DNS 解析失败时连续无法安装字体和浏览器依赖。
 
 - 静态图的标准、工具与检查（`skills/book-figure`）。此前模板对静态图只有 `![图注](../assets/x.svg)` 一种写法，没有标准、工具与检查；下游《量子计算的几何直觉》的 29 张图因此全部把深色底写死在文件里、两种语言共用一个文件、四章的图注只有“图 13”这样的编号。现在：
   - **脚本生成**：一张图是一个脚本 `books/<slug>/figures/<name>.py`，用画图库 `tools/tbook/figkit.py` 画（线、箭头、面、文字、坐标系、球面投影、分栏）。脚本只写颜色的角色名（`ink`、`cyan`、`lean`、`now`…），不写色值；每种语言生成一份 `figures/<name>.<语言>.svg` 并提交入库，输出逐字节可复现。画图库拒绝不合标准的图：字号小于 12、线宽小于 1、文字超出画布、未知角色、宽度超过 760。
@@ -24,6 +26,7 @@
 
 ### 修复
 
+- 静态图 SVG 的坐标与圆弧分段数在舍入前消除浮点计算的微小误差，避免 macOS 与 Ubuntu 将同一脚本绘成不同字节、使 `./tbook check` 误报图片过期。补充跨舍入边界的回归测试；升级后运行 `./tbook fig build` 并提交更新的 SVG。
 - `tools/fetch-fonts.sh` 的 Noto CJK tag 改为实际存在的 `Sans2.004` 与 `Serif2.003`（旧值多了 `R`，四个下载地址均返回 404），并补齐四个字体文件的 SHA-256。容器构建要求这些字体全部下载并通过校验。
 
 ## [0.3.2] - 2026-11-11

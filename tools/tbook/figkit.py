@@ -64,7 +64,9 @@ def role(name: str) -> str:
 
 def num(v: float) -> str:
     """A coordinate as written in the SVG: two decimals at most, no ``-0``."""
-    s = f"{float(v):.2f}".rstrip("0").rstrip(".")
+    # libm may put the same geometric coordinate on either side of a half-cent.
+    # Remove that noise before rounding to the SVG's visible precision.
+    s = f"{round(float(v), 10):.2f}".rstrip("0").rstrip(".")
     return "0" if s in ("-0", "") else s
 
 
@@ -246,7 +248,7 @@ class Canvas:
         """The arc of the circle (ellipse with ``ry``) from angle ``a0`` to ``a1`` in degrees,
         counter-clockwise when ``a1 > a0``; with ``fill`` the sector from the centre."""
         ry = r if ry is None else ry
-        n = max(8, int(abs(a1 - a0) / 4))
+        n = max(8, int(round(abs(a1 - a0), 10) / 4))
         pts = [(cx + r * math.cos(math.radians(a0 + (a1 - a0) * i / n)),
                 cy - ry * math.sin(math.radians(a0 + (a1 - a0) * i / n))) for i in range(n + 1)]
         if fill:
