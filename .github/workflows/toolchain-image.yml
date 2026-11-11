@@ -46,6 +46,8 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/the-omega-institute/trureturing-books-toolchain
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     steps:
       - name: Check out
         uses: actions/checkout@v5
@@ -92,6 +94,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish the tested image
+        id: publish
         if: github.event_name != 'pull_request'
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -108,6 +111,7 @@ jobs:
             docker push "$IMAGE:$GITHUB_REF_NAME"
           fi
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image")"
+          echo "image=$digest" >> "$GITHUB_OUTPUT"
           {
             echo '### Tested toolchain image'
             echo
@@ -115,3 +119,39 @@ jobs:
             echo
             echo "Pin consumers to \`$digest\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  use-image:
+    name: Use the preinstalled image in Actions
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Use the preinstalled toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'true'
+          films: 'true'
+
+      - name: Verify the container checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ./tbook doctor
+          ./tbook check
