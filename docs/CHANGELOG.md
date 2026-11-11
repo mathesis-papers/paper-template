@@ -2,7 +2,7 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
-## [Unreleased]
+## [0.3.1] - 2026-11-11
 
 ### 新增
 
@@ -10,8 +10,26 @@
 
 ### 修复
 
+- PDF 数学排版：公式在 PDF 中按 TeX（以及 HTML 版的 KaTeX）的含义排，不再因 Pandoc 的 TeX→Typst 转换与 Typst 自身的规则走样。`tools/filters/typst-compat.lua` 由“改几个符号名”扩成两遍处理：转换前改写 TeX（`M.tex`），转换后在词法单元层面改写 Typst 代码（`M.rename`）。此前不会让构建失败、只能靠渲染页面才看得出的问题，在《量子计算的几何直觉》一书中逐类实测后修复：
+  - 空格：`\;` 被写成零宽、`\!` 被写成 `-1em`（符号相叠），`\thinspace`、`\mkern`、`\kern` 等使整条公式原样印成源码；Typst 让显式空格取代相邻关系符、运算符与逗号的自动间距（`a \;=\; b` 排得与 `a = b` 一样，`a \,=\, b` 反而更挤）。现在显式空格按 TeX 的宽度叠加在自动间距之上，空格后的正负号保持一元或二元不变。
+  - 竖线与范数：`\|`、`\norm{x}` 被写成关系符 ∥（两侧多出间距、相邻关系符失去间距、指数叠在竖线正上方）；单竖线保留源码里的空白（`| ψ⟩`、`| x |²`）。
+  - 算符名与文本：`\operatorname{Tr}(ρ)`、`\Tr(ρ)` 排成 “Tr (ρ)”（该书 PDF 中 248 处，修复后为 0）；`\text{…}` 两侧多出词间空格，其中 `\&`、`\%` 之后的空格被吞、`\^{}` 被丢。
+  - 定尺寸括号：`\bigl(` 等被写成缩放的盒子，不占位、两侧带词间空格、不分开闭；`\bigm`、`\Bigm` 不能转换。
+  - 分式：`\frac{1}{\frac{1}{2}}` 被写成 `1 / 1 / 2` 而排成 (1/1)/2，`\frac{a}{b}^2` 的指数落到分母上，`\tfrac`、`\dfrac`、`\tbinom`、`\dbinom` 的大小被忽略（后两者与 `\cfrac` 原先不能转换）。
+  - 关系符的上下标：`E \to_L E`、`\simeq_{…}` 的下标被排到箭头正下方；`\stackrel`、`\overset`、`\underset` 则相反，被排在一旁；`\xrightarrow{…}` 的箭头不随标注伸长；`\limits`、`\nolimits` 被忽略。
+  - 符号：长箭头（`\longrightarrow`、`\Longleftrightarrow`、`\longmapsto`、`\iff` 等）印成短箭头且 `\iff`、`\implies` 缺两侧的间距；公式里的 `\&` 成了对齐点而不印出；`\succeq`、`\preceq` 印成弯曲变体；`\backslash` 印成差集运算符；`\mathsf` 印成斜体；`\{…\}` 被自动放大。
+  - 结构：`smallmatrix`、`matrix`、`array` 在 `\left…\right` 之外被写成裸露的行（行内矩阵断成两行），`vmatrix`、`Vmatrix` 的定界符使 PDF 编译失败；`\left. … \right|` 的竖线不随内容伸长；`\mathbin{…}` 等的类别被丢弃；`\pmod`、`\bmod` 的间距不对；`cases` 两列之间没有间隔；`\middle|` 两侧多出间距。
+  - 主题：`theme/typst/book.typ` 整体导入文档，其中的 `accent`（颜色）与 `mono`（文字样式）盖住了 Typst 的同名数学函数，多符号重音（`\widetilde{AB}`、`\vv{AB}`）印成颜色值文字，`\mathtt` 印成灰色小字；两个名字改为 `accent-colour`、`mono-text`。重音下的 i、j 保留圆点（与 TeX 一致）。
+  - 转换不了的公式照作者原文交给 Pandoc（与原先一样原样印出），不会被改写后的文本替换。
+  - 跨平台：Typst 词法分析使用明确的 ASCII 语法规则，避免 macOS 的 locale 把 UTF-8 字节误判为字母或空白，使分式、竖线等公式构建失败。
+  新增 `tools/tests/test_pdf_math.py`：把 TeX 送过真实的转换链并用 Typst 实测排出的宽度（空格宽度、叠加关系、源码空白不产生间距、范数、定尺寸括号、分组、分式、矩阵、文本转义），并检查主题没有定义与 Typst 数学函数重名的名字。下游书库升级后无需改正文；此前为 PDF 绕开的写法（删 `\!`、拆多符号重音、把 `\norm{x}^2` 改写为 `\lVert x\rVert^2`）可以保留，也可以改回。
+
 - 示例页 `golden-carry` 的测试与可视化起始模板（`templates/viz/test.mjs`）不再为播放等固定的时间。原先“按空格、等 700 毫秒、再读状态”的写法在动画帧被拉开到 900 毫秒时失败（页面本身没有错）；现在等状态本身，在一秒一帧下通过。三张自动播放的卡（`zoom`、`fill`、`sweep`）的检查同时收紧：原先只看“正在播放”的标志，现在要看到时间轴确实前进。
 - `skills/book-viz`：区分过渡与播放的等待方式，交付前的慢帧复查改为 `VIZ_SLOW_FRAMES=1000`（350 毫秒照不出 700 毫秒的固定等待）。
+
+### 变更
+
+- skills：把 trureturing-books 为《量子计算的几何直觉》补全内容时遇到的问题写进指引。`book-write` 新增“容易踩的坑”：同一公式过三条渲染链路时仍需留意的写法（Pandoc 不认识的命令使公式原样印成源码、`\big/` 使 epubcheck 报 RSC-005、`\mathcal` 小写字母两端字形不同、并排等式分行），以及“PDF 与 HTML 不一致时修转换而不是改正文”；写“文献结果”之前在所钉提交上按 `digest:` 搜索冻结库并核对本书已有引用、忠实陈述时的 Lean 全函数约定与局部实例、手写的定理计数与数值的同步核对；步骤中加入手机宽度与三种产物都构建的要求。`book-export` 排错清单新增 PDF 源码泄漏与越界的文字扫描、公式走样时的处理路径、epubcheck RSC-005 的定位，以及用真实转换链做最小复现的命令。`trureturing-pin` 说明浅克隆 checkout 会让分支可达性判断失败及补救命令。`book-viz` 说明浏览器测试里连续两次输入之间必须等待渲染帧，否则数字框被重写、CI 偶发失败（trureturing-books 的 `sphere-escape` 测试即如此，已用延迟渲染帧的方式确定性复现）。
 
 ## [0.3.0] - 2026-11-11
 
