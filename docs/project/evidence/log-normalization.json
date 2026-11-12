@@ -1,0 +1,8 @@
+{
+  "scope": "readable task logs only; trailing whitespace and blank EOF normalized; mathematical/catalog/frozen inputs untouched",
+  "files": [
+    "docs/project/validation/template-tests-rerun.txt",
+    "docs/project/validation/solid-software-check.txt",
+    "docs/project/validation/template-tests-final.txt"
+  ]
+}

@@ -1,0 +1,6 @@
+..........
+----------------------------------------------------------------------
+Ran 10 tests in 3.013s
+
+OK
+Prepared Zenodo payload: 17 exact files, metadata.json, files.json; no network calls

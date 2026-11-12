@@ -1,0 +1,20 @@
+{
+  "recorded_before_final_handoff_commit": true,
+  "branch": "main",
+  "remotes": [
+    "upstream\thttps://github.com/the-omega-institute/trureturing-books-template.git (fetch)",
+    "upstream\thttps://github.com/the-omega-institute/trureturing-books-template.git (push)"
+  ],
+  "tracked_diff_check_exit": 0,
+  "layer_source_commit": "a6e42ab7693141d317cb70760418b7f02f4c256c",
+  "layer_source_status": "",
+  "global_author_name": "AlyciaBHZ",
+  "global_author_email": "50111876+AlyciaBHZ@users.noreply.github.com",
+  "merged_pr_heads": [
+    "dc4481b85ad3316b9c8556b68cb6da9d8720eed3",
+    "899013b9bad204e0996374082addf6d4a17fd3c2",
+    "2738f71a80f04e88cb10c000e5f5bf6dc2c465b8"
+  ],
+  "all_pr_heads_are_ancestors": true,
+  "base": "e506a8841cf9deb89e2f70dff69dc5b88b4d8510"
+}

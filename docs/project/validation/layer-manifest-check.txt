@@ -1,0 +1,1 @@
+template.d/mathesis.manifest.json is up to date (15 files, version 0.2.1)

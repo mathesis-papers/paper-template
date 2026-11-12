@@ -1,0 +1,67 @@
+## 模板升级 0.0.0 → 0.2.1
+
+来源：`/Users/lexa/Desktop/lexa/omega/mathesis-paper-template` @ `main` (`885a58d526cf`)
+
+新增 15 · 更新 0 · 删除 0 · 冲突 0 · 保留本地改动 0
+
+### 新增（15）
+
+- `.github/workflows/layer-mathesis-check.yml`
+- `.github/workflows/layer-mathesis-zenodo.yml`
+- `docs/layer-mathesis/CHANGELOG.md`
+- `docs/layer-mathesis/PIPELINE.md`
+- `docs/layer-mathesis/PROJECT.md`
+- `docs/layer-mathesis/README.md`
+- `docs/layer-mathesis/UPSTREAM-PINS.md`
+- `docs/layer-mathesis/scripts/paper.py`
+- `docs/layer-mathesis/skeleton/README.md.in`
+- `docs/layer-mathesis/skeleton/book.toml.in`
+- `docs/layer-mathesis/skeleton/site.toml.in`
+- `docs/layer-mathesis/tests/test_paper.py`
+- `skills/layer-mathesis-paper-book/SKILL.md`
+- `skills/layer-mathesis-paper-media/SKILL.md`
+- `skills/layer-mathesis-paper-sync/SKILL.md`
+
+### 迁移
+
+无需迁移。
+
+### 警告
+
+- no local template-manifest.json: every managed file that differs from the template is treated as a local change (conflict)
+
+### 变更记录
+
+阅读跨越的各版本说明，处理标为“需要手动操作”的条目：`docs/layer-mathesis/CHANGELOG.md`
+
+<details>
+<summary>docs/layer-mathesis/CHANGELOG.md</summary>
+
+## [0.2.1] - 2026-11-13
+
+- Record the temporary upstream 0.7.0 integration of PRs #48, #50 and #51, with exact heads, for the first real paper repository.
+
+## [0.2.0] - 2026-11-12
+
+- Default to the academic PDF alone; figures → visualizations → academic Beamer when available → Slidev only on request.
+- Require upstream written-proof support, preserve proved manuscript results as written-proof environments, and validate per-edition proof presence and status parity.
+- Record same / special case / variant / none plus the closest public declaration and inspected commit in book integration metadata, without changing catalog schemas or verification receipts.
+
+## [0.1.1] - 2026-11-12
+
+- Confirm independent propagation: a layer update leaves upstream and paper-owned files unchanged; an upstream update leaves layer and paper-owned files unchanged.
+
+## [0.1.0] - 2026-11-12
+
+- Consume the books template through an independent Mathesis layer; import frozen
+  catalog files, create an empty bilingual book, check identity and mappings, and
+  prepare a Zenodo artifact without network writes.
+
+</details>
+
+### 下一步
+
+1. 重新安装依赖：`pip install -r requirements.txt`、`npm ci`。
+2. 验证：`./tbook doctor`、`./tbook check`、`./tbook build all`，并运行单元测试。
+
+摘要已写入 build/template-update-mathesis.md

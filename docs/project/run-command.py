@@ -7,7 +7,7 @@ label,*cmd=sys.argv[1:]
 env=os.environ.copy()
 for key in list(env):
  if any(word in key.upper() for word in ('TOKEN','SECRET','PASSWORD','API_KEY')): env.pop(key)
-env.update(PYTHONPATH=str(root/'tools'),TRURETURING_DIR='/Users/lexa/Desktop/lexa/omega/trureturing',TMPDIR=str(root/'.cache/tmp'),XDG_CACHE_HOME=str(root/'.cache'),TECTONIC='/opt/homebrew/bin/tectonic',PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1',npm_config_cache=str(root/'.cache/npm'),GIT_TERMINAL_PROMPT='0',PW_CHROMIUM_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+env.update(PYTHONPATH=str(root/'tools'),TRURETURING_DIR='/Users/lexa/Desktop/lexa/omega/trureturing',TMPDIR=os.environ.get('MATHESIS_TASK_TMP', '/var/folders/jd/5x6vvk8d4yzcmtmp7mjw_9nw0000gn/T/mathesis-chen-chen.YqWUyy'),XDG_CACHE_HOME=str(root/'.cache'),TECTONIC='/opt/homebrew/bin/tectonic',PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD='1',npm_config_cache=str(root/'.cache/npm'),GIT_TERMINAL_PROMPT='0',PW_CHROMIUM_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 out=root/'docs/project/validation';out.mkdir(parents=True,exist_ok=True)
 start=datetime.datetime.now(datetime.timezone.utc).isoformat()
 with (out/(label+'.txt')).open('w') as f:
