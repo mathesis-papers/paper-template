@@ -5,6 +5,7 @@ A figure is a script that draws on a :class:`tbook.figkit.Figure` (skills/book-f
 
     SIZE = (560, 300)                                  # natural size in CSS pixels
     ALT = {"zh": "……", "en": "…"}                      # what a reader who cannot see it is told
+    MARKUP = 2                                         # optional: marks nest inside sub- and superscripts
     def draw(fig): ...                                 # fig.t("中文", "English") picks the label
 
 ``./tbook fig build`` runs every script once per edition and writes the canonical SVG next to it
@@ -177,7 +178,8 @@ def render(book, name: str, lang: str) -> str:
     if not str(alt).strip():
         raise FigureError(f"{where}: ALT has no text for {lang!r} (what a reader who cannot see the figure is told)")
     try:
-        fig = figkit.Figure(name, lang, size[0], size[1], alt=str(alt), wrap=bool(getattr(mod, "WRAP", False)))
+        fig = figkit.Figure(name, lang, size[0], size[1], alt=str(alt), wrap=bool(getattr(mod, "WRAP", False)),
+                            markup=getattr(mod, "MARKUP", 1))
         draw(fig)
         return fig.svg()
     except figkit.FigureError as exc:

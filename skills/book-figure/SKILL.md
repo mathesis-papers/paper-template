@@ -13,7 +13,7 @@ description: 为书做静态图时使用：一张图只讲一件事，由脚本�
 
 **权威**：`tools/tbook/figkit.py`（画图库与它强制的标准）、`tools/tbook/figure.py`（生成、各端渲染、检查）、`templates/figure/figure.py`（起始脚本，本身能运行）、`theme/tokens.json`（颜色的唯一来源）。
 
-**成品示例**：`books/example-monograph/figures/phase-square.py`（坐标系、区域、按公式算出的 64 个点，脚本里断言了正文给出的计数）与 `carry-rules.py`（由一张数据表排出的图）；它们在 `books/example-monograph/{zh,en}/` 的第一章与附录 A 中被引用。
+**成品示例**：`books/example-monograph/figures/phase-square.py`（坐标系、区域、按公式算出的 64 个点，脚本里断言了正文给出的计数）、`carry-rules.py`（由一张数据表排出的图）、`factor-skeleton.py`（证明骨架的流程图）、`golden-rotation.py`（球上的转动弧与扇形）与 `revival-log.py`（对数坐标）；它们在 `books/example-monograph/{zh,en}/` 的第一章、第四章与附录 A 中被引用。
 
 ## 什么算好
 
@@ -61,6 +61,11 @@ def draw(fig):                           # 在 fig 上画；fig.t("中文", "Eng
 | 标记 | `fig.angle(cx, cy, r, a0, a1, "θ")`、`fig.right_angle(x, y, 方向)`、`fig.brace(x1, y1, x2, y2, "标签")`、`fig.cross(x, y)`（划掉）、`fig.legend(x, y, [("line", "线"), ("area", "面积")])`、`fig.chip(x, y, "LEAN ✓", "lean")` |
 | 坐标系 | `ax = fig.axes(x, y, w, h, (x0, x1), (y0, y1))`；`ax.frame()`、`ax.xaxis(ticks=…, labels=…, label=…)`、`ax.yaxis(…)`、`ax.grid(…)`、`ax.plot(fn, color="cyan")`、`ax.path(pts)`、`ax.points(pts)`、`ax.area(pts)`、`ax.hline(y)`、`ax.vline(x)`、`ax.text(x, y, …)`、`ax.pt(x, y)` |
 | 球 | `sp = fig.sphere(cx, cy, r)`（+z 向上，+x 朝向读者偏左下，+y 向右）；`sp.outline()`、`sp.great_circle(法向)`、`sp.small_circle(轴, 角)`、`sp.arc(u, v, arrow=True)`、`sp.path([…])`、`sp.arrow(v, "now")`、`sp.dot(v)`、`sp.label(v, "…", dx=…, dy=…)`、`sp.axes(labels=("x", "y", "z"))`、`sp.disc(法向)`、`sp.segment(a, b)`；背面的线自动画成虚线。向量工具：`figkit.sph(θ, φ)`、`slerp`、`rotate`、`cross`、`dot3`、`unit` |
+| 流程图 | `a = fig.box(x, y, "文字", note="lemma_name")`（`x` 是中心、`y` 是上沿；返回锚点 `a.top`、`a.bottom`、`a.left`、`a.right`、`a.at(fx, fy)`；`wrap=宽` 或 `w=宽` 自动换行，`\n` 强制换行）、`fig.box(…, dashed=True)`（虚线框：前提、输入）、`fig.box(…, "lean", chip="LEAN ✓")`（只给 `lean=` 引用的结论）；`fig.link(a, b)`（按相对位置从相对的两边连箭头，可传点）、`fig.link(a, b, elbow=True)`（先横后竖）、`elbow="vh"`（先竖后横）、`label="…"` |
+| 球上的转动与区域 | `end = sp.turn(轴, 起点, 角度, "now", arrow=True)`（绕任意轴的转动弧，返回终点；起点不是单位向量时画在球外）、`sp.small_circle(轴, 角, start=v, span=90, arrow=True)`（小圆的一段，带箭头）、`sp.sector(轴, 起点, 角度, "area")`（转动扫过的平面扇形，顶点在轴上）、`sp.patch([v1, v2, v3], "cyan", color="cyan")`（球面多边形，`flat=True` 为平面多边形）、`sp.polytope(点集)`（凸包：正面的面淡填，棱前实后虚） |
+| 对数坐标、阶梯与柱 | `ax = fig.axes(x, y, w, h, (0.01, 1), (1e-4, 1), logx=True, logy=True)`：数据照原值传，`ax.xaxis()`、`ax.yaxis()` 不给 `ticks` 时自动按十的幂标刻度（0.01–1000 写数字，其余写 `10^{−4}`）并加细刻度，`ax.grid(ys=ax.decades("y"))`；`ax.step(pts, where="post"/"pre"/"mid")`、`ax.bars(pts, "cyan", bar=0.8, base=0)` |
+| 凸包、反射 | `figkit.hull(点)`（平面凸包，按顺序的顶点）、`figkit.hull3(点)`（空间凸包的面：外法向、偏移、顶点序号）；`fig.bounce(a, 镜面点, b, gap=7)`（经镜面一次反射的折线箭头，两端各缩 `gap`） |
+| 文字（续） | `***粗斜体***`、`\bar{z}`（带上划线的字母）；脚本里写 `MARKUP = 2` 后下标、上标里可以再写标记（`*W*_{*i*+1}`），斜体 `*I*` 用衬线字形，不像一条斜线（不写时按旧规则，已有的图不变）；`fig.measure(s, 13, mono=True)` 估计宽度（等宽字每字 0.6 em，组合附加符不计），`fig.wrap_text(s, 宽)` 按宽度断行 |
 | 分栏 | `left, right = fig.row([220, 220], 240)`：每一栏是一块自己的画布（方法与 `fig` 相同）；脚本里写 `WRAP = True` 时各栏在宽屏并排、在手机上自动上下叠放，此时所有内容都画在栏里；小图集排成几行时多次调用 `fig.row([...], 高, y=这一行的起点)`，宽屏按行排、手机上逐个叠放 |
 
 角色名：`ink`（主线与正文色）、`dim`（次要线与标签）、`faint`（辅助线）、`edge`、`panel`、`bg`，强调色 `cyan`、`magenta`、`amber`、`violet`、`blue`、`orange`、`sigma`，语义名 `lean`、`open`、`argued`、`now`、`model`、`line`、`area`、`axis`。
