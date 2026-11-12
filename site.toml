@@ -1,0 +1,13 @@
+# Publisher fills this from the parameterised skeleton when a paper is selected.
+[site]
+repo = "mathesis-papers/paper-template"
+languages = ["zh", "en"]
+[site.title]
+zh = "Mathesis"
+en = "Mathesis"
+[trureturing]
+repo = "the-omega-institute/trureturing"
+branch = "dev"
+[books]
+order = []
+hide = ["example-*"]

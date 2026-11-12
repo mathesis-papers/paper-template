@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# trureturing-books CLI. Usage: ./tbook <command> [...]; ./tbook --help
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="${TBOOK_PYTHON:-}"
+if [[ -z "$PY" ]]; then
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then PY="$ROOT/.venv/bin/python"; else PY="python3"; fi
+fi
+export PYTHONPATH="$ROOT/tools${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" -m tbook "$@"

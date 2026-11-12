@@ -1,0 +1,22 @@
+# Python packages of the film pipeline (tts.py, music.py, mix.py), every one pinned so a render is
+# reproducible; the build keys every film on this file. Installed by theme/film/setup.sh into the
+# film venv (.cache/film/venv), not into the tbook venv. Needs Python 3.12 or 3.13.
+# Direct dependencies: kokoro-onnx (narration), numpy, scipy (score), soundfile (WAV files).
+kokoro-onnx==0.6.1
+numpy==2.5.4
+scipy==1.18.1
+soundfile==0.14.0
+# Their dependencies, as pip resolved them on 2026-11-09.
+attrs==26.1.0
+cffi==2.1.1
+cloudpickle==3.1.2
+dlinfo==2.0.0
+espeakng-loader==0.2.4
+flatbuffers==25.12.19
+joblib==1.6.0
+onnxruntime==1.31.1
+packaging==26.3
+phonemizer==3.6.0
+protobuf==7.36.2
+pycparser==3.12
+typing_extensions==4.16.0

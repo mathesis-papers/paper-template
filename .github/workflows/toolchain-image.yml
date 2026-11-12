@@ -1,0 +1,158 @@
+name: Toolchain image
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+    paths:
+      - tools/container/**
+      - .github/workflows/toolchain-image.yml
+      - requirements.txt
+      - package.json
+      - package-lock.json
+      - theme/film/requirements.txt
+      - theme/film/setup.sh
+      - tools/fetch-fonts.sh
+      - theme/typst/fonts.sha256
+  pull_request:
+    paths:
+      - tools/container/**
+      - .github/workflows/toolchain-image.yml
+      - requirements.txt
+      - package.json
+      - package-lock.json
+      - theme/film/requirements.txt
+      - theme/film/setup.sh
+      - tools/fetch-fonts.sh
+      - theme/typst/fonts.sha256
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.repository == 'the-omega-institute/trureturing-books-template'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/the-omega-institute/trureturing-books-toolchain
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the toolchain
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tools/container/Dockerfile
+          platforms: linux/amd64
+          load: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: tbook-toolchain:test
+          cache-from: ${{ !startsWith(github.event_name, 'pull_request') && 'type=gha,scope=toolchain' || '' }}
+          cache-to: ${{ !startsWith(github.event_name, 'pull_request') && 'type=gha,scope=toolchain,mode=max' || '' }}
+
+      - name: Exercise the toolchain without network access
+        run: docker run --rm --init --ipc=host --network=none tbook-toolchain:test python /opt/tbook/container/smoke.py
+
+      - name: Check and build the example books in the container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docker run --rm --init --ipc=host \
+            --volume "$PWD:/work" --workdir /work \
+            --env GITHUB_TOKEN --env TBOOK_FILMS=require \
+            tbook-toolchain:test bash -euo pipefail -c '
+              git config --global --add safe.directory /work
+              python /opt/tbook/container/prepare.py
+              ./tbook check
+              PYTHONPATH=tools python -m unittest discover -s tools/tests
+              node tools/node/viz-test.mjs
+              ./tbook build all
+            '
+
+      - name: Sign in to the container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the tested image
+        id: publish
+        if: github.event_name != 'pull_request'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          image="$IMAGE:sha-$GITHUB_SHA"
+          docker tag tbook-toolchain:test "$image"
+          docker push "$image"
+          if [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            docker tag tbook-toolchain:test "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            docker tag tbook-toolchain:test "$IMAGE:$GITHUB_REF_NAME"
+            docker push "$IMAGE:$GITHUB_REF_NAME"
+          fi
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image")"
+          echo "image=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Tested toolchain image'
+            echo
+            echo "\`$image\`"
+            echo
+            echo "Pin consumers to \`$digest\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  use-image:
+    name: Use the preinstalled image in Actions
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --init --ipc=host
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Use the preinstalled toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'true'
+          films: 'true'
+
+      - name: Verify the container checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ./tbook doctor
+          ./tbook check

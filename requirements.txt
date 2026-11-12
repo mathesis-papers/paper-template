@@ -1,0 +1,7 @@
+# Python toolchain for ./tbook (Python >= 3.11). Pinned; `./tbook doctor` checks them.
+# Pandoc binary (Markdown → Typst / EPUB)
+pypandoc_binary==1.17
+# Typst compiler as a Python module (Typst → PDF, cover PNG)
+typst==0.15.2
+# EPUB validator (bundles the W3C epubcheck jar; needs Java)
+epubcheck==5.3.0

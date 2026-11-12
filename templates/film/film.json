@@ -1,0 +1,25 @@
+{
+  "id": "@@ID@@",
+  "title": "@@TITLE_EN@@",
+  "title_zh": "@@TITLE_ZH@@",
+  "subject": "@@REPO@@",
+  "publication_basis": "pinned",
+  "released": "@@RELEASED@@",
+  "duration": "0:30",
+  "resolution": "1280x720@30",
+  "style": "trureturing cyberpunk · deterministic canvas",
+  "narration": {
+    "language": "en",
+    "engine": "Kokoro-82M v1.0 (onnx)",
+    "voice": "af_heart"
+  },
+  "subtitles": [
+    "zh",
+    "en"
+  ],
+  "lean": [],
+  "outputs": {
+    "narrated_720p": "@@OUT_NARRATED_720P@@",
+    "cover": "@@OUT_COVER@@"
+  }
+}

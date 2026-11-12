@@ -1,0 +1,15 @@
+# Independent Mathesis layer. Upstream template.toml stays upstream-owned.
+[template]
+name = "mathesis"
+repo = "mathesis-papers/paper-template"
+version = "0.1.0"
+tag_prefix = "mathesis-"
+[managed]
+paths = [
+  "docs/layer-mathesis/",
+  "skills/layer-mathesis-paper-book/",
+  "skills/layer-mathesis-paper-media/",
+  "skills/layer-mathesis-paper-sync/",
+  ".github/workflows/layer-mathesis-check.yml",
+  ".github/workflows/layer-mathesis-zenodo.yml",
+]

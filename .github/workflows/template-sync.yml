@@ -1,0 +1,224 @@
+# Keep a books repository on the latest template release (managed by the template; never runs in the
+# template repository itself).
+#
+# Each installed layer uses its own matrix job and template-update/<layer>/<version> branch.
+# Weekly (or on demand) this runs `./tbook template update`, and when managed files changed, pushes the
+# branch template-update/<version> and opens or updates a pull request whose body is the update summary
+# (build/template-update.md). Conflicts (local edits to managed files that the template also changed) are
+# committed as <file>.template-new next to the local file and flagged in the PR title. Without the `to`
+# input the update never goes back: when the latest release is not newer, nothing changes and no pull
+# request is opened (a downgrade or re-sync needs `to`). A new managed file deleted on the update branch
+# stays deleted when the pull request is merged with a merge commit; after a squash merge it was never in
+# the history, so the next run installs it again (docs/UPGRADING.md §2).
+#
+# Tokens:
+#   - Pull requests opened with the default GITHUB_TOKEN do not trigger other workflows (CI will not run
+#     on them until someone pushes to the branch), and GITHUB_TOKEN may not push changes to
+#     .github/workflows/. Add a repository secret BOT_TOKEN (fine-grained token with Contents,
+#     Pull requests and Workflows: read and write) to lift both limits.
+#   - With GITHUB_TOKEN, enable Settings → Actions → General → "Allow GitHub Actions to create and
+#     approve pull requests".
+name: Template sync
+
+on:
+  schedule:
+    - cron: '23 5 * * 1' # Mondays 05:23 UTC
+  workflow_dispatch:
+    inputs:
+      to:
+        description: 'Template version (e.g. 0.3.0) or git ref; empty = latest release'
+        required: false
+        default: ''
+      layer:
+        description: 'upstream or an installed layer name; empty = all sources'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: template-sync
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    if: github.repository != 'the-omega-institute/trureturing-books-template'
+    runs-on: ubuntu-24.04
+    outputs:
+      layers: ${{ steps.layers.outputs.layers }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - id: layers
+        env:
+          PYTHONPATH: tools
+          SELECTED_LAYER: ${{ inputs.layer }}
+          TARGET_REF: ${{ inputs.to }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os
+          from tbook.paths import ROOT
+          from tbook.template import targets
+          rows = targets(ROOT)
+          selected = os.environ.get("SELECTED_LAYER", "")
+          if selected and selected not in [r["name"] for r in rows]:
+              raise SystemExit("Unknown layer: " + selected)
+          if os.environ.get("TARGET_REF") and not selected and len(rows) > 1:
+              raise SystemExit("Choose a layer when specifying a version/ref for multiple sources")
+          names = [r["name"] for r in rows if r["repo"] != os.environ["GITHUB_REPOSITORY"]
+                   and (not selected or r["name"] == selected)]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("layers=" + json.dumps(names) + "\n")
+          PYTHON
+
+  sync:
+    name: Update ${{ matrix.layer }} managed files
+    needs: discover
+    if: needs.discover.outputs.layers != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: ${{ fromJSON(needs.discover.outputs.layers) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.BOT_TOKEN || github.token }}
+      HAS_BOT_TOKEN: ${{ secrets.BOT_TOKEN != '' }}
+      BASE: ${{ github.ref_name }}
+      LAYER: ${{ matrix.layer }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN || github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Update the template
+        id: update
+        env:
+          TO: ${{ inputs.to }}
+        run: |
+          set -euo pipefail
+          config=template.toml
+          summary=build/template-update.md
+          if [ "$LAYER" != upstream ]; then
+            config="template.d/$LAYER.toml"
+            summary="build/template-update-$LAYER.md"
+          fi
+          export CONFIG="$config"
+          old="$(python3 -c 'import os, tomllib; print(tomllib.load(open(os.environ["CONFIG"], "rb"))["template"]["version"])')"
+          args=(--layer "$LAYER")
+          if [ -n "${TO:-}" ]; then args+=(--to "$TO"); fi
+          rc=0
+          ./tbook template update "${args[@]}" 2> "$RUNNER_TEMP/update.err" || rc=$?
+          cat "$RUNNER_TEMP/update.err" >&2
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
+            if grep -q "no release tags" "$RUNNER_TEMP/update.err"; then
+              echo "::warning title=Template sync::The template has no release yet; nothing to update."
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error title=Template sync::./tbook template update failed (exit $rc); see the log above"
+            exit "$rc"
+          fi
+          new="$(python3 -c 'import os, tomllib; print(tomllib.load(open(os.environ["CONFIG"], "rb"))["template"]["version"])')"
+          {
+            echo "old=$old"
+            echo "new=$new"
+            echo "conflicts=$([ "$rc" -eq 3 ] && echo true || echo false)"
+            if [ -n "$(git status --porcelain)" ]; then echo "changed=true"; else echo "changed=false"; fi
+          } >> "$GITHUB_OUTPUT"
+          if [ -f "$summary" ]; then cat "$summary" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Push the branch and open or update the pull request
+        if: steps.update.outputs.changed == 'true'
+        env:
+          OLD: ${{ steps.update.outputs.old }}
+          NEW: ${{ steps.update.outputs.new }}
+          CONFLICTS: ${{ steps.update.outputs.conflicts }}
+        run: |
+          set -euo pipefail
+          branch="template-update/$NEW"
+          prefix=template-update/
+          summary=build/template-update.md
+          if [ "$LAYER" != upstream ]; then
+            prefix="template-update/$LAYER/"
+            summary="build/template-update-$LAYER.md"
+            branch="$prefix$NEW"
+          fi
+          title="Template update $LAYER $OLD → $NEW"
+          if [ "$CONFLICTS" = "true" ]; then title="[conflicts] $title"; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add -A
+          if [ "$HAS_BOT_TOKEN" != "true" ] && ! git diff --cached --quiet -- .github/workflows; then
+            echo "::error title=Template sync::This update changes files in .github/workflows/, which GITHUB_TOKEN may not push. Add a BOT_TOKEN secret (fine-grained token: Contents, Pull requests and Workflows read/write), or run ./tbook template update locally and open the pull request yourself."
+            {
+              echo "### Template sync could not push"
+              echo
+              echo "Changed workflow files need a token with the Workflows permission (secret \`BOT_TOKEN\`)."
+              echo
+              git diff --cached --name-only -- .github/workflows | sed 's/^/- /'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          git commit -q -m "Update template $LAYER to $NEW" -m "Generated by ./tbook template update ($OLD → $NEW)."
+
+          # Never overwrite commits a person added to an existing update branch.
+          if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+            if git diff --quiet "origin/$branch" HEAD; then
+              echo "origin/$branch already has this content."
+              push=false
+            elif [ -n "$(git log --format='%ae' "origin/$BASE..origin/$branch" | grep -v 'github-actions\[bot\]@users.noreply.github.com' || true)" ]; then
+              echo "::warning title=Template sync::origin/$branch has commits by people; not overwriting it. Merge or close its pull request, or delete the branch, to get a fresh update."
+              exit 0
+            else
+              push=true
+            fi
+          else
+            push=true
+          fi
+          if [ "$push" = "true" ]; then
+            git push --force origin "HEAD:refs/heads/$branch"
+          fi
+
+          body="$RUNNER_TEMP/pr-body.md"
+          cp "$summary" "$body"
+          if [ "$HAS_BOT_TOKEN" != "true" ]; then
+            cat >> "$body" <<'EOF'
+
+          > [!NOTE]
+          > 本 PR 由 `GITHUB_TOKEN` 创建，CI 不会自动运行：向分支推送一个提交（或关闭后重新打开 PR）即可触发；设置 `BOT_TOKEN` secret 可免去这一步。
+          > Opened with `GITHUB_TOKEN`, so CI does not start by itself. Push a commit to this branch (or close and reopen the pull request) to run it, or add a `BOT_TOKEN` secret.
+          EOF
+          fi
+          pr="$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --title "$title" --body-file "$body"
+            echo "Updated pull request #$pr"
+          else
+            if ! gh pr create --base "$BASE" --head "$branch" --title "$title" --body-file "$body"; then
+              echo "::error title=Template sync::Could not open the pull request. With GITHUB_TOKEN, enable Settings → Actions → General → Allow GitHub Actions to create and approve pull requests (or add a BOT_TOKEN secret)."
+              exit 1
+            fi
+            pr="$(gh pr list --head "$branch" --base "$BASE" --state open --json number --jq '.[0].number // empty')"
+            echo "Opened pull request #$pr"
+            # Point older, still open update pull requests at the new one (once, when it is created).
+            gh pr list --state open --json number,headRefName \
+              --jq ".[] | select(.headRefName | startswith(\"$prefix\")) | select(.headRefName != \"$branch\") | select(.headRefName | ltrimstr(\"$prefix\") | contains(\"/\") | not) | .number" |
+              while read -r old_pr; do
+                gh pr comment "$old_pr" --body "Superseded by #$pr (template $NEW)." || true
+              done
+          fi

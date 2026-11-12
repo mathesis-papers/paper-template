@@ -1,0 +1,127 @@
+# Deep verification: re-check, with Lean itself, every declaration the books cite.
+#
+# `./tbook check` (every PR) trusts trureturing's frozen ledger. This workflow builds a Lake project
+# (`./tbook lean-project` → build/lean-verify/) that depends on trureturing at the commit pinned in
+# trureturing.lock.json, imports every cited module and checks for each cited declaration that it
+# exists, lives in the expected module, has the expected kind, and that its axioms are only
+# propext, Classical.choice and Quot.sound (no sorryAx). It needs a full Lean build of the cited
+# modules, so it runs weekly, on demand, and from the release workflow (workflow_call) — not per PR.
+name: Lean deep verification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 4 * * 1" # Mondays 04:37 UTC
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Re-check cited declarations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      # Caches (pip, and the Lake workspace with its built .olean files, which the axiom check reads) are
+      # restored and saved only outside pull-request events, as in .github/actions/setup: this repository runs
+      # this workflow on a schedule, on demand and from release.yml, but a books repository may call it from
+      # a pull-request workflow, whose runs execute the pull request's own files and restore what its earlier
+      # runs saved (docs/VERIFICATION.md §2). No actions/cache or setup-python cache: both save in pull requests.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Restore the pip cache
+        id: pip-cache
+        if: ${{ !startsWith(github.event_name, 'pull_request') }}
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ runner.arch }}-py3.12-${{ hashFiles('requirements.txt') }}
+
+      - name: Install the Python toolchain
+        run: python -m pip install -r requirements.txt
+
+      - name: Save the pip cache
+        if: steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.cache/pip
+          key: ${{ steps.pip-cache.outputs.cache-primary-key }}
+
+      - name: Generate the verification project
+        id: project
+        run: |
+          ./tbook lean-project
+          commit="$(python -c 'import json; print(json.load(open("trureturing.lock.json"))["commit"])')"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$(cat build/lean-verify/lean-toolchain)" >> "$GITHUB_OUTPUT"
+          cat build/lean-verify/lakefile.toml
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Restore the Lake workspace
+        id: lake-cache
+        if: ${{ !startsWith(github.event_name, 'pull_request') }}
+        uses: actions/cache/restore@v5
+        with:
+          path: build/lean-verify/.lake
+          key: lean-verify-${{ steps.project.outputs.commit }}-${{ hashFiles('build/lean-verify/lean-toolchain') }}
+          restore-keys: |
+            lean-verify-${{ steps.project.outputs.commit }}-
+
+      - name: Build BookVerify (fails on any problem)
+        run: |
+          set -o pipefail
+          cd build/lean-verify
+          (lake exe cache get || true) && lake build BookVerify 2>&1 | tee verify.log
+
+      # Only after a successful build (actions/cache, used before, also saved only when the job succeeded).
+      - name: Save the Lake workspace
+        if: steps.lake-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request')
+        uses: actions/cache/save@v5
+        with:
+          path: build/lean-verify/.lake
+          key: ${{ steps.lake-cache.outputs.cache-primary-key }}
+
+      - name: Summary
+        if: always()
+        run: |
+          log=build/lean-verify/verify.log
+          {
+            echo "### Lean deep verification"
+            echo
+            echo "trureturing \`${{ steps.project.outputs.commit }}\` · \`${{ steps.project.outputs.toolchain }}\`"
+            echo
+            if [[ -f "$log" ]]; then
+              echo "- verified: $(grep -c '✓ ' "$log" || true)"
+              grep -E 'BookVerify: ' "$log" | tail -n 1 | sed 's/^/- /' || true
+            else
+              echo "- no log (the build did not start)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: lean-verify-log
+          path: |
+            build/lean-verify/verify.log
+            build/lean-verify/BookVerify.lean
+            build/lean-verify/lakefile.toml
+            build/lean-verify/lean-toolchain
+          if-no-files-found: warn
+          retention-days: 30

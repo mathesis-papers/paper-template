@@ -1,0 +1,430 @@
+/* trureturing books · shared theme for book-local visualizations (published as <slug>/viz/assets/theme.css)
+   Adapted from trureturing-visualize/assets/theme.css (Apache-2.0, the-omega-institute).
+   Every colour comes from tokens.css (generated from theme/tokens.json); the short names below (--void, --cyan, …)
+   are the trureturing-visualize names, mapped onto the --tr-* tokens so code ported from that repository runs unchanged.
+   Deliberately single-theme (night console): pages look the same on light or dark systems.
+   Page-specific layout lives next to each page (viz/<id>/style.css); only reusable pieces belong here.
+   Modes set on <html> by shell.js: data-lang="zh|en", data-embed (?embed=1, inside the book), data-thumb-mode (?thumb=1). */
+@import url("tokens.css");
+
+:root {
+  color-scheme: dark;
+  /* visualize names → design tokens. The second var() argument is a self-contained fallback used only if
+     tokens.css failed to load (values of theme/tokens.json "screen"), so text stays readable. */
+  --void: var(--tr-void, #03060c);
+  --ink: var(--tr-ink, #d4efff);
+  --dim: var(--tr-dim, #6f8ea5);
+  --cyan: var(--tr-cyan, #19f0ff);
+  --panel: var(--tr-panel);
+  --panel-solid: var(--tr-panel-solid);
+  --panel-edge: var(--tr-panel-edge);
+  --line-hot: var(--tr-line-hot);
+  --faint: var(--tr-faint);
+  --magenta: var(--tr-magenta);
+  --amber: var(--tr-amber);
+  --ok: var(--tr-ok);
+  --warn: var(--tr-warn);
+  --violet: var(--tr-violet);
+  --sigma: var(--tr-sigma);
+  --stage-bg: var(--tr-stage);
+  --sheet: var(--tr-sheet);
+  --on-accent: var(--tr-on-accent);
+  --font-display: var(--tr-font-display, system-ui, sans-serif);
+  --font-body: var(--tr-font-body, system-ui, sans-serif);
+  --font-data: var(--tr-font-data, ui-monospace, monospace);
+  --glow-cyan: var(--tr-fx-glow-cyan);
+  --glow-cyan-strong: var(--tr-fx-glow-cyan-strong);
+  --glow-amber: var(--tr-fx-glow-amber);
+  --cut: var(--tr-fx-cut-corner);
+  --grid-line: var(--panel-edge);
+  --radius: 0px;
+  --gutter: 16px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background-color: var(--void);
+  background-image: var(--tr-fx-aurora);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--cyan); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+sub, sup { line-height: 0; }
+
+/* ---------- language: paired fragments, one shown at a time (Chinese when no script has run) ---------- */
+:root[data-lang="en"] .zh, :root:not([data-lang="en"]) .en { display: none !important; }
+/* English (shell.js sets <html lang>): a Latin face first, so curly quotes and apostrophes are not the full-width
+   glyphs of the CJK face (Chinese keeps them) */
+:root:not(:lang(zh), :lang(ja), :lang(ko)) { --font-body: var(--tr-font-body-latin, system-ui, sans-serif); }
+.langs { display: inline-flex; border: 1px solid var(--line-hot); align-self: center; }
+.langs button {
+  background: transparent; border: 0; color: var(--dim); cursor: pointer;
+  font-family: var(--font-data); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; padding: 3px 9px;
+}
+.langs button + button { border-left: 1px solid var(--line-hot); }
+.langs button:hover { color: var(--cyan); }
+.langs button[aria-pressed="true"] { background: var(--cyan); color: var(--on-accent); }
+
+/* ---------- header ---------- */
+header.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--panel-edge);
+  padding-bottom: 8px;
+  min-width: 0;
+}
+.brand { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; min-width: 0; }
+.crumb {
+  font-family: var(--font-display); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--dim); text-decoration: none; border: 1px solid var(--panel-edge); padding: 3px 8px; align-self: center;
+}
+.crumb:hover { color: var(--cyan); border-color: var(--cyan); }
+.logo {
+  position: relative;
+  font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: 0.06em;
+  color: var(--ink);
+  text-shadow: var(--glow-cyan);
+  margin: 0; line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.logo b { color: var(--cyan); font-weight: 700; }
+.logo::before, .logo::after { content: attr(data-text); position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.logo::before { color: var(--magenta); transform: translate(2px, 0); }
+.logo::after { color: var(--cyan); transform: translate(-2px, 0); }
+.glitching .logo::before { animation: trv-gl1 0.42s steps(2) 1; }
+.glitching .logo::after { animation: trv-gl2 0.42s steps(2) 1; }
+@keyframes trv-gl1 { 0% { opacity: .8; clip-path: inset(10% 0 60% 0); } 50% { clip-path: inset(55% 0 20% 0); } 100% { opacity: 0; } }
+@keyframes trv-gl2 { 0% { opacity: .8; clip-path: inset(60% 0 8% 0); } 50% { clip-path: inset(15% 0 55% 0); } 100% { opacity: 0; } }
+.tagline { color: var(--dim); font-size: 12.5px; min-width: 0; }
+.tagline em { font-style: normal; color: var(--amber); }
+.status { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.pill {
+  font-family: var(--font-data); font-size: 11px; letter-spacing: 0.04em;
+  border: 1px solid var(--line-hot); padding: 3px 8px; color: var(--dim); white-space: nowrap; text-decoration: none;
+}
+.pill strong { color: var(--ink); font-weight: 600; }
+.pill.hot { border-color: var(--amber); color: var(--amber); }
+.pill.hot strong { color: var(--amber); }
+a.pill:hover { border-color: var(--cyan); color: var(--cyan); }
+
+/* ---------- panels ---------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  clip-path: var(--cut);
+  position: relative;
+  min-width: 0;
+}
+.panel::after {
+  content: ""; position: absolute; right: 0; top: 0; width: 17px; height: 17px;
+  background: linear-gradient(225deg, transparent 49%, var(--line-hot) 50%, transparent 56%);
+  pointer-events: none;
+}
+.col { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; scrollbar-color: var(--line-hot) transparent; }
+.sec { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sec h2 {
+  margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 11.5px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--cyan); display: flex; justify-content: space-between; gap: 8px;
+}
+.sec h2 .aside { color: var(--dim); letter-spacing: 0.04em; text-transform: none; font-family: var(--font-data); font-weight: 400; font-size: 11px; }
+.note { margin: 0; color: var(--dim); font-size: 12px; overflow-wrap: anywhere; }
+.note b { color: var(--ink); font-weight: 500; }
+
+/* ---------- controls ---------- */
+.field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.field label { font-size: 12.5px; color: var(--ink); }
+.field label small { color: var(--dim); font-size: 11px; margin-left: 4px; }
+.field output { font-family: var(--font-data); font-size: 12px; color: var(--amber); font-variant-numeric: tabular-nums; }
+.field input[type=range] { grid-column: 1 / -1; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; margin: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 2px; background: linear-gradient(90deg, var(--cyan), var(--line-hot)); }
+input[type=range]::-moz-range-track { height: 2px; background: linear-gradient(90deg, var(--cyan), var(--line-hot)); }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; margin-top: -5px; background: var(--void);
+  border: 2px solid var(--cyan); transform: rotate(45deg); box-shadow: 0 0 10px var(--cyan);
+}
+input[type=range]::-moz-range-thumb {
+  width: 9px; height: 9px; background: var(--void); border: 2px solid var(--cyan); border-radius: 0;
+  transform: rotate(45deg); box-shadow: 0 0 10px var(--cyan);
+}
+input[type=range]:focus-visible { outline-offset: 4px; }
+input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
+/* stepper: [−] [number] [+]; the number input keeps native keyboard and mobile keypad behaviour */
+.stepper { display: inline-flex; align-items: stretch; border: 1px solid var(--line-hot); }
+.stepper button {
+  width: 30px; min-height: 28px; border: 0; background: transparent; color: var(--cyan); cursor: pointer;
+  font-family: var(--font-data); font-size: 14px; line-height: 1;
+}
+.stepper button:hover { background: color-mix(in srgb, var(--cyan) 14%, transparent); }
+.stepper button:disabled { color: var(--faint); cursor: not-allowed; background: transparent; }
+.stepper input {
+  width: 4.6em; border: 0; border-inline: 1px solid var(--line-hot); background: transparent; text-align: center;
+  font-family: var(--font-data); font-size: 13px; color: var(--amber); font-variant-numeric: tabular-nums; padding: 2px 4px;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  border: 1px solid var(--line-hot); background: transparent; color: var(--ink); cursor: pointer;
+  font-family: var(--font-display); font-weight: 500; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 5px 9px; line-height: 1.2; text-decoration: none; display: inline-block;
+}
+.chip:hover { border-color: var(--cyan); color: var(--cyan); }
+.chip[aria-pressed="true"] { background: var(--cyan); border-color: var(--cyan); color: var(--on-accent); box-shadow: var(--glow-cyan-strong); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- readouts ---------- */
+dl.ro { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+dl.ro div { border-left: 2px solid var(--line-hot); padding: 2px 0 2px 8px; min-width: 0; }
+dl.ro dt { font-size: 11px; color: var(--dim); }
+dl.ro dd { margin: 0; font-family: var(--font-data); font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+dl.ro .c dd { color: var(--cyan); }
+dl.ro .m dd { color: var(--magenta); }
+dl.ro .a dd { color: var(--amber); }
+dl.ro .wide { grid-column: 1 / -1; }
+/* evidence boxes. Colour is semantic: green .lean = kernel-verified Lean theorem (only!), cyan .num = computed on the page,
+   amber .model = schematic model, violet .argued = argued but not kernel-verified, red .open = open problem. */
+.lean { display: flex; gap: 8px; align-items: flex-start; border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); padding: 6px 8px; font-size: 11.5px; color: var(--dim); min-width: 0; }
+.lean > span:last-child { min-width: 0; }
+.lean .ok { color: var(--ok); font-family: var(--font-data); font-weight: 600; white-space: nowrap; }
+.lean code { font-family: var(--font-data); color: var(--ink); font-size: 10.5px; overflow-wrap: anywhere; }
+.lean a { color: var(--ink); text-decoration-color: var(--line-hot); text-underline-offset: 2px; }
+.lean a:hover { color: var(--cyan); }
+.lean.num { border-color: color-mix(in srgb, var(--cyan) 35%, transparent); }
+.lean.num .ok { color: var(--cyan); }
+.lean.model { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.lean.model .ok { color: var(--amber); }
+.lean.argued { border-color: color-mix(in srgb, var(--violet) 45%, transparent); }
+.lean.argued .ok { color: var(--violet); }
+.lean.open { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.lean.open .ok { color: var(--warn); }
+canvas.plot { width: 100%; display: block; }
+.plot-sq { aspect-ratio: 1 / 0.78; max-width: 100%; }
+.plot-wide { aspect-ratio: 1 / 0.55; max-width: 100%; }
+.runcard { font-family: var(--font-data); font-size: 11.5px; color: var(--dim); border: 1px dashed var(--line-hot); padding: 6px 8px; }
+.runcard b { color: var(--amber); font-weight: 600; }
+
+/* ---------- 2D / 3D stage ---------- */
+.stage { position: relative; min-height: 0; overflow: hidden; background: var(--stage-bg); border: 1px solid var(--panel-edge); touch-action: none; cursor: grab; }
+.stage:active { cursor: grabbing; }
+/* kit.js hands the focus to the stage after a pointer click on a card (tabindex −1: never reached with Tab); the stage is
+   not a control, so the keys pressed then (Space plays) draw no ring around it */
+.stage[tabindex="-1"]:focus-visible { outline: none; }
+.stage > canvas.gl, .stage > canvas.fill { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.stage.still { cursor: default; touch-action: auto; }
+.stage.still:active { cursor: default; }
+.stage .tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.stage .scan, .scan { position: absolute; inset: 0; pointer-events: none; background: var(--tr-fx-scanlines); mix-blend-mode: overlay; }
+.stage .vig, .vig { position: absolute; inset: 0; pointer-events: none; background: var(--tr-fx-vignette); }
+.bracket { position: absolute; width: 22px; height: 22px; border-color: var(--cyan); border-style: solid; pointer-events: none; opacity: 0.8; }
+.bracket.tl { top: 8px; left: 8px; border-width: 2px 0 0 2px; }
+.bracket.tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
+.bracket.bl { bottom: 8px; left: 8px; border-width: 0 0 2px 2px; }
+.bracket.br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+.hud-tl { position: absolute; top: 14px; left: 20px; pointer-events: none; display: flex; flex-direction: column; gap: 2px; max-width: calc(100% - 40px); }
+.hud-tl .big { font-family: var(--font-display); font-weight: 600; font-size: 13px; letter-spacing: 0.12em; color: var(--amber); }
+.hud-tl .sub { font-size: 12px; color: var(--ink); text-shadow: 0 0 6px var(--tr-void-deep); }
+.hud-tr { position: absolute; top: 12px; right: 18px; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 60%; }
+.hud-tr .chip { background: color-mix(in srgb, var(--void) 70%, transparent); padding: 4px 7px; font-size: 10.5px; }
+.hud-tr .chip[aria-pressed="true"] { background: var(--cyan); color: var(--on-accent); }
+.tag {
+  position: absolute; left: 0; top: 0; pointer-events: none; white-space: nowrap;
+  font-family: var(--font-display); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+  transform: translate(-50%, -50%); text-shadow: 0 0 6px var(--tr-void-deep), 0 0 2px var(--tr-void-deep);
+}
+.tag.hot { color: var(--amber); font-size: 11.5px; }
+.tag.cy { color: var(--cyan); font-size: 12px; }
+.tag.mg { color: var(--magenta); font-size: 12px; }
+.tag.tick { font-family: var(--font-data); letter-spacing: 0; text-transform: none; font-size: 10px; color: var(--faint); transform: translate(-100%, -50%); }
+.tag.raw { text-transform: none; letter-spacing: 0.04em; font-family: var(--font-body); font-size: 12px; }
+.tag.num { text-transform: none; letter-spacing: 0; font-family: var(--font-data); font-size: 11.5px; color: var(--ink); }
+.tag.ink { color: var(--ink); }
+/* legend along the bottom edge of a stage: what each colour on the stage means */
+.hud-bl { position: absolute; left: 20px; right: 20px; bottom: 12px; pointer-events: none; display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11.5px; color: var(--ink); text-shadow: 0 0 6px var(--tr-void-deep), 0 0 2px var(--tr-void-deep); }
+.hud-bl span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 3px; display: inline-block; background: var(--cyan); flex: none; }
+.sw.box { height: 10px; width: 10px; }
+.sw.cy { background: var(--cyan); } .sw.mg { background: var(--magenta); } .sw.am { background: var(--amber); }
+.sw.ok { background: var(--ok); } .sw.vi { background: var(--violet); } .sw.dm { background: var(--dim); } .sw.wn { background: var(--warn); }
+.toast {
+  position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(560px, calc(100% - 40px));
+  background: color-mix(in srgb, var(--tr-void-deep) 90%, transparent); border: 1px solid var(--amber); color: var(--ink); padding: 8px 12px; font-size: 12.5px;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--amber) 25%, transparent); pointer-events: none; transition: opacity 0.4s; opacity: 0;
+}
+.toast b { color: var(--amber); font-weight: 600; }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--dim); }
+
+/* ---------- clock rail (bottom transport) ---------- */
+footer.rail { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; border-top: 1px solid var(--panel-edge); padding-top: 8px; }
+.transport { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tbtn {
+  min-width: 34px; height: 30px; border: 1px solid var(--line-hot); background: transparent; cursor: pointer; display: inline-grid; place-items: center;
+  color: var(--cyan); font-family: var(--font-data); font-size: 13px; padding: 0 6px;
+}
+.tbtn:hover { border-color: var(--cyan); box-shadow: 0 0 10px color-mix(in srgb, var(--cyan) 35%, transparent); }
+.tbtn[aria-pressed="true"] { background: var(--cyan); color: var(--on-accent); }
+.tbtn:disabled { color: var(--faint); border-color: var(--panel-edge); box-shadow: none; cursor: not-allowed; }
+.clock { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: center; min-width: 0; }
+.clock .tau { font-family: var(--font-data); font-size: 18px; color: var(--amber); font-variant-numeric: tabular-nums; text-shadow: var(--glow-amber); white-space: nowrap; }
+.clock .tau small { font-size: 11px; color: var(--dim); }
+.clock input[type=range]::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 90%, transparent), color-mix(in srgb, var(--amber) 12%, transparent)); }
+.clock input[type=range]::-moz-range-track { height: 4px; background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 90%, transparent), color-mix(in srgb, var(--amber) 12%, transparent)); }
+.clock input[type=range]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5px; border-color: var(--amber); box-shadow: 0 0 12px var(--amber); }
+.clock input[type=range]::-moz-range-thumb { border-color: var(--amber); box-shadow: 0 0 12px var(--amber); }
+.keys { font-size: 11px; color: var(--dim); text-align: right; }
+.keys kbd { font-family: var(--font-data); border: 1px solid var(--line-hot); padding: 0 4px; color: var(--ink); font-size: 10.5px; }
+.keys .chip { margin-top: 4px; }
+
+/* ---------- theory drawer ---------- */
+.drawer { position: fixed; inset: 0; background: color-mix(in srgb, var(--tr-void-deep) 72%, transparent); display: grid; place-items: center; padding: var(--gutter); z-index: 20; }
+.drawer .sheet {
+  width: min(760px, 100%); max-height: calc(100% - 20px); overflow-y: auto; background: var(--sheet); border: 1px solid var(--cyan);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--cyan) 18%, transparent); padding: 18px 20px 20px;
+}
+.sheet h2 { margin: 0 0 4px; font-family: var(--font-display); letter-spacing: 0.12em; color: var(--cyan); font-size: 16px; text-wrap: balance; }
+.sheet .lede { color: var(--dim); margin: 0 0 12px; max-width: 68ch; }
+.sheet ol, .sheet ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+.sheet li b { color: var(--amber); font-weight: 600; }
+.sheet code { font-family: var(--font-data); font-size: 11.5px; color: var(--ink); overflow-wrap: anywhere; }
+.sheet .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.sheet .lean { margin: 4px 0; }
+
+/* ---------- stage-first "lab" layout ----------
+   <div class="app lab">  header.top · aside.deck | main.center | aside.side · footer.rail
+   The stage is the page: it takes the middle column and most of the height; an optional .strip of small plots sits
+   under it; experiment cards and controls are on the left, readouts and evidence on the right, the clock along the
+   bottom. Narrow screens and the book's iframe (?embed=1) put the stage first and the columns below it. */
+body:has(> .app.lab) { overflow: hidden; }
+.app.lab {
+  height: 100%; display: grid; gap: 10px; padding-block: 10px; padding-inline: var(--gutter);
+  grid-template-columns: minmax(240px, 290px) minmax(0, 1fr) minmax(270px, 330px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.app.lab > header.top, .app.lab > footer.rail { grid-column: 1 / -1; }
+.lab .center { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 10px; min-height: 0; min-width: 0; }
+.lab .center > .stage { min-height: 220px; }
+.strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; height: 176px; min-height: 0; }
+.strip .panel { display: flex; flex-direction: column; min-height: 0; }
+.strip .head { display: flex; justify-content: space-between; align-items: baseline; gap: 2px 10px; padding: 7px 12px 0; flex-wrap: wrap; }
+.strip .head h2 { margin: 0; font-family: var(--font-display); font-size: 11.5px; letter-spacing: 0.14em; color: var(--cyan); font-weight: 600; text-transform: uppercase; }
+.strip .head span { font-family: var(--font-data); font-size: 11px; color: var(--dim); }
+.strip canvas { flex: 1; min-height: 0; width: 100%; display: block; }
+/* experiment cards: one click = one named scenario; the note under them says what to look at */
+.presets.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.preset {
+  text-align: left; border: 1px solid var(--line-hot); background: color-mix(in srgb, var(--panel-solid, var(--void)) 60%, transparent); cursor: pointer;
+  padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; min-width: 0;
+}
+.preset .code { font-family: var(--font-display); font-weight: 600; font-size: 11px; letter-spacing: 0.12em; color: var(--cyan); text-transform: uppercase; }
+.preset .cn { font-size: 12.5px; color: var(--ink); line-height: 1.35; }
+.preset:hover { border-color: var(--cyan); }
+.preset[aria-pressed="true"] { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber), 0 0 14px color-mix(in srgb, var(--amber) 25%, transparent); }
+.preset[aria-pressed="true"] .code { color: var(--amber); }
+/* tour bar: step through the experiment cards without leaving the stage (shown where the deck is out of view) */
+.tour { display: none; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; border: 1px solid var(--panel-edge); background: var(--panel); padding: 6px 8px; }
+.tour .what { min-width: 0; font-size: 12px; color: var(--dim); line-height: 1.4; }
+.tour .what b { display: block; font-family: var(--font-display); font-weight: 600; font-size: 11.5px; letter-spacing: 0.1em; color: var(--amber); text-transform: uppercase; }
+/* readouts: one line that matters, set large */
+dl.ro .key { grid-column: 1 / -1; }
+dl.ro .key dd { font-size: 12px; color: var(--dim); }
+dl.ro .key dd b { display: block; font-weight: 600; font-size: 19px; line-height: 1.3; color: var(--ink); text-shadow: 0 0 12px color-mix(in srgb, currentColor 45%, transparent); }
+dl.ro dd small { font-size: 11px; color: var(--dim); }
+dl.ro .ok dd, .okmark { color: var(--ok); }
+.c-cy { color: var(--cyan); } .c-mg { color: var(--magenta); } .c-am { color: var(--amber); } .c-ok { color: var(--ok); } .c-wn { color: var(--warn); } .c-vi { color: var(--violet); }
+.marks { position: relative; height: 12px; grid-column: 2; }
+.marks i { position: absolute; top: 0; font-style: normal; font-family: var(--font-data); font-size: 10px; color: var(--dim); transform: translateX(-50%); white-space: nowrap; }
+.marks i:first-child { transform: none; } .marks i:last-child { transform: translateX(-100%); }
+@media (max-width: 1080px) {
+  body:has(> .app.lab) { overflow: auto; }
+  html:has(.app.lab), body:has(> .app.lab) { height: auto; }
+  .app.lab { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .app.lab > header.top { order: 0; }
+  .lab .center { order: 1; grid-template-rows: minmax(300px, 58vh) auto auto; }
+  .app.lab > footer.rail { order: 2; grid-template-columns: minmax(0, 1fr); }
+  .lab .side { order: 3; overflow: visible; }
+  .lab .deck { order: 4; overflow: visible; }
+  .lab .tour { display: grid; }
+  .lab .strip { grid-auto-flow: row; height: auto; }
+  .lab .strip canvas { height: 170px; flex: none; }
+  .lab .keys { text-align: left; }
+  .lab .hud-tr { max-width: calc(100% - 24px); }
+}
+@media (max-width: 520px) {
+  .presets.cards { grid-template-columns: minmax(0, 1fr); }
+  .hud-bl { font-size: 10.5px; left: 12px; right: 12px; }
+}
+
+/* ---------- embed mode (?embed=1): a compact page inside an <iframe> of the book ---------- */
+.embed-only { display: none !important; }
+:root[data-embed] .embed-only { display: revert !important; }
+:root[data-embed] header.top, :root[data-embed] .crumb, :root[data-embed] .embed-hide { display: none !important; }
+:root[data-embed] body { background-image: none; }
+:root[data-embed] { --gutter: 10px; }
+/* lab layout inside the book: the stage, the tour bar and the clock fit the first screen of the iframe; the plots,
+   then readouts and controls in two columns, follow below */
+:root[data-embed]:has(.app.lab), :root[data-embed] body:has(> .app.lab) { height: auto; overflow: auto; }
+:root[data-embed] .app.lab { height: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; padding-block: 8px; }
+:root[data-embed] .lab .center { grid-column: 1 / -1; order: 1; grid-template-rows: clamp(280px, calc(100vh - 150px), 520px) auto auto; }
+:root[data-embed] .app.lab > footer.rail { order: 2; }
+:root[data-embed] .lab .side { order: 3; overflow: visible; }
+:root[data-embed] .lab .deck { order: 4; overflow: visible; }
+:root[data-embed] .lab .tour { display: grid; }
+:root[data-embed] .lab .strip { height: 160px; }
+:root[data-embed] .lab .keys { display: none; }
+:root[data-embed] .app.lab > footer.rail { grid-template-columns: auto minmax(0, 1fr); }
+@media (max-width: 600px) {
+  :root[data-embed] .app.lab { grid-template-columns: minmax(0, 1fr); }
+  :root[data-embed] .lab .strip { grid-auto-flow: row; height: auto; }
+  /* the whole lab in a narrow frame: the transport (with its speed chips), the readout and the slider each take a
+     row, so the slider spans the frame whatever the other two need. A cited figure hides the chips and keeps one row. */
+  :root[data-embed]:not([data-figure]) .app.lab > footer.rail,
+  :root[data-embed]:not([data-figure]) .lab .rail > .clock { grid-template-columns: minmax(0, 1fr); }
+  :root[data-embed]:not([data-figure]) .lab .rail > .clock > .marks { grid-column: 1; }
+}
+
+/* cited figure (?embed=1&preset=<card>, i.e. `::: {.viz src=… preset=…}` in a chapter): the stage, the one-sentence
+   note with ◀ ▶, and the transport. Nothing scrolls inside the frame; "open full screen" under the figure leads to
+   the whole lab in the same state. */
+:root[data-embed][data-figure]:has(.app.lab), :root[data-embed][data-figure] body:has(> .app.lab) { height: 100%; overflow: hidden; }
+:root[data-embed][data-figure] .app.lab { height: 100%; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 6px; padding-block: 6px; }
+:root[data-embed][data-figure] .lab .deck, :root[data-embed][data-figure] .lab .side, :root[data-embed][data-figure] .lab .strip,
+:root[data-embed][data-figure] .lab .transport .chips { display: none !important; }
+:root[data-embed][data-figure] .lab .center { grid-template-rows: minmax(0, 1fr) auto; gap: 6px; }
+:root[data-embed][data-figure] .lab .center > .stage { min-height: 0; }
+:root[data-embed][data-figure] .app.lab > footer.rail { border-top: 0; padding-top: 0; gap: 10px; }
+:root[data-embed][data-figure] .lab .tour { padding: 5px 8px; }
+
+/* ---------- thumbnail mode (?thumb=1, used by tools/node/viz-thumbs.mjs): [data-thumb] fills the viewport, no text ---------- */
+:root[data-thumb-mode] body { overflow: hidden; }
+:root[data-thumb-mode] [data-thumb] {
+  position: fixed !important; inset: 0 !important; z-index: 1000; width: 100vw !important; height: 100vh !important;
+  max-width: none !important; max-height: none !important; margin: 0 !important; clip-path: none !important; border: 0 !important;
+}
+:root[data-thumb-mode] .toast, :root[data-thumb-mode] .hud-tl, :root[data-thumb-mode] .hud-tr, :root[data-thumb-mode] .hud-bl, :root[data-thumb-mode] .tags, :root[data-thumb-mode] .thumb-hide { opacity: 0 !important; }
+
+/* still of a cited card (?shot=1): the same region fills the viewport, with its title, labels and legend kept, in the
+   language of the edition; only the controls on the stage and the toast are hidden */
+:root[data-shot] body { overflow: hidden; }
+:root[data-shot] [data-thumb] {
+  position: fixed !important; inset: 0 !important; z-index: 1000; width: 100vw !important; height: 100vh !important;
+  max-width: none !important; max-height: none !important; margin: 0 !important; clip-path: none !important; border: 0 !important;
+}
+:root[data-shot] .toast, :root[data-shot] .hud-tr { opacity: 0 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .glitching .logo::before, .glitching .logo::after { animation: none; }
+  .toast { transition: none; }
+}
+@media (max-width: 520px) {
+  .logo { font-size: 21px; }
+}

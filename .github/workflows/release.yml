@@ -1,0 +1,392 @@
+# Publish book releases (managed by the template).
+#
+#   git tag <slug>-v<version> && git push origin <slug>-v<version>   one book; <version> must equal
+#                                                                     books/<slug>/book.toml [book].version
+#   git tag v<anything> && git push origin v<anything>                every book (not in the template
+#                                                                     repository, where v* tags are template
+#                                                                     releases: see template-release.yml),
+#                                                                     e.g. v2026.11.08, v2026-11-08 or v3.0.0
+#
+# Books that site.toml [books].hide hides are never released: a v* tag leaves them out, and a <slug>-v* tag
+# that names one fails.
+#
+# A release is marked as a GitHub pre-release only when its version is a semantic-version pre-release:
+# the book.toml version of a one-book tag (1.0.0-rc.1), or the part after "v" of an all-books tag
+# (v3.0.0-rc.1). Any other form makes an ordinary release, and so does every version that starts with a
+# date (YYYY.MM.DD, YYYY-MM-DD or YYYYMMDD, month and day zero-padded), whatever follows it: v2026.11.08-2
+# and v2026.11.10-2 (a second release that day) are ordinary releases.
+#
+# The release carries, per book, the PDFs (screen + print), the EPUB of every edition and the slide PDFs
+# (<slug>-<deck>-<lang>.pdf); its notes list each book's version, editions, theorem count and the pinned
+# trureturing commit.
+#
+# Every release is also a restore point of the build cache (docs/PUBLISHING.md §5): whatever the tag, the
+# build job builds the whole site (./tbook build all, films included), restoring unchanged units from the
+# Actions cache of the default branch or from earlier releases, and ./tbook cache export writes one tar per
+# unit and build-cache.json, which are attached beside the downloads. A build that has no cache
+# (TBOOK_CACHE_REMOTE=1) restores from the newest published releases instead of building again.
+#
+# The release is created as a draft, every file is uploaded, and only then is it published, so a published
+# release is complete; repositories with immutable releases require this (a published release takes no new
+# files). A release that is already published is left as it is: tag a new version.
+#
+# Optional: set the repository variable REQUIRE_LEAN_VERIFY=true to run the Lean deep verification
+# (lean-verify.yml: axiom closure of every cited declaration) before anything is published.
+name: Release
+
+on:
+  push:
+    tags:
+      - '*-v*'
+      - 'v*'
+
+permissions:
+  contents: read
+
+# One run per tag, not one group for all tags: a group keeps a single pending run and cancels the one
+# waiting before it, so tags pushed together would lose a release. Neither run saves the Actions cache.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  plan:
+    name: Resolve the books to release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      books: ${{ steps.plan.outputs.books }}
+      title: ${{ steps.plan.outputs.title }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Resolve the tag
+        id: plan
+        env:
+          TAG: ${{ github.ref_name }}
+          TEMPLATE_REPO: ${{ github.repository == 'the-omega-institute/trureturing-books-template' }}
+          PYTHONPATH: tools
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          from tbook import config
+
+          tag = os.environ["TAG"]
+          books = config.load_books()
+          by_slug = {b.slug: b for b in books}
+          out = open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8")
+
+          def emit(key, value):
+              out.write(f"{key}={value}\n")
+
+          def fail(msg):
+              print(f"::error title=Release::{msg}")
+              sys.exit(1)
+
+          # A semantic-version pre-release (semver.org 2.0.0: no leading zeros, no empty identifiers).
+          NUM = r"(?:0|[1-9]\d*)"
+          PRE_ID = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+          SEMVER_PRERELEASE = re.compile(
+              rf"{NUM}\.{NUM}\.{NUM}-{PRE_ID}(?:\.{PRE_ID})*(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?")
+          # A date, YYYY.MM.DD, YYYY-MM-DD or YYYYMMDD, with whatever follows it (2026.11.10-2: a second
+          # release that day, although it also parses as a semantic version).
+          DATE = re.compile(r"\d{4}([.-]?)(?:0[1-9]|1[0-2])\1(?:0[1-9]|[12]\d|3[01])(?!\d)")
+
+          def is_prerelease(version):
+              """Only a semantic-version pre-release (1.0.0-rc.1); a date (2026.11.08-2) is an ordinary release."""
+              return DATE.match(version) is None and SEMVER_PRERELEASE.fullmatch(version) is not None
+
+          # <slug>-v<version>: the longest known slug wins (slugs may themselves contain "-v"). Books that
+          # site.toml [books].hide hides do not exist for releases either.
+          hidden = config.hidden_books()
+          slug = max((s for s in [*by_slug, *hidden] if tag.startswith(s + "-v")), key=len, default=None)
+          if slug in hidden:
+              fail(f"tag {tag} names books/{slug}, but {config.hidden_error([slug])}; or delete the tag")
+          if slug:
+              book = by_slug[slug]
+              version = tag[len(slug) + 2:]
+              if version != book.version:
+                  fail(f"tag {tag} says version {version}, but books/{slug}/book.toml has version "
+                       f"{book.version}. Update book.toml (or delete the tag) and tag again.")
+              selected = [book]
+              title = f"{book.primary.title} {book.version}"
+              prerelease = is_prerelease(book.version)
+          elif tag.startswith("v"):
+              if os.environ["TEMPLATE_REPO"] == "true":
+                  print(f"::notice title=Release::{tag} is a template release in the template repository; "
+                        "template-release.yml publishes it.")
+                  emit("skip", "true")
+                  sys.exit(0)
+              if not books:
+                  fail("there are no books (books/<slug>/book.toml) to release")
+              selected = books
+              site = config.load_site()
+              title = f"{site.text(site.title, site.default_language)} {tag}"
+              prerelease = is_prerelease(tag[1:])
+          elif tag.startswith("film-"):
+              # film-<slug>-<NNN>-v<k>: the per-film releases of template 0.1.0. Films are built with the site
+              # now (pages.yml, and every release); such a tag publishes nothing and can be deleted.
+              print(f"::notice title=Release::{tag} is a per-film tag; films are built with the site now, so "
+                    "it publishes nothing (it can be deleted).")
+              emit("skip", "true")
+              sys.exit(0)
+          else:
+              known = ", ".join(sorted(by_slug)) or "none"
+              fail(f"tag {tag} names no book (expected <slug>-v<version> or v<version>; books: {known})")
+          emit("skip", "false")
+          emit("books", " ".join(b.slug for b in selected))
+          emit("title", title.replace("\n", " "))
+          emit("prerelease", "true" if prerelease else "false")
+          print(f"release {tag}: {', '.join(b.slug for b in selected)}")
+          PY
+
+  lean-verify:
+    name: Lean deep verification
+    needs: plan
+    if: needs.plan.outputs.skip != 'true' && vars.REQUIRE_LEAN_VERIFY == 'true'
+    uses: ./.github/workflows/lean-verify.yml
+
+  build:
+    name: Build the site and export the build cache
+    needs: [plan, lean-verify]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true' &&
+      (needs.lean-verify.result == 'success' || needs.lean-verify.result == 'skipped')
+    runs-on: ubuntu-24.04
+    # Rendering a film that no cache holds takes long (frames, narration, encoding).
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      actions: read
+      # actions/configure-pages reads the Pages configuration (private repositories refuse it without this).
+      pages: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'true'
+          mdbook: 'true'
+          films: 'true'
+
+      - name: Cache trureturing frozen state
+        # Only on tags (trusted refs; docs/VERIFICATION.md §2), should this workflow ever gain other triggers.
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/cache@v5
+        with:
+          path: .cache/trureturing
+          key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
+          restore-keys: trureturing-state-
+
+      - name: Configure Pages
+        # Build for the Pages URL, as pages.yml does, so that the exported entries carry the site's keys.
+        # Without Pages this step fails, and this build and pages.yml both use site.toml's address.
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Check
+        env:
+          # check asks GitHub's compare API whether the pinned trureturing commit is on the site.toml branch
+          # (no trureturing checkout here); in GitHub Actions an unanswered question is an error.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: ./tbook check
+
+      - name: Build everything
+        env:
+          # Units missing from the Actions cache are looked up in the newest published releases.
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          # A release never goes out without a film: one that cannot be rendered fails the build.
+          TBOOK_FILMS: require
+        run: ./tbook build all
+
+      - name: Export the build cache
+        # Every unit of the site, not only the released books', so that this release alone restores a build.
+        # Fails when a unit is missing from the store.
+        run: ./tbook cache export release/cache
+
+      - name: Collect assets and write the release notes
+        env:
+          BOOKS: ${{ needs.plan.outputs.books }}
+          TAG: ${{ github.ref_name }}
+          LEAN_VERIFY: ${{ needs.lean-verify.result }}
+          PYTHONPATH: tools
+        run: |
+          python3 - <<'PY'
+          import os
+          import shutil
+          import sys
+          from pathlib import Path
+
+          from tbook import build, config, lean, model
+
+          # Release-note strings not in theme/i18n (zh / en).
+          LOCAL = {
+              "zh": {"editions": "语言版本", "theorems": "经 Lean 内核验证的定理",
+                     "deep": "Lean 深度验证（公理闭包）已通过", "assets": "附件",
+                     "cache": "构建缓存（供没有缓存的构建恢复，阅读不需要）"},
+              "en": {"editions": "Editions", "theorems": "Lean-verified theorems",
+                     "deep": "Lean deep verification (axiom closure) passed", "assets": "Assets",
+                     "cache": "build cache (restored by builds that have none; not needed for reading)"},
+          }
+
+          site = config.load_site()
+          langs = site.languages
+
+          def both(fn):
+              """One label per site language: '版本 · Version'."""
+              seen = []
+              for lang in langs:
+                  text = fn(lang)
+                  if text and text not in seen:
+                      seen.append(text)
+              return " · ".join(seen)
+
+          def loc(lang, key):
+              return LOCAL.get(lang, LOCAL["en"])[key]
+
+          out = Path("release")  # release/cache: written by ./tbook cache export
+          assets = out / "assets"
+          assets.mkdir(parents=True)
+          lock = lean.Lock.load()
+          notes = []
+          missing = []
+          for book in config.load_books(os.environ["BOOKS"].split()):
+              titles = both(lambda l: book.edition(l).title if l in book.languages else "")
+              notes += [f"## {titles or book.primary.title}", ""]
+              if book.primary.subtitle:
+                  notes += [f"*{book.primary.subtitle}*", ""]
+              primary = model.load_edition(book.primary)
+              n = len(primary.formal_envs())
+              notes.append(f"- {both(lambda l: config.s(l, 'ui.version'))}: `{book.version}`")
+              notes.append(f"- {both(lambda l: loc(l, 'editions'))}: "
+                           + ", ".join(config.s(lang, "meta.name") or lang for lang in book.languages))
+              notes.append(f"- {both(lambda l: loc(l, 'theorems'))}: {n}")
+              url = site.book_url(book.slug)
+              if url:
+                  notes.append(f"- {both(lambda l: config.s(l, 'ui.read_online'))}: {url}/")
+              notes.append(f"- {both(lambda l: loc(l, 'assets'))}:")
+              for ed in book.editions:
+                  lang = ed.lang
+                  files = []
+                  for variant in book.outputs_pdf:
+                      files.append((config.s(lang, f"ui.pdf_{variant}"), book.artifact(lang, "pdf", variant)))
+                  if book.outputs_epub:
+                      files.append((config.s(lang, "ui.epub"), book.artifact(lang, "epub")))
+                  row = []
+                  for label, name in files:
+                      src = build.dist_dir(book.slug) / name
+                      if src.is_file():
+                          shutil.copy2(src, assets / name)
+                          row.append(f"{label} `{name}`")
+                      else:
+                          missing.append(name)
+                  slides = build.slides_dir(book.slug)
+                  for pdf in sorted(slides.glob(f"*-{lang}.pdf")) if slides.is_dir() else []:
+                      name = f"{book.slug}-{pdf.name}"  # = tbook.slides.pdf_name(book, deck, lang)
+                      shutil.copy2(pdf, assets / name)
+                      row.append(f"{config.s(lang, 'ui.slides')} `{name}`")
+                  if row:
+                      notes.append(f"  - {config.s(lang, 'meta.name') or lang}: " + ", ".join(row))
+              notes.append("")
+          if lock:
+              notes += ["---", "",
+                        f"{both(lambda l: config.s(l, 'ui.pinned_at'))}: [`{lock.commit[:12]}`]({lock.tree_url}) "
+                        f"· `{lock.repo}` · {lock.branch} · {lock.pinned_at}"]
+          if os.environ.get("LEAN_VERIFY") == "success":
+              notes += ["", f"✓ {both(lambda l: loc(l, 'deep'))}"]
+          notes += ["", f"`build-cache.json`, `cache-*.tar`: {both(lambda l: loc(l, 'cache'))}"]
+          (out / "notes.md").write_text("\n".join(notes).rstrip() + "\n", encoding="utf-8")
+          print((out / "notes.md").read_text(encoding="utf-8"))
+          if missing:
+              print(f"::error title=Release::missing build outputs: {', '.join(missing)}")
+              sys.exit(1)
+          if not any(assets.iterdir()):
+              print("::error title=Release::no files to release")
+              sys.exit(1)
+          PY
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@v6
+        with:
+          name: release
+          path: release
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Create the GitHub release
+    needs: [plan, build]
+    if: >-
+      !cancelled() && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download the release files
+        uses: actions/download-artifact@v7
+        with:
+          name: release
+          path: release
+
+      - name: Create the release as a draft, upload every file, publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          TITLE: ${{ needs.plan.outputs.title }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [ ! -f release/cache/build-cache.json ]; then
+            echo "::error title=Release::release/cache/build-cache.json is missing (./tbook cache export)"
+            exit 1
+          fi
+          # Reader downloads and the build cache (one tar per unit, build-cache.json).
+          mapfile -t files < <(find release/assets release/cache -maxdepth 1 -type f | sort)
+          printf 'asset: %s\n' "${files[@]}"
+          if draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file release/notes.md
+            if [ "$draft" != "true" ]; then
+              # A published release is final (immutable where the repository enables it): tag a new version.
+              echo "::warning title=Release::release $TAG is already published; its files are left as they are"
+              echo "Release (already published): https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # The draft of an earlier attempt: replace its files.
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$TITLE" --notes-file release/notes.md "${files[@]}"
+          fi
+          # Published only now, with every file in place.
+          flags=(--draft=false)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release edit "$TAG" "${flags[@]}"
+          echo "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

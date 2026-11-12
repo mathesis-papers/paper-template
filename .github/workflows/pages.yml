@@ -1,0 +1,180 @@
+# Build every book (HTML, PDF, EPUB, visualizations, films, slides) and deploy _site/ to GitHub Pages
+# (managed by the template).
+#
+# One-time setup: Settings → Pages → Build and deployment → Source: GitHub Actions.
+# Until then the probe job warns and the site is built but not deployed.
+#
+# Build cache (docs/PUBLISHING.md §5): a unit whose inputs did not change is restored, from the Actions
+# cache that earlier runs of this workflow saved or else from the newest published releases, instead of
+# being built again. This is the only workflow that saves the Actions cache (on the default branch), and
+# the group "pages" runs it one at a time, so two runs never render the same film for the same entry.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  probe:
+    name: Is GitHub Pages enabled?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pages: read
+    outputs:
+      enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - name: Query the Pages configuration
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if build_type="$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq '.build_type' 2>/dev/null)"; then
+            if [ "$build_type" = "workflow" ]; then
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+              echo "GitHub Pages is enabled with source: GitHub Actions."
+              exit 0
+            fi
+            msg="GitHub Pages publishes from a branch (build_type: ${build_type:-unknown}). Set Settings → Pages → Source: GitHub Actions, then re-run this workflow."
+          else
+            msg="GitHub Pages is not enabled for this repository. Enable it in Settings → Pages → Source: GitHub Actions, then re-run this workflow."
+          fi
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::warning title=GitHub Pages not deployed::$msg"
+          {
+            echo "### GitHub Pages not deployed"
+            echo
+            echo "$msg"
+            echo
+            echo "The site is still built (job **Build the site**) so that problems surface early."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build the site
+    needs: probe
+    runs-on: ubuntu-24.04
+    # Rendering a film that no cache holds takes long (frames, narration, encoding). The build step has a
+    # shorter limit of its own: a step that runs out of time fails, while a job that does is cancelled and
+    # skips the save, so every unit built until then would be lost and the next run would start over.
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      # actions/configure-pages reads the Pages configuration (GET /repos/{owner}/{repo}/pages), which
+      # private and internal repositories refuse without this scope.
+      pages: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'true'
+          mdbook: 'true'
+          films: 'true'
+
+      - name: Cache trureturing frozen state
+        # Only on the default branch: a run dispatched on another branch could restore what that branch's
+        # code saved (docs/VERIFICATION.md §2).
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/cache@v5
+        with:
+          path: .cache/trureturing
+          key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
+          restore-keys: trureturing-state-
+
+      - name: Configure Pages
+        id: pages
+        if: needs.probe.outputs.enabled == 'true'
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Check
+        env:
+          # check asks GitHub's compare API whether the pinned trureturing commit is on the site.toml branch
+          # (no trureturing checkout here); in GitHub Actions an unanswered question is an error.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: ./tbook check
+
+      - name: Build everything
+        id: build
+        # Below the job's limit, so that the save below still runs: what was built is kept, and a re-run
+        # (or the next push) continues from there.
+        timeout-minutes: 210
+        env:
+          # Units missing from the Actions cache are looked up in the newest published releases.
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          # The site never goes out without a film: one that cannot be rendered fails the build.
+          TBOOK_FILMS: require
+        run: ./tbook build all
+
+      - name: Save the build cache
+        # Also after a failed build: every unit that was built is stored complete (a film rendered before
+        # an unrelated failure is not rendered again). The action saves only on the default branch.
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        uses: ./.github/actions/build-cache
+        with:
+          mode: save
+
+      - name: Upload the Pages artifact
+        if: needs.probe.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - name: Publish the build store for pull requests
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/upload-artifact@v6
+        with:
+          name: tbook-build-store
+          path: .cache/artifacts
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload the site as a workflow artifact
+        if: needs.probe.outputs.enabled != 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: site
+          path: _site
+          retention-days: 7
+
+  deploy:
+    name: Deploy
+    needs: [probe, build]
+    if: needs.probe.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

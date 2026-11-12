@@ -1,0 +1,418 @@
+# Continuous integration (managed by the template; works in the template repository and in every
+# books repository created from it, including one that hides the example books (site.toml [books].hide),
+# deleted them or has no book yet: with nothing to build, every step passes).
+#
+#   check  ./tbook check (structure, bilingual parity, Lean citations re-verified against trureturing's
+#          frozen ledger at the pinned commit, which must be on the site.toml trureturing branch: the check
+#          steps pass github.token for GitHub's compare API), theme tokens, unit tests, template manifest
+#          (template repository only), static checks of visualizations and slides; in the template
+#          repository also the checks and unit tests once more without books/example-monograph, and once
+#          more with the example books hidden (site.toml [books].hide = ["example-*"])
+#   build  HTML (mdBook), PDF (screen + print), EPUB → workflow artifacts
+#   viz    visualization browser tests, in eight parallel shards
+#   viz-slow  the same suites with animation frames a second apart (node tools/node/viz-test.mjs --slow), as a
+#          busy runner delivers them: only when started by hand (workflow_dispatch, input slow_frames) and weekly
+#          (schedule); the weekly run does nothing else, and pull requests never wait for it
+#   media  slide decks (Slidev + Chromium)
+#   films  strict film builds, in four parallel shards
+#
+# build and media go through the build cache (docs/PUBLISHING.md §5): outside pull-request events they
+# restore the store that pages.yml saved; PRs read an artifact from a successful default-branch Pages run.
+# In every event they may restore a unit from the newest published
+# releases (TBOOK_CACHE_REMOTE=1). CI never saves the Actions cache. Both use the Pages URL, as pages.yml
+# does, so that their keys are the site's keys.
+#
+# Also callable from other workflows (workflow_call), e.g. before a release. A caller grants contents: read
+# actions: read (the trusted Pages artifact) and pages: read (actions/configure-pages).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      slow_frames:
+        description: Also run the visualization browser tests with slow frames (viz-slow, about 20 minutes)
+        type: boolean
+        default: true
+  workflow_call:
+  schedule:
+    - cron: '29 3 * * 3' # Wednesdays 03:29 UTC: viz-slow only
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # a scheduled run has a group of its own, so that a push to main does not cancel it
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'schedule' && '-schedule' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
+
+env:
+  PYTHONUNBUFFERED: '1'
+  FORCE_COLOR: '0'
+
+jobs:
+  check:
+    name: Check
+    # The weekly run of this workflow is for viz-slow alone; build, viz, media and films need check and are
+    # skipped with it. (In a called workflow github.workflow_ref names the caller: a caller's schedule runs it all.)
+    if: github.event_name != 'schedule' || !contains(github.workflow_ref, '/.github/workflows/ci.yml@')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          fonts: 'false'
+          mdbook: 'true'
+
+      - name: Cache trureturing frozen state
+        # Only on trusted refs: pushes to the default branch and tags (also when a tag's workflow calls this
+        # one). A pull request's runs restore the caches its earlier runs saved, and those ran the pull
+        # request's own code, so a cache there could feed check fabricated frozen state. Pull-request runs
+        # read state from raw.githubusercontent.com and ask the compare API; tbook ignores .cache/trureturing
+        # in them anyway (docs/VERIFICATION.md §2).
+        if: >-
+          github.event_name != 'pull_request' && github.event_name != 'pull_request_target' &&
+          (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+          startsWith(github.ref, 'refs/tags/'))
+        uses: actions/cache@v5
+        with:
+          path: .cache/trureturing
+          key: trureturing-state-${{ hashFiles('trureturing.lock.json') }}
+          restore-keys: trureturing-state-
+
+      - name: Books, bilingual parity and Lean citations
+        env:
+          # Without a trureturing checkout, check asks GitHub's compare API whether the pinned commit is on
+          # the site.toml branch (in pull requests always: no cache is read there); in GitHub Actions an
+          # unanswered question is an error, and anonymous calls are limited to 60 per hour per runner address.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: ./tbook check
+
+      - name: Theme tokens are up to date
+        run: ./tbook theme --check
+
+      - name: Unit tests
+        env:
+          PYTHONPATH: tools
+        run: python -m unittest discover -s tools/tests -v
+
+      - name: Template manifest is up to date
+        if: github.repository == 'the-omega-institute/trureturing-books-template'
+        run: ./tbook template manifest --check
+
+      - name: Visualizations (static validation)
+        if: hashFiles('tools/node/viz-validate.mjs') != ''
+        run: node tools/node/viz-validate.mjs
+
+      - name: Slides (static checks)
+        if: hashFiles('tools/node/slides-check.mjs') != ''
+        run: node tools/node/slides-check.mjs
+
+      - name: Without the example books (template repository only)
+        # Books repositories may delete the template's example books (books/example-*; hiding them with
+        # site.toml [books].hide is the alternative, tested below) and run this same CI with no book at all.
+        # Repeat the checks and the unit tests in a worktree without them, so that no managed check or test
+        # comes to depend on them.
+        if: github.repository == 'the-omega-institute/trureturing-books-template'
+        env:
+          PYTHONPATH: tools
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/no-example"
+          git worktree add --detach "$dir" HEAD
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$dir/node_modules"
+          if [ -d .cache ]; then ln -s "$GITHUB_WORKSPACE/.cache" "$dir/.cache"; fi
+          cd "$dir"
+          git rm -r -q books/example-*
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          site = Path("site.toml")
+          site.write_text(re.sub(r"(?ms)^order\s*=\s*\[.*?\]", "order = []", site.read_text(encoding="utf-8")),
+                          encoding="utf-8")
+          PY
+          ./tbook check
+          node tools/node/viz-validate.mjs
+          node tools/node/slides-check.mjs
+          python -m unittest discover -s tools/tests
+
+      - name: With the example books hidden (template repository only)
+        # Books repositories keep the template's example books and hide them (site.toml [books].hide =
+        # ["example-*"], skills/book-new), so that merging template changes never conflicts over deleted files.
+        # Repeat the checks and the unit tests after hiding them and refreshing the lock at another commit:
+        # every command must skip them, and no managed test may depend on their declarations or commit.
+        if: github.repository == 'the-omega-institute/trureturing-books-template'
+        env:
+          PYTHONPATH: tools
+          GITHUB_TOKEN: ${{ github.token }}
+          # Optional repository secret for a private trureturing (raw files and the compare API).
+          TRURETURING_TOKEN: ${{ secrets.TRURETURING_TOKEN }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/hidden-examples"
+          git worktree add --detach "$dir" HEAD
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$dir/node_modules"
+          if [ -d .cache ]; then ln -s "$GITHUB_WORKSPACE/.cache" "$dir/.cache"; fi
+          cd "$dir"
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          site = Path("site.toml")
+          text, n = re.subn(r"(?m)^hide\s*=\s*\[\]", 'hide = ["example-*"]', site.read_text(encoding="utf-8"))
+          assert n == 1, "site.toml: expected the line hide = [] under [books]"
+          site.write_text(text, encoding="utf-8")
+          lock_path = Path("trureturing.lock.json")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          lock.update(commit="4c76e4a56525afbb474bf04a03ee2ff4aec5da45", declarations={})
+          lock_path.write_text(json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+          ./tbook check | tee "$RUNNER_TEMP/hidden-check.txt"
+          grep -q '^check: hidden by site.toml \[books\]\.hide, not checked: example-' "$RUNNER_TEMP/hidden-check.txt"
+          visible="$(./tbook books)"
+          if grep '^example-' <<<"$visible"; then echo "::error::./tbook books lists a hidden book"; exit 1; fi
+          node tools/node/viz-validate.mjs
+          node tools/node/slides-check.mjs
+          python -m unittest discover -s tools/tests
+
+  build:
+    name: Build books (${{ matrix.name }})
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: html, target: html, options: ''}
+          - {name: pdf-screen, target: pdf, options: '--variant screen'}
+          - {name: pdf-print, target: pdf, options: '--variant print'}
+          - {name: pdf-academic, target: pdf, options: '--variant academic'}
+          - {name: epub, target: epub, options: ''}
+    permissions:
+      contents: read
+      actions: read
+      # actions/configure-pages reads the Pages configuration (private repositories refuse it without this).
+      pages: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          fonts: 'true'
+          mdbook: 'true'
+
+      - name: Configure Pages
+        # The site's address is part of every cache key. Without Pages (not enabled, or not readable) this
+        # step fails, the build uses site.toml's address, and so does pages.yml.
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Build
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./tbook build ${{ matrix.target }} ${{ matrix.options }}
+
+      - name: Upload downloads (PDF, EPUB)
+        if: matrix.target != 'html'
+        uses: actions/upload-artifact@v6
+        with:
+          name: books-dist-${{ matrix.name }}
+          path: build/dist
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload HTML
+        if: matrix.target == 'html'
+        uses: actions/upload-artifact@v6
+        with:
+          name: books-html-${{ matrix.name }}
+          path: build/html
+          if-no-files-found: warn
+          retention-days: 14
+
+  viz:
+    name: Visualization browser tests (${{ matrix.shard }}/8)
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # tools/node/viz-test.mjs --shard i/n runs every n-th suite of the sorted list; a shard without suites passes.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Visualization browser tests
+        if: hashFiles('tools/node/viz-test.mjs') != ''
+        run: node tools/node/viz-test.mjs --shard ${{ matrix.shard }}/8
+
+  viz-slow:
+    name: Visualization browser tests, slow frames (${{ matrix.shard }}/8)
+    # The same suites with an animation frame a second (VIZ_SLOW_FRAMES=1000): a suite that waits a fixed time
+    # for a transition or for playback passes on a fast runner and fails here (docs/PUBLISHING.md §4). Weekly and
+    # by hand only: a calling workflow (workflow_call) passes no input slow_frames, and its own schedule is not
+    # this workflow's (github.workflow_ref names the caller there), so it never runs viz-slow.
+    if: >-
+      (github.event_name == 'schedule' && contains(github.workflow_ref, '/.github/workflows/ci.yml@')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.slow_frames == true)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Visualization browser tests (slow frames)
+        if: hashFiles('tools/node/viz-test.mjs') != ''
+        run: node tools/node/viz-test.mjs --slow --shard ${{ matrix.shard }}/8
+
+  media:
+    name: Slides
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      pages: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+
+      - name: Configure Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Find slide decks
+        id: decks
+        # Decks of the books that site.toml [books].hide does not hide.
+        run: |
+          decks="$(./tbook books --files 'slides/*/slides.md')"
+          if [ -n "$decks" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No slide decks (books/*/slides/<deck>/slides.md of a book that site.toml [books].hide does not hide); skipping."
+          fi
+
+      - name: Build slides (HTML, browser checks, PDF)
+        if: steps.decks.outputs.present == 'true'
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./tbook build slides
+
+      - name: Upload slide PDFs
+        if: steps.decks.outputs.present == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: slides-pdf
+          path: build/slides/*/*.pdf
+          if-no-files-found: warn
+          retention-days: 14
+
+  films:
+    name: Films (${{ matrix.shard }}/4)
+    needs: check
+    # Pages and the release workflows render films on default-branch pushes and tags.
+    if: >-
+      !(github.event_name == 'push' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      startsWith(github.ref, 'refs/tags/')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+      pages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Set up the toolchain
+        uses: ./.github/actions/setup
+        with:
+          browsers: 'true'
+          fonts: 'false'
+          mdbook: 'false'
+          films: 'true'
+
+      - name: Configure Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v6
+
+      - name: Restore the build cache (and use the Pages URL)
+        uses: ./.github/actions/build-cache
+        with:
+          mode: restore
+          pages-url: ${{ steps.pages.outputs.base_url }}
+
+      - name: Build film shard
+        env:
+          TBOOK_CACHE_REMOTE: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+          TBOOK_FILMS: require
+        run: python tools/ci/films.py --shard ${{ matrix.shard }}/4

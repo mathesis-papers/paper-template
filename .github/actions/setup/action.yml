@@ -1,0 +1,252 @@
+# Toolchain for ./tbook on GitHub-hosted Ubuntu runners (managed by the template).
+#
+#   - uses: ./.github/actions/setup
+#     with:
+#       browsers: 'true'   # Playwright Chromium: viz browser tests, slide export, thumbnails
+#       fonts: 'true'      # CJK / mono system fonts + tools/fetch-fonts.sh into .cache/fonts (PDF)
+#       mdbook: 'true'     # mdBook 0.5.4 (HTML)
+#       films: 'true'      # film toolchain (needs browsers): ffmpeg, fallback fonts, theme/film/setup.sh
+#
+# Python packages come from requirements.txt (pandoc via pypandoc_binary, typst, epubcheck), and with
+# films from theme/film/requirements.txt too; Node packages from package-lock.json (KaTeX, Slidev,
+# Playwright). Java, needed by epubcheck, is preinstalled on ubuntu-latest / ubuntu-24.04 runners.
+# Films: ffmpeg and fallback fonts for math glyphs come from apt; theme/film/setup.sh installs the
+# Python packages (already installed here) and downloads the Kokoro model into .cache/film/models. None
+# of it is installed when no book has a film (books/*/films/*/film.json; books that site.toml [books].hide
+# hides do not count): there is nothing to render.
+#
+# Caches. The pip cache, Playwright's Chromium, the fetched fonts and the film models are restored and
+# saved only outside pull-request events (pull_request, pull_request_target, pull_request_review…); a pull
+# request's runs download them from PyPI, the Playwright CDN and GitHub. Not saving is not enough:
+# a pull request's runs execute its own copy of this file, so one push can drop the save gate and
+# leave a planted package or Chromium binary in the pull request's cache scope, and the next push,
+# with a clean final diff, would restore it (restore looks in the pull request's scope before its
+# base and default branches'). Other events use their own branch's scope, then the default branch's.
+#
+# npm's cache (setup-node, cache: npm) is used in every event, pull requests included: npm ci reads
+# a tarball from it only under the sha512 integrity that package-lock.json records, and refetches
+# one whose bytes do not match, so a planted entry is ignored, never installed
+# (tools/tests/test_verification.py: test_npm_cache_is_checked_against_the_lockfile).
+name: tbook setup
+description: Python, Node, mdBook, fonts and (optionally) Chromium for building trureturing books.
+
+inputs:
+  browsers:
+    description: Install Playwright's Chromium with its system dependencies.
+    required: false
+    default: 'false'
+  fonts:
+    description: Install CJK and monospace system fonts and fetch the PDF fonts into .cache/fonts.
+    required: false
+    default: 'true'
+  mdbook:
+    description: Install mdBook 0.5.4.
+    required: false
+    default: 'true'
+  films:
+    description: Install the film toolchain (ffmpeg, fallback fonts, theme/film/setup.sh with the Kokoro model) when a book has a film. Needs browsers 'true'.
+    required: false
+    default: 'false'
+  python-version:
+    description: Python version for ./tbook (>= 3.11).
+    required: false
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - name: Check the inputs
+      if: inputs.films == 'true' && inputs.browsers != 'true'
+      shell: bash
+      run: |
+        echo "::error title=tbook setup::films: 'true' renders frames in Chromium; set browsers: 'true' as well"
+        exit 1
+
+    - name: Find films
+      id: films
+      shell: bash
+      env:
+        WANTED: ${{ inputs.films }}
+      # Films of the books that site.toml [books].hide does not hide. ./tbook books needs only Python's standard
+      # library, so the runner's python3 runs it before Python is set up; if it cannot run (python3 older than
+      # 3.11, an unreadable site.toml), every book counts.
+      run: |
+        films=""
+        if [ "$WANTED" = "true" ]; then
+          if ! films="$(./tbook books --files 'films/*/film.json' 2>/dev/null)"; then
+            films="$(compgen -G 'books/*/films/*/film.json' || true)"
+          fi
+        fi
+        if [ -n "$films" ]; then
+          echo "install=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "install=false" >> "$GITHUB_OUTPUT"
+          if [ "$WANTED" = "true" ]; then echo "No film (books/*/films/*/film.json of a book that site.toml [books].hide does not hide): the film toolchain is not installed."; fi
+        fi
+
+    - name: Use the preinstalled container toolchain
+      id: toolchain
+      shell: bash
+      env:
+        REQUESTED_PYTHON: ${{ inputs.python-version }}
+      run: |
+        if [ -n "${TBOOK_TOOLCHAIN:-}" ]; then
+          python -c 'import os, sys; actual = sys.version.split()[0]; wanted = os.environ["REQUESTED_PYTHON"]; assert actual == wanted or actual.startswith(wanted + "."), "Container Python does not match python-version"'
+          python "$TBOOK_TOOLCHAIN/container/prepare.py"
+          echo "preinstalled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "preinstalled=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Python
+      if: steps.toolchain.outputs.preinstalled != 'true'
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Restore the pip cache
+      id: pip-cache
+      if: steps.toolchain.outputs.preinstalled != 'true' && (!startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.cache/pip
+        # Jobs with and without films keep separate entries: an entry is saved once, by the first job of its key.
+        key: pip-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-films-${{ steps.films.outputs.install }}-${{ hashFiles('requirements.txt', 'theme/film/requirements.txt') }}
+
+    - name: Install Python packages
+      if: steps.toolchain.outputs.preinstalled != 'true'
+      shell: bash
+      env:
+        FILMS: ${{ steps.films.outputs.install }}
+      run: |
+        python -m pip install -r requirements.txt
+        if [ "$FILMS" = "true" ] && [ -f theme/film/requirements.txt ]; then
+          python -m pip install -r theme/film/requirements.txt
+        fi
+
+    - name: Save the pip cache
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.pip-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/pip
+        key: ${{ steps.pip-cache.outputs.cache-primary-key }}
+
+    - name: Set up Node
+      if: steps.toolchain.outputs.preinstalled != 'true'
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: package-lock.json
+
+    - name: Install Node packages
+      if: steps.toolchain.outputs.preinstalled != 'true'
+      shell: bash
+      env:
+        # Browsers are installed explicitly below (with their system libraries) when requested.
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      run: npm ci --no-audit --no-fund
+
+    - name: Restore Playwright browsers
+      id: browsers-cache
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Install Chromium for Playwright
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true')
+      shell: bash
+      run: npx playwright install --with-deps chromium
+
+    - name: Save Playwright browsers
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.browsers == 'true' && steps.browsers-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.browsers-cache.outputs.cache-primary-key }}
+
+    - name: Install mdBook
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.mdbook == 'true')
+      uses: taiki-e/install-action@v2
+      with:
+        tool: mdbook@0.5.4
+
+    - name: Install system fonts and ffmpeg
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' || steps.films.outputs.install == 'true')
+      shell: bash
+      env:
+        FONTS: ${{ inputs.fonts }}
+        FILMS: ${{ steps.films.outputs.install }}
+      run: |
+        packages=()
+        if [ "$FONTS" = "true" ]; then
+          packages+=(fonts-noto-cjk fonts-noto-core fonts-jetbrains-mono fonts-dejavu-core)
+          # The fonts `npx playwright install --with-deps` adds (its ubuntu24.04 "tools" group). PDF and EPUB
+          # keys include the font families Typst finds on the system, so every job that builds them gets
+          # the same set whether or not it also installs browsers or films.
+          packages+=(fonts-noto-color-emoji fonts-unifont xfonts-cyrillic xfonts-scalable fonts-liberation
+                     fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf fonts-freefont-ttf)
+        fi
+        if [ "$FILMS" = "true" ]; then
+          # ffmpeg encodes the films; DejaVu and FreeFont cover math glyphs the @fontsource fonts lack.
+          packages+=(ffmpeg fonts-dejavu-core fonts-freefont-ttf)
+        fi
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends "${packages[@]}"
+        fc-cache -f >/dev/null
+
+    - name: Restore fetched fonts
+      id: fonts-cache
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/restore@v5
+      with:
+        path: .cache/fonts
+        key: fonts-${{ hashFiles('tools/fetch-fonts.sh', 'theme/typst/fonts.sha256') }}
+
+    - name: Fetch PDF fonts
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '')
+      shell: bash
+      run: |
+        # The build falls back to system fonts, so a failed download is a warning, not an error.
+        bash tools/fetch-fonts.sh || echo "::warning title=Fonts::tools/fetch-fonts.sh failed; PDFs fall back to system fonts"
+
+    - name: Save fetched fonts
+      if: steps.toolchain.outputs.preinstalled != 'true' && (inputs.fonts == 'true' && hashFiles('tools/fetch-fonts.sh') != '' && steps.fonts-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/save@v5
+      with:
+        path: .cache/fonts
+        key: ${{ steps.fonts-cache.outputs.cache-primary-key }}
+
+    - name: Restore the film models
+      id: film-models-cache
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/restore@v5
+      with:
+        path: .cache/film/models
+        # setup.sh names the model version (and its download URL): a new model means a new setup.sh.
+        key: film-models-${{ hashFiles('theme/film/setup.sh') }}
+
+    - name: Install the film toolchain
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true')
+      shell: bash
+      env:
+        PYTHON: python
+      run: bash theme/film/setup.sh
+
+    - name: Save the film models
+      if: steps.toolchain.outputs.preinstalled != 'true' && (steps.films.outputs.install == 'true' && steps.film-models-cache.outputs.cache-hit != 'true' && !startsWith(github.event_name, 'pull_request'))
+      uses: actions/cache/save@v5
+      with:
+        path: .cache/film/models
+        key: ${{ steps.film-models-cache.outputs.cache-primary-key }}
+
+    - name: Toolchain versions
+      shell: bash
+      run: |
+        python --version
+        node --version
+        if command -v mdbook >/dev/null; then mdbook --version; fi
+        if command -v ffmpeg >/dev/null; then ffmpeg -version | head -n 1; fi
+        if command -v java >/dev/null; then java -version 2>&1 | head -n 1; else echo "::warning::java not found: EPUB validation (epubcheck) will be skipped or fail"; fi

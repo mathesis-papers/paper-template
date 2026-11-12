@@ -1,0 +1,6 @@
+/* GOLDEN//CARRY: the shared lab layout (../assets/theme.css) plus the two number fields of the pair. */
+#cv { cursor: default; }
+.num-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
+.num-field label { font-size: 12.5px; color: var(--ink); }
+.num-field input[type=range] { grid-column: 1 / -1; }
+.sheet .evh { margin: 16px 0 6px; font-family: var(--font-display); font-size: 12px; letter-spacing: 0.14em; color: var(--cyan); text-transform: uppercase; }
