@@ -301,8 +301,8 @@ async function railChecks(T, slug, id, lang, wait = 120) {
 /** The ▶ / ❚❚ button of the clock (kit.clock sets its aria-pressed to whether the clock plays). */
 const PLAY = 'footer.rail #play';
 
-/** Space right after a card was clicked with the pointer (see stageFirstChecks, "keys"). A pointer click leaves the
-    focus on the card; Space must then play or pause the clock, not press the card again (which would restart it).
+/** Space right after a card was clicked with the pointer (see stageFirstChecks, "keys"): it must play or pause the
+    clock, not press the card again (which would restart it), so the click must not leave the focus on the card.
     Skipped on a page without a clock button, and on one where no card leaves that button enabled. */
 async function spaceAfterCard(T, page, wait) {
   const { check } = T;
