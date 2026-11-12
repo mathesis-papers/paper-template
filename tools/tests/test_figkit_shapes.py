@@ -39,6 +39,9 @@ class BoxTests(unittest.TestCase):
         self.assertIn('stroke-dasharray="4 3"', svg)
         self.assertIn('class="ts-ok tf-ok"', svg, "an accent box is tinted in its role")
         self.assertIn(">LEAN ✓</text>", svg)
+        f = fig()
+        f.box(200, 10, "wide canvas", "lean", chip="LEAN ✓", chip_size=15)
+        self.assertRegex(f.svg(), r'font-size="15"[^>]*>LEAN ✓</text>', "the chip takes chip_size")
         self.assertNotRegex(svg.split("</style>")[1], r"#[0-9a-fA-F]{6}")
 
     def test_long_text_wraps_to_the_width(self):

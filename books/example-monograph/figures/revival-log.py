@@ -9,7 +9,7 @@ score about 1/√5 that the chapter's table shows.
 
 from fractions import Fraction
 
-SIZE = (520, 300)
+SIZE = (430, 300)
 MARKUP = 2
 ALT = {
     "zh": "对数纵轴，横轴 n 从 1 到 14。青色的点沿一条上升的直线排列，是等待时间 F_n；品红的点沿一条下降的直线排列，"
@@ -50,11 +50,11 @@ assert all((SCORE[n] > LIMIT) == (n % 2 == 1) for n in range(1, N + 1))   # odd 
 
 def draw(fig):
     t = fig.t
-    ax = fig.axes(62, 22, 392, 226, (0.5, N + 0.5), (5e-4, 1e3), logy=True)
+    ax = fig.axes(56, 22, 318, 226, (0.5, N + 0.5), (5e-4, 1e3), logy=True)
     ax.grid(ys=ax.decades("y"))
-    ax.xaxis(ticks=[1, 4, 7, 10, 13], size=13)
-    ax.yaxis(size=13)
-    fig.text(258, 290, "*n*", size=14, color="dim", anchor="middle")
+    ax.xaxis(ticks=[1, 4, 7, 10, 13], size=14)
+    ax.yaxis(size=14)
+    fig.text(215, 290, "*n*", size=14, color="dim", anchor="middle")
     ax.hline(LIMIT, "lean", 1.6, dash="6 4")
     ax.text(N + 0.5, LIMIT, "1/√5", dx=6, size=14, color="lean", middle=True)
     ns = range(1, N + 1)

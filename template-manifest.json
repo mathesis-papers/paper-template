@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "3d9f18a94e8eef5b22683ff8314588ad634b71a0edca85cda5e9ed562e3f158c",
+      "sha256": "aa824bd364645aa25f71bc52e3f6aaac735a6fcf5d4097cdbfdeb0926bb4091f",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -108,7 +108,7 @@
       "mode": "100644"
     },
     "skills/book-figure/SKILL.md": {
-      "sha256": "2a0bc69f61f2f7d6ed74e535c5bae5173b150d6d46e261981aaf9a34903e7411",
+      "sha256": "add46569e2f4032353cb6b1fe3f957d81ccf659fdccc89dc9e5725d30c0eed4c",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -648,7 +648,7 @@
       "mode": "100644"
     },
     "tools/tbook/figkit.py": {
-      "sha256": "39d37957bd66a19ba533c54de70668d7ff9ff8a8803f43f4eec2497c40a1557d",
+      "sha256": "719293f5e79235146b488f5e4e382447c325ba3cbfe3ef40c3fceb18294bb8f1",
       "mode": "100644"
     },
     "tools/tbook/figure.py": {
@@ -760,7 +760,7 @@
       "mode": "100644"
     },
     "tools/tests/test_figkit_shapes.py": {
-      "sha256": "b6da9a36eea9246d9b4b325a68aecfc50f996340504d390e5998ed1fc29ca3e4",
+      "sha256": "b7e2573d718a93dba81ddb4a61fb9d7777e4d416ae76c8257970d79867dd7ecc",
       "mode": "100644"
     },
     "tools/tests/test_figure.py": {

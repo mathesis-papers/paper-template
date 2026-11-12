@@ -9,7 +9,7 @@ long prefix of the word: the floor formula, and that the factor at i is determin
 
 import math
 
-SIZE = (560, 368)
+SIZE = (358, 380)
 MARKUP = 2
 ALT = {
     "zh": "证明骨架图。顶部虚线框“黄金词 g”。第一个方框：窗口中 a 的个数等于 ⌊(i+m+1)/φ⌋ − ⌊(i+1)/φ⌋，"
@@ -47,20 +47,23 @@ for _n in range(1, 7):  # the factor at i is a function of the segment of x_i, a
 
 
 def draw(fig):
+    # one column 358 wide (a phone's text column): nothing is scaled down, so every label keeps its size
     t = fig.t
-    cx = 280
-    g = fig.box(cx, 10, t("黄金词 *g*", "the golden word *g*"), dashed=True)
-    count = fig.box(cx, 66, t("窗口中 a 的个数 = ⌊(*i*+*m*+1)/φ⌋ − ⌊(*i*+1)/φ⌋",
-                              "a's in a window = ⌊(*i*+*m*+1)/φ⌋ − ⌊(*i*+1)/φ⌋"),
+    cx = 179
+    g = fig.box(cx, 6, t("黄金词 *g*", "the golden word *g*"), dashed=True)
+    count = fig.box(cx, 58, t("窗口中 a 的个数 =\n⌊(*i*+*m*+1)/φ⌋ − ⌊(*i*+1)/φ⌋", "a's in a window =\n⌊(*i*+*m*+1)/φ⌋ − ⌊(*i*+1)/φ⌋"),
                     note="goldenWindowTrueCount_eq_floor")
-    seg = fig.box(cx, 150, t("个数只看 *x*_{*i*} 落在 *n*+1 段中的哪一段",
-                             "the counts depend only on which of *n*+1 segments holds *x*_{*i*}"), wrap=330)
-    upper = fig.box(140, 236, t("至多 *n*+1 个：\n同一段给出同一个因子", "at most *n*+1:\none segment, one factor"))
-    lower = fig.box(420, 236, t("至少 *n*+1 个：\n相位稠密，每段都有", "at least *n*+1: the phases\nare dense, every segment is hit"))
-    goal = fig.box(cx, 318, t("恰有 *n*+1 个因子", "exactly *n*+1 factors"), "lean", chip="LEAN ✓")
+    seg = fig.box(cx, count.y + count.h + 24, t("个数只看 *x*_{*i*} 落在 *n*+1 段中的哪一段", "the counts depend only on which of *n*+1 "
+                                                                      "segments holds *x*_{*i*}"), wrap=290)
+    row = seg.y + seg.h + 34
+    upper = fig.box(90, row, t("至多 *n*+1 个：\n同一段给出同一个因子", "at most *n*+1: one segment, one factor"), w=170)
+    lower = fig.box(268, row, t("至少 *n*+1 个：\n相位稠密，每段都有", "at least *n*+1: the phases are dense, every segment is hit"),
+                    w=170)
+    goal = fig.box(cx, max(upper.y + upper.h, lower.y + lower.h) + 34, t("恰有 *n*+1 个因子", "exactly *n*+1 factors"),
+                   "lean", chip="LEAN ✓")
     fig.link(g, count)
     fig.link(count, seg)
-    fig.link(seg, upper, elbow=True)
-    fig.link(seg, lower, elbow=True)
-    fig.link(upper, goal, "ink", elbow="vh")
-    fig.link(lower, goal, "ink", elbow="vh")
+    fig.link((upper.cx, seg.y + seg.h), upper)  # the fork leaves the step above each branch
+    fig.link((lower.cx, seg.y + seg.h), lower)
+    fig.link(upper, goal, "ink")
+    fig.link(lower, goal, "ink")

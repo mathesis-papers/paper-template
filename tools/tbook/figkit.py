@@ -613,7 +613,7 @@ class Canvas:
     def box(self, x: float, y: float, text: str, kind: str = "edge", *, note: str | None = None, dashed: bool = False,
             chip: str | None = None, anchor: str = "middle", w: float | None = None, wrap: float | None = None,
             size: float = 14.0, note_size: float = 13.0, note_mono: bool = True, pad: float = 14.0,
-            rx: float | None = None) -> "Box":
+            rx: float | None = None, chip_size: float = 12.0) -> "Box":
         """A framed box for a flow chart, its top at ``y`` and ``x`` its centre (its left edge with
         ``anchor="start"``, its right edge with ``"end"``); returns its :class:`Box` for :meth:`link`.
 
@@ -622,10 +622,14 @@ class Canvas:
         ``kind`` is the role: a neutral role (``edge``, the default) draws a solid panel with ink text,
         an accent role (``lean``, ``cyan`` …) a tinted box with text in that role; ``dashed=True`` an
         unfilled dashed pill (a hypothesis, an input). ``chip`` puts a tag such as ``"LEAN ✓"`` before
-        the first line (only on a statement the chapter cites with ``lean=``)."""
+        the first line (only on a statement the chapter cites with ``lean=``), at ``chip_size``.
+
+        The defaults (14, 13, a 12 chip) are made for a chart at most 358 wide, a phone's text column,
+        where nothing is scaled down; on a wider canvas raise them so that ``size × 358 / width`` stays
+        at least 10 (see skills/book-figure), or stack the chart into a narrow column."""
         r = role(kind)
         neutral = r in ("edge", "ink", "dim", "faint", "panel", "bg", "sheet", "hot")
-        chip_w = text_width(chip, 12.0, mono=True) + 14 + 8 if chip else 0.0
+        chip_w = text_width(chip, chip_size, mono=True) + 14 + 8 if chip else 0.0
         limit = wrap if wrap is not None else (w - 2 * pad if w is not None else None)
         lines = (self.wrap_text(text, limit - chip_w, size) if limit is not None else text.split("\n")) if text else []
         notes = (self.wrap_text(note, limit, note_size, mono=note_mono) if limit is not None else note.split("\n")) if note else []
@@ -650,7 +654,7 @@ class Canvas:
             ym = y + py + (i + 0.5) * lh
             if i == 0 and chip:
                 left = cx - (chip_w + self.measure(s, size)) / 2
-                self.chip(left, ym + 5.5, chip, kind)
+                self.chip(left, ym + chip_size / 2 - 0.5, chip, kind, size=chip_size)
                 self.text(left + chip_w, ym, s, size=size, color=ink, middle=True)
             else:
                 self.text(cx, ym, s, size=size, color=ink, anchor="middle", middle=True)

@@ -10,7 +10,7 @@ built by the substitution, for the first 3000 letters.
 
 from tbook import figkit
 
-SIZE = (520, 296)
+SIZE = (400, 272)
 MARKUP = 2
 ALT = {
     "zh": "一个球，赤道是周长为 1 的相位圆，圆盘按两段着色：青色的一段（长 1/φ ≈ 0.618）对应字母 a，品红的一段"
@@ -50,7 +50,7 @@ def at(x, r=1.0):
 
 def draw(fig):
     t = fig.t
-    sp = fig.sphere(260, 152, 118, az=110, el=34)
+    sp = fig.sphere(212, 150, 108, az=110, el=34)
     sp.outline(fill=None, color="faint", width=1.2)
     sp.sector(Z, at(CUT), 360 * (1 - CUT), "cyan", fill_opacity=0.2)
     sp.sector(Z, at(0), 360 * CUT, "magenta", fill_opacity=0.24)
@@ -59,7 +59,7 @@ def draw(fig):
         sp.segment((0, 0, 0), at(x), "dim", 1.2)
     sp.segment((0, 0, -1.25), (0, 0, 1.25), "faint", 1.2, dash="3 3")
     end = sp.turn(Z, at(phase(0), 1.2), 360 / PHI, "ink", 2.0, arrow=True)
-    sp.label(end, t("转过 1/φ", "turn by 1/φ"), dx=8, dy=-10, size=14, halo=True)
+    sp.label(at(0.06, 1.2), t("转过 1/φ", "turn by 1/φ"), dy=22, size=14, anchor="middle", halo=True)
     for i in range(8):
         role = "cyan" if G[i] == "a" else "magenta"
         sp.dot(at(phase(i)), role, 4.4, ring="bg")
