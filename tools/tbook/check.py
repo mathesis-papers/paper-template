@@ -61,7 +61,7 @@ def check_env_policy(model: EditionModel, issues: list[Issue]) -> None:
                 if proof is None or proof.kind != "proof":
                     _err(issues, *where, f'written-proof #{env.id} needs proof="<id>" naming a proof block in this edition')
                 elif not proof.div or not any(
-                        re.sub(r"<!--.*?-->", "", text).strip()
+                        _COMMENT_RE.sub("", text).strip()
                         for _, text, _ in mdscan.iter_text(proof.div.children)):
                     _err(issues, *where, f'written-proof #{env.id}: proof #{proof.id} is empty')
             if env.kind in FORMAL and not env.lean and status != WRITTEN_PROOF:
