@@ -35,3 +35,14 @@ alongside the existing written-proof / academic-slide compatibility work.
 This is a local dependency pending dispatcher review and upstream integration;
 no release number or remote publication is claimed. Layer-owned policy lives in
 `scripts/site.py`, not upstream. Keep this hook when refreshing upstream tools.
+
+## Layer 0.3.1 fixture correction
+
+Upstream commit `7eb37dae97c276c656400e4ddc32dc8feec6e9e3` on the same
+`feat/site-post-build-20261113` branch fixes only the film test sandbox and
+regenerates its managed-file manifest. `config.load_site()` is cached, so a
+later sandbox could inherit a `Site.root` pointing to a removed temporary
+directory. The sandbox now sets `root=self.root` when replacing site settings.
+The production hook is unchanged. A layer bootstrap cannot handle this error:
+the subprocess fails while changing working directory, before Python starts.
+Consumer validation needs this fixture correction as well as layer 0.3.1.
