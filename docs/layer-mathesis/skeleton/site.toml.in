@@ -1,5 +1,7 @@
 [site]
 repo = {{REPOSITORY}}
+base_url = {{SITE_BASE}}
+post_build = ["python3", "docs/layer-mathesis/scripts/site.py"]
 languages = ["zh", "en"]
 [site.title]
 zh = {{TITLE_ZH}}

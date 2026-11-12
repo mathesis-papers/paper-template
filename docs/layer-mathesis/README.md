@@ -65,3 +65,25 @@ for an empty skeleton. No unreleased upstream version number is assumed.
 
 [The pipeline](PIPELINE.md) documents the mechanical publisher step and its
 agent handoff. [Project rules](PROJECT.md) are imported from root `PROJECT.md`.
+
+Layer 0.3.0 opts selected papers into the optional upstream `site.post_build`
+interface. The layer-owned `scripts/site.py` replaces only the root index with a
+relative redirect to the sole book landing; existing book URLs remain valid.
+`./tbook build site` and `./tbook build all` also emit `mathesis-materials.json`
+at the site root. Until the upstream hook is installed, run the postprocessor
+explicitly with `TBOOK_SITE_OUT` pointing at the assembled site; automatic Pages
+publication requires the hook. A layer migration configures existing selected
+papers; `paper.py fill` configures new ones.
+
+The manifest schema is `mathesis.materials.v1`: `work`, integer `version`,
+`repository_url`, `site_url`, nullable exact-version `doi`, `reading` (language →
+absolute HTML URL), `slides` (objects with `id`, `language`, nullable `pdf_url`
+and `notes_url`), and `visualizations` (objects with `id`, `url`). URLs use
+`https://papers.trureturing.org/<repository>/`; unavailable outputs are omitted
+from reading/media lists and unavailable slide PDF variants are null. The book
+site manifest inventories actual built editions and files, so skeletons never
+advertise promised content. There is no clock in this manifest. The catalog
+retains Mathesis as DOI authority and consumes these manifests anonymously.
+
+The mechanical publisher uses [PREPARATION_CHECKLIST.md](PREPARATION_CHECKLIST.md)
+for its one preparation issue; it does not execute the content skills itself.

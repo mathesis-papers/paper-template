@@ -142,7 +142,7 @@ def fill(root, source, slug, title_zh, title_en, repository):
         require(not dest.exists() or name in {"README.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSES/CC-BY-4.0.txt"},
                 f"publisher import would overwrite {name}")
     skeleton = root / "docs/layer-mathesis/skeleton"
-    values = {"REPOSITORY": repository, "SLUG": slug, "TITLE_ZH": title_zh, "TITLE_EN": title_en,
+    values = {"SITE_BASE": "https://papers.trureturing.org/" + work["repository_name"] + "/", "REPOSITORY": repository, "SLUG": slug, "TITLE_ZH": title_zh, "TITLE_EN": title_en,
               "VERSION": str(work["current_version"]), "VERSION_NUMBER": work["current_version"],
               "AUTHORS": [a["name"] for a in work["authors"]], "LICENSE": work["license"],
               "DATE": (work["published_on"] or "").split("T")[0], "WORK": work["work"], "SOURCE_TITLE": work["title"]}
