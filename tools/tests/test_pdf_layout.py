@@ -150,3 +150,61 @@ Body text.
         for group in (short_widths[:3], short_widths[3:]):
             self.assertAlmostEqual(group[0], group[1], places=2)
             self.assertLessEqual(group[2], group[0] + 0.01)
+
+    def test_academic_inline_math_fits_without_interrupting_prose(self):
+        import typst
+
+        main = self.stage / "inline.typ"
+        main.write_text(r'''#import "/_theme/typst/book.typ": tr-book
+#show: tr-book
+#pagebreak()
+#set page(width: 360pt, height: 480pt, margin: 30pt, header: none, footer: none)
+#set par(first-line-indent: (amount: 10pt, all: false))
+#let mark(name) = context metadata((name: name,
+  x: here().position().x.pt(), y: here().position().y.pt(), same_width: measure([Same]).width.pt(),
+  prefix_width: measure([Label before]).width.pt()))
+#block(width: 180pt)[
+  Same#mark("indent-first") beginning.
+
+  Before #mark("prefix")$#mark("short-start") x = y #mark("short-end")$<tr-inline-short>#mark("after-short") after#mark("suffix").
+
+  Prefix#h(120pt) evaluator $#mark("long-start") "interpret" : "InterpretationContext"
+    "Text" "ReaderAdmission" "Background" "EvaluationGoal" "Rule"
+    arrow.r "Concept" arrow.r "Meaning" #mark("long-end")$<tr-inline-long> continues.
+
+  Same#mark("indent-next") paragraph follows.
+]
+#block(width: 100pt, inset: (x: 10pt))[
+  Single $#mark("nested-start") "InterpretationContextTextReaderAdmissionBackgroundEvaluationGoalRuleConceptMeaning" #mark("nested-end")$<tr-inline-nested>#mark("nested-after").
+]
+#let reused = [$#mark("reused-start") "InterpretationContextTextReaderAdmissionBackgroundEvaluationGoalRuleConceptMeaning" #mark("reused-end")$<tr-inline-reused>]
+#block(width: 180pt)[#reused]
+#block(width: 80pt)[#reused]
+#block(width: 180pt)[Label before#mark("wide-prefix") $#mark("wide-start")#box(width: 100pt)[x]#mark("wide-end")$<tr-inline-wide>.]
+''', encoding="utf-8")
+        for cjk in (False, True):
+            with self.subTest(cjk=cjk):
+                meta = dict(self.meta, cjk=cjk, lang="zh" if cjk else "en")
+                (self.stage / "inline-meta.json").write_text(json.dumps(meta), encoding="utf-8")
+                values = json.loads(typst.query(str(main), "metadata", field="value",
+                    root=str(self.stage), font_paths=[str(p) for p in tp.font_dirs()],
+                    sys_inputs={"tr-variant": "academic", "tr-meta": "/inline-meta.json"}))
+                marks = {v["name"]: v for v in values if isinstance(v, dict) and "name" in v}
+                self.assertGreaterEqual(marks["long-start"]["x"], 29.9)
+                self.assertLessEqual(marks["long-end"]["x"], 210.1)
+                self.assertAlmostEqual(marks["long-start"]["y"], marks["long-end"]["y"], places=2)
+                self.assertAlmostEqual(marks["prefix"]["y"], marks["suffix"]["y"], places=2)
+                self.assertGreaterEqual(marks["after-short"]["x"], marks["short-end"]["x"] - 0.1)
+                self.assertAlmostEqual(marks["indent-first"]["x"], 30 + marks["indent-first"]["same_width"], places=2)
+                self.assertAlmostEqual(marks["indent-next"]["x"], 40 + marks["indent-next"]["same_width"], places=2)
+                self.assertGreaterEqual(marks["nested-start"]["x"], 39.9)
+                self.assertLessEqual(marks["nested-end"]["x"], 120.1)
+                self.assertGreaterEqual(marks["nested-after"]["x"], marks["nested-end"]["x"] - 0.1)
+                reused = [v for v in values if isinstance(v, dict) and v.get("name") == "reused-end"]
+                self.assertEqual(len(reused), 2)
+                self.assertAlmostEqual(reused[0]["x"], 210, places=2)
+                self.assertAlmostEqual(reused[1]["x"], 110, places=2)
+                self.assertAlmostEqual(marks["wide-prefix"]["x"], 30 + marks["wide-prefix"]["prefix_width"], places=2)
+                self.assertGreater(marks["wide-start"]["y"], marks["wide-prefix"]["y"])
+                self.assertAlmostEqual(marks["wide-end"]["x"] - marks["wide-start"]["x"], 100, places=2)
+                self.assertGreater(marks["short-end"]["x"] - marks["short-start"]["x"], 15)

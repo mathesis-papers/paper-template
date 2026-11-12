@@ -247,6 +247,23 @@
   set math.mat(column-gap: 1em)
   show math.equation.where(block: true): set block(above: 0.8em, below: 0.8em)
   show math.equation.where(block: true): it => layout(size => fit-width(it, size.width))
+  // Give the paragraph the fitted box width before it chooses line breaks.
+  // Pandoc supplies stable identities; a precise selector avoids a quadratic width lookup.
+  show math.equation.where(block: false): equation => if not equation.has("label") { equation } else { context {
+    let loc = equation.location()
+    let width-label = label("tr-academic-inline-measure-" + str(equation.label))
+    let entry = query(width-label).find(item => item.value.loc == loc)
+    let width = if entry == none { none } else { entry.value.width }
+    // A long expression leaves too little prose to justify the preceding line gracefully.
+    if entry != none and measure(equation).width > 0.5 * entry.value.available { linebreak(justify: false) }
+    box(width: if width == none { auto } else { width }, layout(size => {
+      let target = calc.min(measure(equation).width, size.width)
+      // Later passes lay out the box at its fitted width; retain the initial container measure.
+      let available = if entry == none { size.width } else { calc.max(size.width, entry.value.available) }
+      [#metadata((loc: loc, width: target, available: available))#width-label]
+      fit-width(equation, target)
+    }))
+  } }
   show link: set text(fill: ink)
   set footnote.entry(separator: line(length: 25%, stroke: 0.4pt + rule), gap: 0.5em, indent: 0em)
   show footnote.entry: set text(size: 8pt)
