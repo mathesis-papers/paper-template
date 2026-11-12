@@ -2,6 +2,17 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
+## [Unreleased]
+
+### 修复
+
+- 可视化：用指针点过实验卡、场景按钮（`kit.chips`）或导览条之后，空格键直接播放或暂停时钟，不再把那张卡重新按一遍（回到起点重播）。`theme/viz/kit.js` 在指针点击（`detail > 0`）后把焦点交给舞台（`.stage` 加 `tabindex="-1"`，按键时不画焦点框）；用 Tab 走到按钮上的读者，空格与回车仍由按钮响应。`stageFirstChecks` 新增 `keyboard: after a card is clicked, Space plays and pauses the clock`（没有 `footer.rail #play`、或没有一张卡能启用它的页面跳过；页面另有空格用法时传 `{ keys: false }`），示例 `golden-carry` 补浏览器回归测试。来源：下游《量子计算的几何直觉》核查（trureturing-books#147），#36。
+
+### 新增
+
+- `viz-validate` 与 `./tbook check` 对 `viz/tests/*.test.mjs` 里的每一处 `waitForTimeout(…)` 报警告（行号与改法：过渡用 `settle(page)`，播放用 `until(page, …)`）。下游当前有 13 处（5 个文件）。
+- `node tools/node/viz-test.mjs --slow`：等价于 `VIZ_SLOW_FRAMES=1000`，以一秒一帧跑浏览器测试。`ci.yml` 新增 `viz-slow` 作业（8 片，同 `viz`），只在手动运行（输入 `slow_frames`，默认勾选）与每周三定时运行中出现，定时运行只跑它；PR 与推送的 CI 不变。何时跑见 `docs/PUBLISHING.md` §4。**需要手动操作（仅当分支保护列出所有检查时）**：新检查 “Visualization browser tests, slow frames (i/8)” 不在 PR 上运行，不要把它设为必需检查。
+
 ## [0.5.2] - 2026-11-12
 
 ### 修复
