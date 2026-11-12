@@ -10,6 +10,10 @@
 - `stageFirstChecks(…, { solid: true })` 与单独导出的 `solidChecks`、`solidPixels`：舞台上确有受光实体（不透明像素占比、明暗起伏）、转动相机后明暗分布改变、被挡住的标记点不到、书内静止后释放上下文且一碰取回。已有页面不传这个选项，检查不变。
 - 示例专著新增可视化 `phase-torus`（把相位正方形粘成环面：颜色是相位判据的三块，两条斜线在环面上接成一条闭曲线，珠子可点），第一章按卡引用 `torus`，配浏览器测试。`skills/book-viz` 新增“具象”一节：实体舞台是多出来的一种能力，不是统一风格，何时用、何时不硬套、怎么做。`tools/tests/test_viz_solid.py` 在 Chromium 里核对拾取（球与环面对解析解）、遮挡随相机翻转、正背面、主光、上下文释放与取回、three.js 只在首次调用时下载。来源：下游 trureturing-books#158（具象可视化），#42。
 
+### 变更
+
+- 媒体连排两块就报（**下游升级后会出现新警告，需要手动操作**）：`./tbook check` 原先从第三块起才报，现在相邻两块 `.figure`、`.viz`、`.film`、`.slides` 只隔着空行或 HTML 注释时就给警告，每一对报在第二块，点名两块各自的种类、`src`（实验卡带 `preset`，完整实验室标为 the full lab）与行号；不带 `preset` 的完整实验室紧跟同一页面的卡时，另提示把实验室挪到章末最后一段之后，或在两者之间用一句正文交代。示例专著第一章的完整实验室与视频之间补了一句正文（中英同步）。`skills/book-write`、`skills/book-viz`、`skills/book-figure`、`docs/AUTHORING.md` 与 `docs/ARCHITECTURE.md` 改为“相邻两块之间要隔着正文”。来源：#44。
+
 ## [0.6.1] - 2026-11-12
 
 ### 修复

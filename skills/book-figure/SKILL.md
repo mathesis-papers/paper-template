@@ -101,7 +101,7 @@ def draw(fig):                           # 在 fig 上画；fig.t("中文", "Eng
 
 图注是普通的 Markdown：可以有行内数学、`[@id]` 引用与加粗；必须有，且不能只是编号（“图 13”）。HTML 中图内联在页面里，颜色随主题切换；PDF 的屏幕版与印刷版各用自己的配色；EPUB 用浅色配色。
 
-媒体块不连排：两块 `.figure`、`.viz`、`.film`、`.slides` 之间要有正文。三块以上只隔着空行挨在一起时，读者一次看到一摞图，分不清哪张对应哪句话；`./tbook check` 从第三块起报出位置。把每一块挪到它对应的那句话之后，必要时在两块之间补一句承上启下的话。
+媒体块不连排：相邻两块 `.figure`、`.viz`、`.film`、`.slides` 之间要隔着正文。两块只隔着空行（或 HTML 注释）挨在一起时，读者一次看到一摞图，分不清哪张对应哪句话；`./tbook check` 对每一对给出警告，点名两块各自的种类、`src`（实验卡带 `preset`）与行号。把每一块挪到它对应的那句话之后，必要时在两块之间补一句承上启下的话。
 
 演示文稿要用同一张图时，在 `slides/<deck>/img/` 放同名的 `<name>.<lang>.svg`，由 `./tbook fig build` 写成深色配色版并随图更新（见 `book-slides`），不要手工拷贝。
 
@@ -111,7 +111,7 @@ def draw(fig):                           # 在 fig 上画；fig.t("中文", "Eng
 ./tbook check          # 图注为空或只有编号（错误）；提交的 SVG（含演示文稿 img/ 里的同名副本）与脚本不一致（错误）；各语言的图序列不一致（错误）；
                        # assets/ 里没有被引用的文件、没有脚本的 SVG、没有章节引用的图（警告）；
                        # 手机上最小标签不到 10 px 的图（警告，site.toml 可升为错误）；图片语法引用的手绘 SVG、
-                       # 两种语言共用的带字 SVG、三块以上连排的媒体块（警告）
+                       # 两种语言共用的带字 SVG、只隔着空行相邻的两块媒体（警告）
 ./tbook build html pdf epub --book <book>     # 实际构建，在站点与 PDF 里看一眼
 ```
 
@@ -151,7 +151,7 @@ def draw(fig):                           # 在 fig 上画；fig.t("中文", "Eng
 | `its smallest label (…) is … px on a phone, below 10 px` | 按提示做窄（宽度不超过给出的值）、分栏（`WRAP = True`），或把最小标签加大到给出的字号 |
 | `… is a hand-drawn SVG with its colours written in` | 按“把旧图换成标准图”重画成脚本 |
 | `… has text and is shown by the zh, en editions alike` | 改成图脚本（每种语言一版标签），或给每种语言各放一个文件 |
-| `N media blocks in a row` | 把这几块分到各自对应的句子之后，块与块之间有正文 |
+| `… and … sit next to each other with no text between them` | 把两块分到各自对应的句子之后，块与块之间有正文 |
 | PDF 里中文标签成了方框 | 构建机器缺中文字体：`./tools/fetch-fonts.sh`（见 `book-export`） |
 
 ## 完成标准
