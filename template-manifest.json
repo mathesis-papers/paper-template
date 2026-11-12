@@ -64,15 +64,15 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "c1e9d53fdc8473c9dccfbc62d6f9fdc0c9a03977b58a3fe9558d512610c5f7da",
+      "sha256": "cae2cc158b6109a9208bcc6ea19a4038b9167d130e287a431e67ca29e19b7e89",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "e1599c88933fc1df82a64615da734075df928e6eccdccf6fb251aad258e3813c",
+      "sha256": "f8f3a02ad72878ee8cc549adbb3ac10b38c67fcff16677517d091a2b7ea14305",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "4a20bfd4d6ff0320c1ffb5033eb3ff8c8d9881bf0b2325b3e95d7361b29809a7",
+      "sha256": "9b8d3e149f9f32bd7007cd27a39378a3c47058c6ab7b34924a6f16d88bc1ef18",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -112,7 +112,7 @@
       "mode": "100644"
     },
     "skills/book-figure/SKILL.md": {
-      "sha256": "add46569e2f4032353cb6b1fe3f957d81ccf659fdccc89dc9e5725d30c0eed4c",
+      "sha256": "f3953b0ebcdd0921dab016234ba4cdc125532fd6792a5fc09ec796082034b124",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -132,11 +132,11 @@
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
-      "sha256": "97e3f2dd42f823d419e6afac570b75d5452f2e4325e0e9a73dd29d1d1060e561",
+      "sha256": "82f478006ef3f14e20165233a3a276d52f59d37957e6d553aeb2068fd4d02406",
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
-      "sha256": "4d880ec67025456d4c36a13abc7029a490818fc4dac7c94c755f3db367b83953",
+      "sha256": "df9758e0c5cda0dd004d932e9ff883cdc9dea9d47001fa40806e9fc9cb9c63aa",
       "mode": "100644"
     },
     "skills/template-update/SKILL.md": {
@@ -220,7 +220,7 @@
       "mode": "100644"
     },
     "templates/viz/README.md": {
-      "sha256": "f0728bff33d42d315e9ec5c66e0318ddb4eb3a066ec0cdfe13c479b72ebf6337",
+      "sha256": "d9a85fb8cad5b5b081577137444aa4025cd00bc17adbfa7aa76287394d44bf9a",
       "mode": "100644"
     },
     "templates/viz/index.html": {
@@ -228,7 +228,7 @@
       "mode": "100644"
     },
     "templates/viz/main.js": {
-      "sha256": "48f54c5e834fd74a63ea930dd33acd38a2be33fa2d6e9ac6b53ca85dcb1ce7e0",
+      "sha256": "578b73ea13e5ce5a6be980acd5c243fe7700aeb9fce92ea1e6400147a0e626a4",
       "mode": "100644"
     },
     "templates/viz/style.css": {
@@ -344,7 +344,7 @@
       "mode": "100644"
     },
     "theme/mdbook/tr-book.css": {
-      "sha256": "f0d58ce129e3b6af1e851fa6c943fd0fe21d717818846e780b0a6bddab420fc9",
+      "sha256": "f35f58802d233169a7c290e328dfcba121daf9fb21d6ddb1e8cb820ec1593a81",
       "mode": "100644"
     },
     "theme/mdbook/tr-book.js": {
@@ -496,7 +496,7 @@
       "mode": "100644"
     },
     "theme/viz/kit.js": {
-      "sha256": "ad293b3ca9e2fc43f32ff47970021a4bd61a4aa227997c42b1918efc225f5a97",
+      "sha256": "a6854827f7db0337cb0f90c3da2750125fecae213da70cf4651c04a0eae5e428",
       "mode": "100644"
     },
     "theme/viz/shell.js": {
@@ -508,7 +508,7 @@
       "mode": "100644"
     },
     "theme/viz/theme.css": {
-      "sha256": "d3c421e3789a0913366fa8f4b565127fa08b21147adc94fb907cac6f5984da54",
+      "sha256": "3e6cf067c2275c54fcfd3a451cebeb4de5fa427a9432c60a55c0a9674c45e834",
       "mode": "100644"
     },
     "theme/viz/vendor/README.md": {
@@ -628,15 +628,15 @@
       "mode": "100644"
     },
     "tools/node/viz-testkit.mjs": {
-      "sha256": "364b3b72f056af51131eda92a0773cac71e9c5af9d198484daeb569b7c5d89d7",
+      "sha256": "aafb1c033dc477547219b9da8b92f1ea340c6c4c7f50400d0bd5130b28b45875",
       "mode": "100644"
     },
     "tools/node/viz-thumbs.mjs": {
-      "sha256": "f3b8ea90c773851751866e4701c932dd1085497bd99559a6a1729f05a203073b",
+      "sha256": "e31a3529f9fde7718f7e7350f3f10793d8623054dcf523703643b3f3f21ff642",
       "mode": "100644"
     },
     "tools/node/viz-validate.mjs": {
-      "sha256": "667973a22d7814b9d8a45c90882694abfa4e59ab36a62bffd65d498b326ccab4",
+      "sha256": "664c5857534d8779d7914be8c3905e363bad9d627c3200560f36d726a4107b6d",
       "mode": "100644"
     },
     "tools/tbook/__init__.py": {
@@ -656,7 +656,7 @@
       "mode": "100644"
     },
     "tools/tbook/check.py": {
-      "sha256": "f1e34e8bb9b5920d3593cdc7264e6000c9540339225a098c237066d76ef47b7e",
+      "sha256": "33c304e2be9fad28c5d7cee94ddc942909dca343c7d0b565962917e46b874c6b",
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
@@ -676,7 +676,7 @@
       "mode": "100644"
     },
     "tools/tbook/figkit.py": {
-      "sha256": "719293f5e79235146b488f5e4e382447c325ba3cbfe3ef40c3fceb18294bb8f1",
+      "sha256": "a3eb5852fe4366c752f7ce9e57ac48d1d5e281f0410751ae04b2e982ec52dfcd",
       "mode": "100644"
     },
     "tools/tbook/figure.py": {
@@ -764,7 +764,7 @@
       "mode": "100644"
     },
     "tools/tbook/viz.py": {
-      "sha256": "d37d675589b70b6848b45d2185395fcc9c50160238034fc847318e294d934afc",
+      "sha256": "90d192d9de5af6914f63c593bfe267c85b99409b25441eaa8e33011432811c34",
       "mode": "100644"
     },
     "tools/tests/example_support.py": {
@@ -799,12 +799,16 @@
       "sha256": "c2ea3df794b1bbed5d3851c84b6db799ecba027af5415fe1191fd4aa8a5ad3e6",
       "mode": "100644"
     },
+    "tools/tests/test_figkit_marks.py": {
+      "sha256": "9d6bfa56cedc96c221c9645cafa5a0e57e7e404721e092dddffcb6716b313054",
+      "mode": "100644"
+    },
     "tools/tests/test_figkit_shapes.py": {
       "sha256": "b7e2573d718a93dba81ddb4a61fb9d7777e4d416ae76c8257970d79867dd7ecc",
       "mode": "100644"
     },
     "tools/tests/test_figure.py": {
-      "sha256": "1629e9dd1b046aa949e5e1c6cce7b09c04997bf95aa2215f20e37437b95605ea",
+      "sha256": "228359e4427db49698c77bac543134980a5d96b806311eb6320c097f6fdd0733",
       "mode": "100644"
     },
     "tools/tests/test_film.py": {
@@ -880,7 +884,7 @@
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {
-      "sha256": "a4c0373ab2fe618326327e9f699788cb269272af28a6e200cd465fe8c273865c",
+      "sha256": "d31110880e6c7ae3059f561ce5f7161944720151a4225109e61492fef1377bc8",
       "mode": "100644"
     },
     "tools/tests/test_viz_solid.py": {
