@@ -16,6 +16,9 @@ requires no duplicate paper-side merge. The combined integration also reconciles
 the academic citation renderer with the written-proof status introduced by #50:
 nonempty associated proofs, an unlinked purple badge, and no GID. This resolves
 a semantic overlap between #50 and #51 and has a focused regression test.
+Merging those three unmodified heads alone does not include this compatibility
+reconciliation: preserve it in the upstream integration before a later ordinary
+template update replaces these managed files.
 The manifest was regenerated using
 `./tbook template manifest`; no runtime interface was forked.
 
