@@ -84,7 +84,7 @@
       "mode": "100644"
     },
     "docs/PUBLISHING.md": {
-      "sha256": "7b4537f7f5c49d02dedcec3606b504a949bed2d75b22c648c05904fd6cd3e78c",
+      "sha256": "deed42f2af2308af966022ab270c646542840fcf69734bcf815f65372ff6a810",
       "mode": "100644"
     },
     "docs/UPGRADING.md": {
@@ -764,7 +764,7 @@
       "mode": "100644"
     },
     "tools/tbook/site.py": {
-      "sha256": "77438ef3ffdb0df5d577a70411974b7e0447760b17eb2e50c46778665a5f8266",
+      "sha256": "691df6e9bf2930b5ab7a1475805623ef5f7bd36aa005ae6cdc42003bd34b8a1d",
       "mode": "100644"
     },
     "tools/tbook/slides.py": {
@@ -905,6 +905,10 @@
     },
     "tools/tests/test_site.py": {
       "sha256": "8e4563faef3bdfb383e6cc2c9b6b21495abb7d1d9da71ebc1c892868a48f19a3",
+      "mode": "100644"
+    },
+    "tools/tests/test_site_post_build.py": {
+      "sha256": "2a85e2b922c3df160719aafbef5b21895f50a1ee69a2c15bad1044287c8af7f4",
       "mode": "100644"
     },
     "tools/tests/test_slides.py": {
