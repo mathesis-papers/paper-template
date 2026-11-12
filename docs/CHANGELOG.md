@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-13
+
 ### 新增
 
 - 被引用卡的停帧成为契约：会自己播放的卡在页面的卡片表里写 `still`（时间轴上的值或 `'end'`），把表交给 `kit.cards(el, { presets })`，它把声明写到卡上的 `data-still`（也可直接写在 HTML 里），`cards.still(id)` 读回；`TRV.still` 时页面把时钟放到那里。`stageFirstChecks` 对点了之后时间轴在走、却没有 `data-still` 的卡给出警告（`T.warn`：打印 `WARN`、计数，不算失败；`{ still: false }` 关掉）。`viz-testkit.mjs` 新增 `openStill(T, book, id, preset, lang)`（按 `viz-thumbs.mjs` 出图的方式打开那张卡的静止帧，测试里核对停帧读数 = 图注里的数）与共用的 `STILL`、`stillQuery`、`prepareStill`（`viz-thumbs.mjs` 改用它们）。示例页 `golden-carry`、`phase-torus` 与起始页面补了声明，测试核对 CANCEL、FILL、TORUS 的停帧。
@@ -14,20 +16,24 @@
 - `./tbook build films --film <NNN>-<name>`（可重复）：只渲染或恢复这几部视频，本书其他视频只从缓存恢复、不渲染；`build site`、`build all` 不受影响（不接受 `--film`）。
 - 旁白短语对不上不再静默：`Q(S, k, '短语')`、`phraseAt`、`badgeQ` 的短语不在第 k 句旁白里（或 `at`/`Q` 的句号越界）时，`./tbook check` 静态扫描 `scenes.js` 里字面量形式的调用并给警告，`film.sh <dir> timeline|build|all` 报出场景、行号与短语（`FILM_STRICT=1` 时失败，构建就这样运行），引擎渲染时也报出写成变量的短语。
 
+- 形式结论支持 `status="written-proof" proof="<proof-id>"`：每版要求非空书面证明，禁止 `lean`，与开放问题分开；HTML、三种 PDF、EPUB 与 Slidev 使用紫色书面证明徽章，不带验证链接、不计入 Lean 数量，账本单列。
+
+- 可视化：受光的实体 `kit.solid(el, opts)`（`theme/viz/kit.js`）。任何页面都可以直接调用，页面契约不变：第一次调用时才用 `import()` 取造型核心 `theme/viz/solid-core.js`（不依赖 DOM、事件与动画循环，给定状态同步画一帧，供视频引擎复用；`createScene`、`createRenderer`、`p`、`occluded`）与它导入的、`theme/viz/vendor/` 里钉版的 three.js（three@0.183.2 的 `three.module.min.js` 与 `three.core.min.js`，原样复制，MIT，gzip 约 185 KB；`vendor/README.md` 记来源与校验和），不画实体的页面一个字节都不多下载。图元按本书的语汇：参数曲面或点阵（逐顶点光照、正背面可区分、网格线、令牌色或沿标量渐变）、平面着色多面体（顶点/面表）、玻璃球壳、沿曲线的管（平行移动标架）、线、箭头、环、珠、平面多边形、DOM 标签（被实体挡住时变淡）；一盏固定在相机坐标里的主光加环境光；相机、拖动、滚轮、捏合与投影同 `kit.stage3`。拾取 `sc.hit(ev)` 返回曲面上的参数点（在精确曲面上用牛顿法细化），`sc.nearest`、`sc.occluded` 跳过被挡住的标记。没有渲染循环；书内嵌入时进入视口才建 WebGL 上下文，静止约 1.6 秒后把画面留在页面的二维画布上并释放上下文，读者一碰再取回。`kit.ready()` 在 three.js 到位后兑现，测试工具的 `settle(page)` 会等它；`inkShare` 能读 WebGL 画布。
+- `stageFirstChecks(…, { solid: true })` 与单独导出的 `solidChecks`、`solidPixels`：舞台上确有受光实体（不透明像素占比、明暗起伏）、转动相机后明暗分布改变、被挡住的标记点不到、书内静止后释放上下文且一碰取回。已有页面不传这个选项，检查不变。
+- 示例专著新增可视化 `phase-torus`（把相位正方形粘成环面：颜色是相位判据的三块，两条斜线在环面上接成一条闭曲线，珠子可点），第一章按卡引用 `torus`，配浏览器测试。`skills/book-viz` 新增“具象”一节：实体舞台是多出来的一种能力，不是统一风格，何时用、何时不硬套、怎么做。`tools/tests/test_viz_solid.py` 在 Chromium 里核对拾取（球与环面对解析解）、遮挡随相机翻转、正背面、主光、上下文释放与取回、three.js 只在首次调用时下载。来源：下游 trureturing-books#158（具象可视化），#42。
+- 独立模板层：下游 `template.d/<name>.toml` 与清单、保留的文档/skill/工作流前缀，沿用同一升级命令、三方冲突、迁移、版本与 git 历史规则；安装前拒绝路径认领重叠。每周 `template-sync` 按来源独立开 PR。来源：第二个出版模板需叠加领域规则而不分叉上游。
+
+
+- Academic Beamer decks alongside Slidev: edition subsets, 4:3/16:9 descriptors, an original Apache-2.0 white seminar theme and optional deck-owned themes/graphics. Book result blocks, pinned commits and deck verification ledgers derive from the book model and lock; TeX citations are checked with comments/verbatim/argument handling.
+- Original seminar theme with solid structure-colour navigation/title/footer bands, white block titles over 12% body tints, red open-problem blocks, an even title-box shadow and optional coauthor metadata. Compact verification tables paginate at twelve results, high-resolution paper stills fill the slide width, and navigation symbols are opt-in.
+- Paper visualization snapshots linked to the live page, canonical figure materialization, hidden audience notes and separate notes PDFs. Both PDFs join slides cache/publication, chapter cards, site manifests and book Release attachments. An English example talk demonstrates the source format.
+- Tectonic 0.16.9 with checksum-verified Linux binaries and a versioned TeX bundle, fixed epoch and deterministic mode; doctor, hosted setup and the optional container support academic decks. See theme/beamer/README.md for the source contract and reproducibility settings.
+
 ### 变更
 
 - 媒体连排两块就报（**下游升级后会出现新警告，需要手动操作**）：`./tbook check` 原先从第三块起才报，现在相邻两块 `.figure`、`.viz`、`.film`、`.slides` 只隔着空行或 HTML 注释时就给警告，每一对报在第二块，点名两块各自的种类、`src`（实验卡带 `preset`，完整实验室标为 the full lab）与行号；不带 `preset` 的完整实验室紧跟同一页面的卡时，另提示把实验室挪到章末最后一段之后，或在两者之间用一句正文交代。示例专著第一章的完整实验室与视频之间补了一句正文（中英同步）。`skills/book-write`、`skills/book-viz`、`skills/book-figure`、`docs/AUTHORING.md` 与 `docs/ARCHITECTURE.md` 改为“相邻两块之间要隔着正文”。来源：#44。
 - 引擎（`theme/film/`）改动后，所有视频的构建键都变了，下一次构建会把每部视频重新渲染一次。没有实体镜头的视频画面不变（示例片前四个场景的抽样帧与海报，改动前后逐像素比对相同），LEAN 清单只在命名空间会被误读时改为显示 GID。
 
-### 修复
-
-- 实体舞台的浏览器单元测试（`tools/tests/solid_harness.mjs`）不再把测试页写死挂在 `example-monograph` 下：改为挂在第一本可见、且有 `viz/` 的书下。下游书库用 `site.toml` 的 `hide = ["example-*"]` 隐藏示例书，可视化服务器只服务可见的书，原写法在下游会因取不到运行时而失败；没有可用的书时这组测试跳过。
-- 图例（`.hud-bl`）里的 `<sub>`、`<sup>` 贴着前一个字：每一项改为色块加一行行内文字，不再是带间距的 flex 项（下游不必再用 `<bdi>` 包裹）。
-- 视频的 LEAN 清单按完整 GID 解析：`DATA.lean` 每条新增 `label`，`leanList` 与视频页显示它——Lean 全名，命名空间不在模块路径上时改显示 GID（下游 `…/Bloch/QubitBloch.B_formula_core` 的 Lean 全名在命名空间 `…Measurement.FourQubitParentConstruction` 里，原样显示会被读成另一个模块的同名声明）；`short` 取自所引 GID 的名字。引擎新增 `leanCite(gid)`，示例片改为按 GID 查引用，不再按短名取第一个匹配。
-
-## [0.7.0] - 2026-11-12
-
-### 变更
 
 - `academic` 改为 arXiv 常见的单栏研究预印本外观：默认 A4、11 pt New Computer Modern 与宋体中文、题名和摘要同页、连续阿拉伯页码、章部随文；中文自然字距与左对齐，不再使用专著的对开页眉、版权页和空白补页。保持正文、数学、编号、图注与 Lean 引用不变。`PDF-TYPOGRAPHY.md` 区分 arXiv 官方 PDF 技术要求与项目视觉选择，导出技能同步验收步骤。已有显式 `academic_paper` 配置继续生效；如需采用新默认开本，可删除旧的 `iso-b5` 配置或改为 `a4`。来源：下游《量子计算的几何直觉》预印本排版。
 - 普通行内公式按正文流动，取消半行阈值的强制换行；仅在超出实际可用宽度时换行和适宽，并预留尾标点空间，避免几乎满行的公式连同分号越界；窄表与列表仍受边界保护。
@@ -36,16 +42,13 @@
 
 ### 修复
 
+- 实体舞台的浏览器单元测试（`tools/tests/solid_harness.mjs`）不再把测试页写死挂在 `example-monograph` 下：改为挂在第一本可见、且有 `viz/` 的书下。下游书库用 `site.toml` 的 `hide = ["example-*"]` 隐藏示例书，可视化服务器只服务可见的书，原写法在下游会因取不到运行时而失败；没有可用的书时这组测试跳过。
+- 图例（`.hud-bl`）里的 `<sub>`、`<sup>` 贴着前一个字：每一项改为色块加一行行内文字，不再是带间距的 flex 项（下游不必再用 `<bdi>` 包裹）。
+- 视频的 LEAN 清单按完整 GID 解析：`DATA.lean` 每条新增 `label`，`leanList` 与视频页显示它——Lean 全名，命名空间不在模块路径上时改显示 GID（下游 `…/Bloch/QubitBloch.B_formula_core` 的 Lean 全名在命名空间 `…Measurement.FourQubitParentConstruction` 里，原样显示会被读成另一个模块的同名声明）；`short` 取自所引 GID 的名字。引擎新增 `leanCite(gid)`，示例片改为按 GID 查引用，不再按短名取第一个匹配。
+
+
 - PDF 静态图使用覆盖数学与组合标记的字体栈，编译时排除 macOS LastResort 占位字体并保留真正的系统字体，修复带帽的 n、带波浪号的 R 及 ket 标签等符号缺字；保留图源标签与字符，不改 HTML、EPUB 或幻灯片副本。
 - 工具生成的标题属性在含星号的标题中通过前置空 Span 传给过滤器，防止未闭合的指针星号让 `{#…}` 锚点串印入 PDF/EPUB；标题正文、强调、代码与数学的解析结果保持不变。
-### 新增
-- 形式结论支持 `status="written-proof" proof="<proof-id>"`：每版要求非空书面证明，禁止 `lean`，与开放问题分开；HTML、三种 PDF、EPUB 与 Slidev 使用紫色书面证明徽章，不带验证链接、不计入 Lean 数量，账本单列。
-
-- 可视化：受光的实体 `kit.solid(el, opts)`（`theme/viz/kit.js`）。任何页面都可以直接调用，页面契约不变：第一次调用时才用 `import()` 取造型核心 `theme/viz/solid-core.js`（不依赖 DOM、事件与动画循环，给定状态同步画一帧，供视频引擎复用；`createScene`、`createRenderer`、`p`、`occluded`）与它导入的、`theme/viz/vendor/` 里钉版的 three.js（three@0.183.2 的 `three.module.min.js` 与 `three.core.min.js`，原样复制，MIT，gzip 约 185 KB；`vendor/README.md` 记来源与校验和），不画实体的页面一个字节都不多下载。图元按本书的语汇：参数曲面或点阵（逐顶点光照、正背面可区分、网格线、令牌色或沿标量渐变）、平面着色多面体（顶点/面表）、玻璃球壳、沿曲线的管（平行移动标架）、线、箭头、环、珠、平面多边形、DOM 标签（被实体挡住时变淡）；一盏固定在相机坐标里的主光加环境光；相机、拖动、滚轮、捏合与投影同 `kit.stage3`。拾取 `sc.hit(ev)` 返回曲面上的参数点（在精确曲面上用牛顿法细化），`sc.nearest`、`sc.occluded` 跳过被挡住的标记。没有渲染循环；书内嵌入时进入视口才建 WebGL 上下文，静止约 1.6 秒后把画面留在页面的二维画布上并释放上下文，读者一碰再取回。`kit.ready()` 在 three.js 到位后兑现，测试工具的 `settle(page)` 会等它；`inkShare` 能读 WebGL 画布。
-- `stageFirstChecks(…, { solid: true })` 与单独导出的 `solidChecks`、`solidPixels`：舞台上确有受光实体（不透明像素占比、明暗起伏）、转动相机后明暗分布改变、被挡住的标记点不到、书内静止后释放上下文且一碰取回。已有页面不传这个选项，检查不变。
-- 示例专著新增可视化 `phase-torus`（把相位正方形粘成环面：颜色是相位判据的三块，两条斜线在环面上接成一条闭曲线，珠子可点），第一章按卡引用 `torus`，配浏览器测试。`skills/book-viz` 新增“具象”一节：实体舞台是多出来的一种能力，不是统一风格，何时用、何时不硬套、怎么做。`tools/tests/test_viz_solid.py` 在 Chromium 里核对拾取（球与环面对解析解）、遮挡随相机翻转、正背面、主光、上下文释放与取回、three.js 只在首次调用时下载。来源：下游 trureturing-books#158（具象可视化），#42。
-- 独立模板层：下游 `template.d/<name>.toml` 与清单、保留的文档/skill/工作流前缀，沿用同一升级命令、三方冲突、迁移、版本与 git 历史规则；安装前拒绝路径认领重叠。每周 `template-sync` 按来源独立开 PR。来源：第二个出版模板需叠加领域规则而不分叉上游。
-
 
 ## [0.6.1] - 2026-11-12
 
