@@ -1,7 +1,7 @@
 {
   "schema": "trureturing-books.template-manifest.v1",
   "template": "mathesis",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "files": {
     ".github/workflows/layer-mathesis-check.yml": {
       "sha256": "48c3a611d3cea19f6c144543daeec8bd8ff05071221a98baa7cc4de588ce2c1f",
@@ -12,7 +12,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/CHANGELOG.md": {
-      "sha256": "20ae5a06261dfb87ad1b0729bb54a59e24e2515756d7ef3a30deacaf657548b4",
+      "sha256": "55a1f1fb4194963127c8cf600b65ea02a4c1400b2129c824d92a6db02bf19694",
       "mode": "100644"
     },
     "docs/layer-mathesis/PIPELINE.md": {
@@ -25,6 +25,10 @@
     },
     "docs/layer-mathesis/README.md": {
       "sha256": "6f68364b83f95a725e258f1c2a3335ce8e4c026f6ea94c85de4c6952e4b5586a",
+      "mode": "100644"
+    },
+    "docs/layer-mathesis/UPSTREAM-PINS.md": {
+      "sha256": "3f80c07f210d12277d84cbf4f6b3042173bee81dbd2230e93a8d4d45c03d5e29",
       "mode": "100644"
     },
     "docs/layer-mathesis/scripts/paper.py": {

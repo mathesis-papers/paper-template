@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.2.1] - 2026-11-13
+
+- Record the temporary upstream 0.7.0 integration of PRs #48, #50 and #51, with exact heads, for the first real paper repository.
+
 ## [0.2.0] - 2026-11-12
 
 - Default to the academic PDF alone; figures → visualizations → academic Beamer when available → Slidev only on request.
