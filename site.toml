@@ -1,42 +1,13 @@
-# 书库站点配置（下游仓库所有；模板更新不会覆盖本文件）。
-# Site configuration (owned by the downstream repository; template updates never overwrite it).
-
+# Publisher fills this from the parameterised skeleton when a paper is selected.
 [site]
-# GitHub 仓库 owner/name。留空时 CI 用 GITHUB_REPOSITORY，本地用 git remote 推断。
-repo = ""
-# Pages 根地址（PDF/EPUB 中的外链用它拼绝对地址）。留空则由 repo 推断为 https://<owner>.github.io/<name>/。
-base_url = ""
-# 站点界面语言；第一个为默认语言。每本书可以只启用其中一部分。
+repo = "mathesis-papers/paper-template"
 languages = ["zh", "en"]
-
 [site.title]
-zh = "trureturing 书库"
-en = "trureturing Books"
-
-[site.tagline]
-zh = "每一条定理都经 Lean 内核验证的专著"
-en = "Monographs whose every theorem is kernel-verified in Lean"
-
+zh = "Mathesis"
+en = "Mathesis"
 [trureturing]
-# 形式化代码所在仓库。书中所有定理都必须引用这里已冻结的 Lean 声明。
 repo = "the-omega-institute/trureturing"
-# `./tbook pin` 不带参数时跟随的分支。所钉的确切提交记录在 trureturing.lock.json。
 branch = "dev"
-
 [books]
-# 书库首页的排列顺序；未列出的书按目录名排在后面。
-order = ["example-monograph", "example-primer"]
-# 隐藏的书（glob 模式，按书的目录名匹配，区分大小写）：所有命令与产物都当它们不存在（检查、钉版、构建、站点、发版），
-# 文件仍留在 books/ 中。模板仓库展示自己的示例书，所以这里为空；从模板创建的书库设为 ["example-*"]，
-# 隐藏模板附带的示例书而不删除它们，以后用 git 合并模板的改动就不会因示例书冲突。
-# Hidden books (glob patterns matched against the book's directory name, case-sensitive): every command and
-# output treats them as absent (check, pin, build, the site, releases); their files stay in books/. The template
-# repository shows its example books, so this is empty here; a books repository sets ["example-*"] to hide the
-# template's example books without deleting them, so that merging template changes with git never conflicts
-# over them.
-hide = []
-
-[figures]
-# 静态图在手机上（正文栏宽 358 px）最小的标签不到 10 px 时："warning"（默认）或 "error"（check 与 fig build 失败）。
-# A static figure whose smallest label is under 10 px on a phone (a 358 px text column): "warning" (default) or "error".
-# phone_labels = "warning"
+order = []
+hide = ["example-*"]

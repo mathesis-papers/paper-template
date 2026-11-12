@@ -1,0 +1,17 @@
+[book]
+version = {{VERSION}}
+authors = {{AUTHORS}}
+license = {{LICENSE}}
+editions = ["zh", "en"]
+date = {{DATE}}
+[book.title]
+zh = {{TITLE_ZH}}
+en = {{TITLE_EN}}
+[outputs]
+html = true
+pdf = ["academic"]
+epub = true
+[mathesis]
+work = {{WORK}}
+version = {{VERSION_NUMBER}}
+source_title = {{SOURCE_TITLE}}

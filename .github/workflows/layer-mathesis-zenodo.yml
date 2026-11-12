@@ -1,0 +1,34 @@
+# Artifact preparation only. No Zenodo request and no secret in this workflow.
+name: Mathesis Zenodo payload
+on:
+  push:
+    tags: ['*-v*', 'v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Exact paper release tag to validate (artifact only)'
+        required: true
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.repository != 'mathesis-papers/paper-template'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate the complete book and prepare exact frozen files
+        env:
+          PAPER_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          python3 docs/layer-mathesis/scripts/paper.py check --complete
+          ./tbook check
+          python3 docs/layer-mathesis/scripts/paper.py zenodo --tag "$PAPER_RELEASE_TAG" --output build/zenodo
+      - uses: actions/upload-artifact@v6
+        with:
+          name: mathesis-zenodo-payload
+          path: build/zenodo
+          if-no-files-found: error
