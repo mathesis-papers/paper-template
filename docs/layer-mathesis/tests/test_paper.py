@@ -66,6 +66,11 @@ class PaperTests(unittest.TestCase):
         path.write_text(path.read_text().replace('WRITTEN_PROOF = "written-proof"', 'WRITTEN_PROOF = None'))
         self.assertIn("requires upstream written-proof support", self.run_cli("check", expected=1))
 
+    def test_missing_site_hook_is_refused(self):
+        path = self.root / "tools/tbook/site.py"
+        path.write_text(path.read_text().replace("def post_build(", "def disabled_post_build("))
+        self.assertIn("requires upstream site.post_build support", self.run_cli("check", expected=1))
+
     def test_written_proof_mapping_and_comparison_verdict(self):
         path = self.root / ".mathesis/book.json"
         mapping = json.loads(path.read_text())
