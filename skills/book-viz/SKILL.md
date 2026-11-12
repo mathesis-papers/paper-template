@@ -76,7 +76,7 @@ description: 为书做交互可视化时使用：先定这张图要让读者看�
 - 读数少而大：只读正文定义过的量。参照别处的漂亮读数而本书没有定义的，不搬。
 - 不变的东西照旧：页面契约、颜色语义、依据标注（`LEAN ✓` 只给锁文件里的定理），每个数都由页面算出、测试用独立算法核对。
 
-**运行时**：`kit.solid(stageEl, { canvas, onChange: paint, onPick, onDrag })`，任何页面都可以直接调用，不需要多加载脚本：第一次调用时 `kit.js` 才动态取 `theme/viz/vendor/` 里钉版的 three.js（`vendor/README.md` 记版本、来源与许可证），不画实体的页面一个字节都不多下载。相机、拖动、滚轮、捏合、投影 `p(v)`、标签与 `kit.stage3` 相同（x 向右、z 向上、正交轨道相机），所以从 `stage3` 换成实体时几何代码不用改。每帧照样在 painter 里画：
+**运行时**：`kit.solid(stageEl, { canvas, onChange: paint, onPick, onDrag })`，任何页面都可以直接调用，不需要多加载脚本：第一次调用时 `kit.js` 才动态取造型核心 `theme/viz/solid-core.js`（ES 模块）与它导入的、`theme/viz/vendor/` 里钉版的 three.js（`vendor/README.md` 记版本、来源与许可证），不画实体的页面不多下载 three.js。造型核心不碰 DOM、事件、主题与动画循环，给定状态同步画一帧（视频引擎也用它）；`kit.solid` 只是页面的外壳：挂到舞台、交互、进视口才建上下文、静止时释放。相机、拖动、滚轮、捏合、投影 `p(v)`、标签与 `kit.stage3` 相同（x 向右、z 向上、正交轨道相机），所以从 `stage3` 换成实体时几何代码不用改。每帧照样在 painter 里画：
 
 ```js
 const sc = kit.solid($('stage'), { canvas: $('cv'), onChange: () => paint(), onPick: (ev, st) => st.nearest(ev, pts, 12) >= 0 });

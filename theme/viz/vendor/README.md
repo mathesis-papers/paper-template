@@ -1,8 +1,8 @@
 # 第三方运行时 · Vendored runtime
 
-本目录随共享运行时发布为 `<slug>/viz/assets/vendor/`。页面不直接加载这里的文件：`kit.solid`（`theme/viz/kit.js`）第一次被调用时才用 `import()` 取它们，没有画实体的页面不多下载任何东西。语法检查（`viz-validate`）跳过本目录。
+本目录随共享运行时发布为 `<slug>/viz/assets/vendor/`。页面不直接加载这里的文件：造型核心 `../solid-core.js` 以相对自己的路径导入它们，`kit.solid`（`theme/viz/kit.js`）第一次被调用时才取这个核心，没有画实体的页面不多下载任何东西；视频引擎导入同一个核心。语法检查（`viz-validate`）跳过本目录。
 
-These files are published with the shared runtime as `<slug>/viz/assets/vendor/`. Pages never load them directly: the first call of `kit.solid` (`theme/viz/kit.js`) fetches them with `import()`, so a page that draws no solid downloads nothing more. The syntax check (`viz-validate`) skips this directory.
+These files are published with the shared runtime as `<slug>/viz/assets/vendor/`. Pages never load them directly: the modelling core `../solid-core.js` imports them relative to itself, and the first call of `kit.solid` (`theme/viz/kit.js`) fetches that core, so a page that draws no solid downloads nothing more; the film engine imports the same core. The syntax check (`viz-validate`) skips this directory.
 
 ## three.js
 

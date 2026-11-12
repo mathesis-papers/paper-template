@@ -47,11 +47,19 @@ class VendoredThree(unittest.TestCase):
             self.assertIn("@license", head, name)
             self.assertIn("SPDX-License-Identifier: MIT", head, name)
 
-    def test_kit_loads_three_lazily(self):
+    def test_kit_loads_the_core_lazily(self):
         kit = (VIZ / "kit.js").read_text(encoding="utf-8")
-        self.assertNotRegex(kit, r"^\s*import\s", "kit.js stays a classic script")
-        self.assertIn("import(VENDOR)", kit)
-        self.assertEqual(kit.count("vendor/three.module.min.js"), 1)
+        self.assertNotRegex(kit, r"(?m)^\s*import\s", "kit.js stays a classic script")
+        self.assertIn("import(CORE)", kit)
+        self.assertNotIn("vendor/three", kit)
+
+    def test_core_is_independent_of_the_page(self):
+        core = (VIZ / "solid-core.js").read_text(encoding="utf-8")
+        self.assertIn("from './vendor/three.module.min.js'", core)   # relative to the module: pages and films alike
+        code = re.sub(r"/\*.*?\*/|//[^\n]*", "", core, flags=re.S)
+        for word in ("document", "window", "TRV", "requestAnimationFrame", "addEventListener", "Math.random", "performance.now", "Date"):
+            self.assertNotIn(word, code, word)
+        self.assertIn("solid-core.js", viz.RUNTIME_FILES)
 
     def test_published_with_the_runtime(self):
         import tempfile
@@ -60,6 +68,7 @@ class VendoredThree(unittest.TestCase):
             viz.publish_assets(Path(tmp))
             for name in ("three.module.min.js", "three.core.min.js", "three.LICENSE"):
                 self.assertTrue((Path(tmp) / "assets" / "vendor" / name).is_file(), name)
+            self.assertTrue((Path(tmp) / "assets" / "solid-core.js").is_file())
 
 
 def browser_ready() -> bool:
@@ -114,6 +123,12 @@ class SolidInTheBrowser(unittest.TestCase):
         self.expect("parking gives the WebGL context back and leaves the frame on the 2D canvas")
         self.expect("the next frame takes a new context and draws the same picture")
         self.expect("one context per stay on screen (2 after one park)")
+
+    def test_core_draws_a_frame_on_its_own(self):
+        """The modelling core without the page shell, as the film engine calls it."""
+        self.expect("core: one frame drawn synchronously into a 640 × 360 canvas at pixel ratio 1")
+        self.expect("core: the same state drawn twice gives the same pixels, another view different ones")
+        self.expect("core: the projection of an anchor agrees with the camera basis, and says which anchors a solid hides")
 
     def test_no_errors(self):
         self.expect("no page error, console error or failed request")

@@ -18,7 +18,7 @@ const requests = [];
 T.page.on('request', (r) => requests.push(r.url()));
 const page = T.page;
 await page.goto(FIXTURE + `?park=${process.env.SOLID_PARK || ''}`);
-out('no three.js before kit.solid is called', !requests.some((u) => u.includes('/vendor/')));
+out('no three.js before kit.solid is called', !requests.some((u) => u.includes('/vendor/') || u.includes('solid-core')));
 
 /* the scene: a unit sphere at the origin, a torus (R = 0.6, a = 0.22) round the z axis at x = 2.2, a flat square
    at x = −2.2 facing +y; beads in front of and behind the sphere */
@@ -39,7 +39,7 @@ await page.evaluate(() => {
   window.PAINT = paint;
 });
 await settle(page);
-out('three.js is fetched by the first call of kit.solid', requests.some((u) => u.includes('/vendor/three.module.min.js')));
+out('three.js is fetched by the first call of kit.solid', requests.some((u) => u.includes('/vendor/three.module.min.js')) && requests.some((u) => u.includes('/solid-core.js')));
 out('the stage renders with WebGL', (await page.evaluate(() => SC.mode)) === 'webgl', await page.evaluate(() => SC.mode));
 
 /* ---------- independent geometry ---------- */
@@ -143,6 +143,31 @@ out('parking gives the WebGL context back and leaves the frame on the 2D canvas'
 out('the next frame takes a new context and draws the same picture', !(await page.evaluate(() => SC.parked())) && md(before, again) < 1, `mean |Δ| ${md(before, again).toFixed(3)}`);
 const ctx = await page.evaluate(() => SC.contexts);
 out('one context per stay on screen (2 after one park)', ctx === 2, String(ctx));
+
+/* the modelling core on its own, as the film engine uses it: a fixed-size canvas, pixel ratio 1, one frame drawn
+   synchronously; the same state drawn twice gives the same pixels; the projection agrees with the camera basis */
+const core = await page.evaluate(async () => {
+  const mod = await import(new URL('../assets/solid-core.js', location.href).href);
+  const P = TRV.palette, cv = document.createElement('canvas'); cv.width = 640; cv.height = 360;
+  const r = mod.createRenderer(cv, { pixelRatio: 1 }), sc = mod.createScene({ palette: { stage: P.stage, cyan: P.cyan, violet: P.violet, amber: P.amber, ink: P.ink } });
+  const draw = (yaw) => {
+    sc.camera({ W: 640, H: 360, yaw, pitch: 0.4, zoom: 1, radius: 0.3 });
+    sc.begin(); sc.surface('s', (u, v) => [Math.sin(v) * Math.cos(u), Math.sin(v) * Math.sin(u), Math.cos(v)], { u: [0, 6.2832], v: [0, 3.1416], nu: 48, nv: 24, color: P.violet }); sc.bead([0, 0, 1.2], { key: 'top' }); sc.end();
+    sc.render(r);
+    const c = document.createElement('canvas'); c.width = 640; c.height = 360; c.getContext('2d').drawImage(cv, 0, 0);
+    const d = c.getContext('2d').getImageData(0, 0, 640, 360).data; let h = 0, n = 0; for (let i = 0; i < d.length; i += 4) { h = (h * 31 + d[i] + 7 * d[i + 1] + 13 * d[i + 2] + 17 * d[i + 3]) >>> 0; if (d[i + 3] > 250) n++; }
+    return { h, n, size: [cv.width, cv.height] };
+  };
+  const a = draw(0.3), b = draw(0.3), c = draw(1.3);
+  const q = sc.p([0, 0, 1.2]), hidden = sc.occluded([0, 0, 0]), shown = sc.occluded([0, 0, 1.2]);
+  return { a, b, c, q, hidden, shown };
+});
+out('core: one frame drawn synchronously into a 640 × 360 canvas at pixel ratio 1', core.a.size[0] === 640 && core.a.size[1] === 360 && core.a.n > 640 * 360 * 0.1, JSON.stringify(core.a));
+out('core: the same state drawn twice gives the same pixels, another view different ones', core.a.h === core.b.h && core.a.h !== core.c.h, `${core.a.h} ${core.b.h} ${core.c.h}`);
+{
+  const { R, U } = basis(1.3, 0.4), u = 360 * 0.3, want = [320 + u * dot([0, 0, 1.2], R), 180 - u * dot([0, 0, 1.2], U)];
+  out('core: the projection of an anchor agrees with the camera basis, and says which anchors a solid hides', Math.hypot(core.q[0] - want[0], core.q[1] - want[1]) < 1e-9 && core.hidden && !core.shown, JSON.stringify(core));
+}
 
 /* frame time with tens of thousands of faces (software rendering in headless Chromium) */
 const perf = await page.evaluate(() => {
