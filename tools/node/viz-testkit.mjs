@@ -303,8 +303,9 @@ const PLAY = 'footer.rail #play';
 
 /** Space right after a card was clicked with the pointer (see stageFirstChecks, "keys"): it must play or pause the
     clock, not press the card again (which would restart it), so the click must not leave the focus on the card.
-    Skipped on a page without a clock button, and on one where no card leaves that button enabled. */
-async function spaceAfterCard(T, page, wait) {
+    Skipped on a page without a clock button, and on one where no card leaves that button enabled. `page` is open on
+    the visualization; `wait` is the settle after a click (ms). */
+export async function spaceAfterCard(T, page, wait = 120) {
   const { check } = T;
   const state = () => page.evaluate((sel) => { const b = document.querySelector(sel); return b ? b.getAttribute('aria-pressed') : null; }, PLAY);
   const usable = () => page.evaluate((sel) => { const b = document.querySelector(sel); return !!b && !b.disabled && b.getClientRects().length > 0; }, PLAY);

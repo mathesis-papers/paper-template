@@ -3,7 +3,8 @@
 Run: PYTHONPATH=tools .venv/bin/python -m unittest discover -s tools/tests -p 'test_viz.py'
 Node-dependent tests are skipped when ``node`` is not on PATH. The browser suites of the books are not run here (see
 tools/node/viz-test.mjs); this file covers the registry checks, embeds, the publish step and scaffolding, and, where
-Playwright's Chromium is installed, the rail part of the shared quality gate on private copies of the starter page.
+Playwright's Chromium is installed, the rail and keys parts of the shared quality gate on private copies of the starter
+page.
 """
 
 from __future__ import annotations
@@ -1124,6 +1125,105 @@ process.exit(0);
             d = json.loads(c["detail"])
             self.assertEqual(d["home"][1], d["end"][1], "the readout must be what gave the broken clock away")
         self.assertTrue(all(c["ok"] for c in self.checks("rail-deaf", "inside the frame and named")))
+
+
+class KeysGate(unittest.TestCase):
+    """The "keys" part of stageFirstChecks (spaceAfterCard in tools/node/viz-testkit.mjs), run in Chromium on private
+    copies of the starter page: Space right after a pointer click on a card plays and pauses the clock; a page whose
+    card keeps the focus fails; a page without a clock button, or with one no card enables, is skipped. Skipped where
+    Playwright or its Chromium is not installed."""
+
+    SLUG = "keys-gate-fixture"
+    NAME = "keyboard: after a card is clicked, Space plays and pauses the clock"
+    RUNNER = """
+import fs from 'node:fs';
+const [kit, out, slug, ...ids] = process.argv.slice(2);
+const { session, spaceAfterCard, settle } = await import(kit);
+const T = await session();
+const res = {};
+for (const id of ids) {
+  const from = T.results.length;
+  const page = await T.goto(slug, id, '?lang=zh'); await settle(page, 300);
+  await spaceAfterCard(T, page);
+  const focus = await page.evaluate(() => document.activeElement === document.body);
+  res[id] = { checks: T.results.slice(from), blurred: focus };
+}
+await T.browser.close();
+fs.writeFileSync(out, JSON.stringify({ res, errors: T.errors }));
+process.exit(0);
+"""
+    # what kit.js did before: the clicked card keeps the focus, so Space presses it again
+    STICKY = ("document.addEventListener('click', (ev) => { const b = ev.target.closest && ev.target.closest('[data-preset]');"
+              " if (b && ev.detail > 0) b.focus(); });\n")
+    DISABLE = "    for (const k of ['now', 'play', 'rew']) $(k).disabled = true;\n"
+    PRESET = "    const p = PRESETS[id];\n"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tbook-keys-"))
+        cls.addClassCleanup(shutil.rmtree, cls.tmp, ignore_errors=True)
+        root = cls.tmp / "root"
+        (root / "books").mkdir(parents=True)
+        try:
+            (root / "theme").symlink_to(paths.THEME, target_is_directory=True)
+            if (paths.ROOT / "node_modules").is_dir():
+                (root / "node_modules").symlink_to(paths.ROOT / "node_modules", target_is_directory=True)
+        except OSError as exc:
+            raise unittest.SkipTest(f"cannot link the theme into a private root: {exc}")
+        book = fake_book(root / "books", cls.SLUG)
+
+        def swap(text: str, old: str, new: str) -> str:
+            if text.count(old) != 1:
+                raise AssertionError(f"templates/viz no longer has exactly one {old!r}")
+            return text.replace(old, new)
+
+        variants = {
+            "keys-plain": (lambda js: js, lambda h: h),
+            "keys-sticky": (lambda js: js + cls.STICKY, lambda h: h),
+            "keys-dead": (lambda js: swap(js, cls.PRESET, cls.PRESET + cls.DISABLE), lambda h: h),
+            # a page without the clock's ▶ in footer.rail (here: the same button under another id)
+            "keys-noplay": (lambda js: swap(js, "$('play')", "$('playBtn')"),
+                            lambda h: swap(h, 'id="play"', 'id="playBtn"')),
+        }
+        for vid, (js, page) in variants.items():
+            viz.scaffold(book, vid, vid.upper().replace("-", "//"), "键盘", "Keys", added="2026-11-12")
+            for name, change in (("main.js", js), ("index.html", page)):
+                f = book.viz_dir / vid / name
+                f.write_text(change(f.read_text(encoding="utf-8")), encoding="utf-8")
+        runner, out = cls.tmp / "keys-gate.mjs", cls.tmp / "keys-gate.json"
+        runner.write_text(cls.RUNNER, encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if k != "VIZ_ORIGIN"}
+        env["TBOOK_ROOT"] = str(root)
+        kit = (paths.TOOLS / "node" / "viz-testkit.mjs").as_uri()
+        r = subprocess.run([NODE, str(runner), kit, str(out), cls.SLUG, *variants], capture_output=True,
+                           text=True, cwd=paths.ROOT, env=env, timeout=600)
+        if not out.is_file():
+            tail = (r.stdout + r.stderr)[-3000:]
+            if re.search(r"Playwright is not installed|Executable doesn't exist|browserType\.launch", tail):
+                raise unittest.SkipTest("Playwright Chromium is not available")
+            raise AssertionError(f"the keys gate did not run (exit {r.returncode}):\n{tail}")
+        data = json.loads(out.read_text(encoding="utf-8"))
+        cls.res, cls.errors = data["res"], data["errors"]
+
+    def outcome(self, vid: str) -> list[tuple[bool, str]]:
+        return [(c["ok"], c["detail"]) for c in self.res[vid]["checks"] if c["name"] == self.NAME]
+
+    def test_the_starter_passes(self):
+        [(ok, detail)] = self.outcome("keys-plain")
+        self.assertTrue(ok, detail)
+        self.assertRegex(detail, r"playing (true|false) → Space → (true|false) → Space → (true|false)")
+        self.assertTrue(self.res["keys-plain"]["blurred"], "the check leaves nothing focused for the checks after it")
+        self.assertEqual(self.errors, [])
+
+    def test_a_card_that_keeps_the_focus_fails(self):
+        [(ok, detail)] = self.outcome("keys-sticky")
+        self.assertFalse(ok, detail)
+
+    def test_pages_without_a_clock_to_run_are_skipped(self):
+        for vid in ("keys-dead", "keys-noplay"):
+            with self.subTest(vid):
+                self.assertEqual(self.outcome(vid), [])
+                self.assertEqual([c for c in self.res[vid]["checks"] if not c["ok"]], [])
 
 
 class Strings(unittest.TestCase):
