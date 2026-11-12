@@ -64,7 +64,7 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "b06e1ab7ebb94f625c20a8220024c16794e5f46ad080006d88e6f32cf64be817",
+      "sha256": "38ac530c8b9645b209f0d65f624b172e7dcfef1f534d421bc8ecedd4e07126a6",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "5b984a4b2d588050a9c8f23c436684a2528b82e933e81f9f6f9f134035301aac",
+      "sha256": "5857c63da064c1565daffd751dde93d0ba2f340a82a23e28d85fb22aa8371512",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -132,7 +132,7 @@
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
-      "sha256": "e54ac12c1759176c421c7e4558d3d703ab2b85f183ebc77c2297a90ea5588940",
+      "sha256": "cc55f680a48128e3a3e72d6a06f2c91e0a9dd800c68fd3efd0e24d5f11e81ed0",
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
@@ -220,7 +220,7 @@
       "mode": "100644"
     },
     "templates/viz/README.md": {
-      "sha256": "0e54297727974c76b5ee1fd51f5380114d59bfe4b82fe4d4cdf34dde2b18af84",
+      "sha256": "5c3ea02d96a26ead369eb0b59308b311d700f54c8c99ba02de60ef7291526aaa",
       "mode": "100644"
     },
     "templates/viz/index.html": {
@@ -496,7 +496,7 @@
       "mode": "100644"
     },
     "theme/viz/kit.js": {
-      "sha256": "8c9dec85b32ab053f9a3570c60b5c67944cba6f7cd6f082f21b6d54feb7ae2d7",
+      "sha256": "11c6f3c6d2e49fef92b58c792d64faabd63982d382883d6649f85d4452977f34",
       "mode": "100644"
     },
     "theme/viz/shell.js": {
@@ -505,6 +505,22 @@
     },
     "theme/viz/theme.css": {
       "sha256": "d3c421e3789a0913366fa8f4b565127fa08b21147adc94fb907cac6f5984da54",
+      "mode": "100644"
+    },
+    "theme/viz/vendor/README.md": {
+      "sha256": "c400c0cde3b103a592466e9dadf50ef5195bb91035d97f1152c4b911fdfed546",
+      "mode": "100644"
+    },
+    "theme/viz/vendor/three.LICENSE": {
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc",
+      "mode": "100644"
+    },
+    "theme/viz/vendor/three.core.min.js": {
+      "sha256": "0a9c2f0672c7b8d993ba7639e71919db181ca50c9dff99c78476d3e19057ca9c",
+      "mode": "100644"
+    },
+    "theme/viz/vendor/three.module.min.js": {
+      "sha256": "0a61c95f14e0fa015b3083475c73424f360e5f6f5b74c282b50fdbc2f4c228fc",
       "mode": "100644"
     },
     "tools/ci/films.py": {
@@ -608,7 +624,7 @@
       "mode": "100644"
     },
     "tools/node/viz-testkit.mjs": {
-      "sha256": "e98d7d148121b5d87f6122863a9834c4c1ac4b4704129f8fb31d350299d19cf6",
+      "sha256": "364b3b72f056af51131eda92a0773cac71e9c5af9d198484daeb569b7c5d89d7",
       "mode": "100644"
     },
     "tools/node/viz-thumbs.mjs": {
@@ -747,6 +763,10 @@
       "sha256": "165567f49709826e5c600b491218fd19b2ddd680591666fde59c27ff25ffebc9",
       "mode": "100644"
     },
+    "tools/tests/solid_harness.mjs": {
+      "sha256": "374f82ba3780501af1a64260f42cb9f8d82d9357833dc86d085cc893f6ecae5e",
+      "mode": "100644"
+    },
     "tools/tests/test_blocks.py": {
       "sha256": "d92cc69a5d3e8ee1bc24b59cac9de10f75bf2c4e712ef2ddc23d2300d8e9d488",
       "mode": "100644"
@@ -853,6 +873,10 @@
     },
     "tools/tests/test_viz.py": {
       "sha256": "917140bdd01a09a883034475af3f75f509dabcbb09d93d9b75ae40e05204044c",
+      "mode": "100644"
+    },
+    "tools/tests/test_viz_solid.py": {
+      "sha256": "7822475f7341688c53b8aef96c4a962649df202e43e825947b461d5345fe68e3",
       "mode": "100644"
     }
   }
