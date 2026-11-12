@@ -1315,6 +1315,13 @@ def update(root: Path, *, to: str | None = None, source: str | None = None, dry_
             up = load_upstream(Path(src), source=src, ref="", commit="", layer=layer)
             latest = False  # the directory given is the target
         else:
+            if install and not to:
+                # A new consumer has no config yet. Read the source's default branch
+                # to discover its release namespace, then install a stable release.
+                discovery = Path(tmp) / "discovery"
+                fetch_upstream(src, "HEAD", discovery)
+                discovered = TemplateConfig.load(discovery, layer)
+                local_cfg = replace(local_cfg, tag_prefix=discovered.tag_prefix)
             tags = remote_tags(src)
             ref, label = resolve_target(to, tags, local_cfg.tag_prefix, src)
             latest = not to  # the newest stable release, picked automatically
