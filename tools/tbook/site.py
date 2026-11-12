@@ -1073,7 +1073,7 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str, math: dict[str
 
     def row(env: Env, chip: str = "") -> str:
         decls = []
-        for gid in env.lean:
+        for gid in env.lean if env.status != "written-proof" else []:
             lv = render.lean_view(gid, lock)  # a link only where the lock resolves the declaration
             code = f"<code>{wbr(lv['name'] or gid)}</code>"
             decls.append(f'<a href="{esc(lv["url"])}" rel="noopener" title="{esc(gid)}">{code}</a>'
@@ -1093,11 +1093,17 @@ def verification_html(view: BookView, ed_lang: str, ui_lang: str, math: dict[str
     else:
         out.append(f'<p class="note">{esc(t(ui_lang, "theorems_none"))}</p>')
     # Formal results the lock does not back (./tbook check rejects them): red, never in the green list.
-    unverified = [e for e in model.formal_envs() if not any(e is v for v in formal)]
+    unverified = [e for e in model.formal_envs() if e.status != "written-proof" and not any(e is v for v in formal)]
     if unverified:
         text, tip = render.unverified_badge(ui_lang)
         chip = f'<span class="k warn" title="{esc(tip)}">{esc(text)}</span>'
         out.append(f'<ul class="vlist open">{"".join(row(e, chip) for e in unverified)}</ul>')
+    written = [e for e in model.formal_envs() if e.status == "written-proof"]
+    if written:
+        out.append(f'<h3>{esc(config.s(ui_lang, "ledger.written_title"))}</h3>')
+        chip = (f'<span class="k written-proof" title="{esc(config.s(ui_lang, "badge.written_proof_title"))}">'
+                f'{esc(config.s(ui_lang, "badge.written_proof"))}</span>')
+        out.append(f'<ul class="vlist written-proof">{"".join(row(e, chip) for e in written)}</ul>')
     out.append(f'<h3>{esc(config.s(ui_lang, "ledger.open_title"))}</h3>')
     opened = [e for e in model.all_envs() if e.kind in OPEN]
     if opened:

@@ -156,7 +156,7 @@ def lean_verified(views: list[dict]) -> bool:
 
 def env_verified(env: Env, lock: lean.Lock | None) -> bool:
     """A formal environment the build shows as LEAN ✓: its citations pass :func:`lean_verified`."""
-    return env.kind in FORMAL and lean_verified([lean_view(g, lock) for g in env.lean])
+    return env.kind in FORMAL and env.status == "lean" and lean_verified([lean_view(g, lock) for g in env.lean])
 
 
 def verified_envs(envs: list[Env], lock: lean.Lock | None) -> list[Env]:
@@ -230,9 +230,11 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
     badge = ""
     badge_title = ""
     status = env.status
-    leans = [lean_view(g, ctx.lock) for g in env.lean]
+    leans = [lean_view(g, ctx.lock) for g in env.lean] if status != "written-proof" else []
     unverified = False
-    if env.kind in FORMAL:
+    if status == "written-proof":
+        badge, badge_title = config.s(lang, "badge.written_proof"), config.s(lang, "badge.written_proof_title")
+    elif env.kind in FORMAL:
         if lean_verified(leans):
             badge, badge_title = config.s(lang, "badge.lean"), config.s(lang, "badge.lean_title")
         else:
@@ -244,7 +246,7 @@ def env_view(env: Env, ctx: RenderContext) -> dict:
         badge, badge_title = config.s(lang, "badge.open"), config.s(lang, "badge.open_title")
     # Only a LEAN ✓ badge links (to the first declaration); an UNVERIFIED badge never does, in any
     # target, even when the lock resolves a cited declaration (a def): the footer links that.
-    badge_url = leans[0]["url"] if badge and leans and not unverified else ""
+    badge_url = leans[0]["url"] if status == "lean" and badge and leans and not unverified else ""
     return {
         "kind": env.kind,
         "id": env.id,
@@ -448,7 +450,7 @@ def mdbook_env(env: Env, view: dict, inner: str) -> str:
                     f'{esc(config.s(env_lang(view), "punct.title_close"))}</span>')
     if view["badge"]:
         first = view.get("badge_url", "")
-        cls = "tr-badge-lean" if view["status"] == "lean" else "tr-badge-open"
+        cls = "tr-badge-" + view["status"]
         if view.get("unverified"):
             cls += " tr-badge-unverified"
         if first:

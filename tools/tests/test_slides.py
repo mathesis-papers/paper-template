@@ -1421,6 +1421,21 @@ class NodeScriptsTest(unittest.TestCase):
                      "src: imports slides from another file"]:
             self.assertIn(want, r.stderr)
 
+    def test_written_proof_status_never_accepts_a_gid(self):
+        deck = self.book(["en"]) / "slides" / "d1"
+        deck.mkdir(parents=True)
+        page = deck / "slides.md"
+        head = deck_head("../../../../theme/slides", "en")
+        for tag in ("LeanBadge", "TheoremCard"):
+            for gid in (None, "", FAKE_THM):
+                with self.subTest(tag=tag, gid=gid):
+                    attr = f' gid="{gid}"' if gid is not None else ""
+                    page.write_text(head + f'\n---\n\n<{tag} status="written-proof"{attr}>s</{tag}>\n')
+                    result = self.node("slides-check.mjs")
+                    self.assertEqual(result.returncode, 0 if gid is None else 1, result.stderr)
+                    if gid is not None:
+                        self.assertIn("written-proof must not have gid", result.stderr)
+
     def test_check_tags_between_code_blocks(self):
         """Finding: slides-check.mjs, like check(), sees tags between two code blocks (not those inside)."""
         deck = self.book(["zh", "en"]) / "slides" / "d1"

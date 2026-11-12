@@ -75,3 +75,13 @@ GID 只能引用锁文件中已有的声明，且必须是 Lean `theorem`，除�
 ## 界面文字
 
 徽章、页脚标签与站点按钮的文字取自 `theme/i18n/<lang>.toml` 的 `[slides]` 表（书库可在 `i18n/<lang>.toml` 覆盖）；`i18n.ts` 中的默认值只作后备。
+
+### Written proofs
+
+`<TheoremCard status="written-proof" cite="book-result-id" label="…">` and
+`<LeanBadge status="written-proof" />` show **书面证明 / WRITTEN PROOF** with
+the existing argued/violet semantic. Do not give `gid`, even an empty one.
+A cited book result must carry the same status and link its per-edition proof
+through `proof="id"`. The badge is plain text, never a source link or a Lean count.
+`argued` remains available for informal slide arguments; it does not replace the
+book's explicit written-proof status. Written proof is distinct from an open problem.

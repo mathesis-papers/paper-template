@@ -4,8 +4,8 @@
 
 ## 1. 原则
 
-1. **真值只在 trureturing。** 书中每条 `theorem / lemma / proposition / corollary` 都必须引用 trureturing 中已被 Lean 内核验证并冻结的声明。冻结成员身份的唯一判据是所钉提交上存在 `Golden/Frozen/state/<module>.lean.json` 且其中列有该声明（trureturing CLAUDE.md §1.3 冻结律）。Lean 代码只写在 trureturing，本仓库不含 `.lean` 文件。
-2. **书是投影，不是真源。** 书的文字解释定理；定理的成立由 Lean 声明决定。未证结论只能写成 `conjecture` 或 `problem`。
+1. **Lean 验证只来自 trureturing。** 书中 `theorem / lemma / proposition / corollary` 默认引用 trureturing 中已被 Lean 内核验证并冻结的声明；源文有证明但无匹配声明时必须显式标为 `status="written-proof" proof="id"` 且不带 `lean`，每版关联非空书面证明。冻结成员身份的唯一判据是所钉提交上存在 `Golden/Frozen/state/<module>.lean.json` 且其中列有该声明（trureturing CLAUDE.md §1.3 冻结律）。Lean 代码只写在 trureturing，本仓库不含 `.lean` 文件。
+2. **证据状态不可混淆。** Lean 结果由冻结声明支撑；书面证明由作者与评审负责，紫色徽章不带验证链接、不计入 Lean 数量。真正开放的结论用 `conjecture` 或 `problem`。
 3. **一次编写，多端导出。** 同一份 Markdown 生成 HTML（mdBook）、PDF（Typst，屏幕版与印刷版）、EPUB 3（Apple Books）。编号、标签、徽章与 Lean 链接由 `tools/tbook/render.py` 统一计算，各端一致。
 4. **多语言，默认中文与英文。** 每本书有若干语言版本（edition），第一个为权威版本；`./tbook check` 要求各版本的章节文件、环境序列（种类、id、Lean 引用）逐条一致。
 5. **配色单一来源。** 赛博朋克配色只在 `theme/tokens.json` 定义，`./tbook theme` 派生出各端使用的 CSS / Typst / JS（幻灯片的打印背景图由 Chromium 按派生的 CSS 渲染，见 §2 的 `slides/`）。绿色只留给 Lean 已验证，琥珀色只留给“现在/当前选择”，红色标开放问题。
@@ -84,7 +84,8 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 
 | 种类 | 类名 | Lean 引用 | 编号 | 徽章 |
 | --- | --- | --- | --- | --- |
-| 形式结论 | `theorem` `lemma` `proposition` `corollary` | **必须**，且解析为 Lean `theorem` | 是 | `LEAN ✓`（绿，链接到第一条声明）；所引 GID 不能全部经锁文件解析为 Lean `theorem` 时，构建显示红色 `UNVERIFIED`，各端徽章都不是链接，页脚与账本只链接锁文件解析了的声明（`./tbook check` 报错） |
+| 形式结论 | `theorem` `lemma` `proposition` `corollary` | 默认**必须**，且解析为 Lean `theorem` | 是 | `LEAN ✓`（绿，链接到第一条声明）；所引 GID 不能全部经锁文件解析为 Lean `theorem` 时，构建显示红色 `UNVERIFIED`，各端徽章都不是链接，页脚与账本只链接锁文件解析了的声明（`./tbook check` 报错） |
+| 书面证明 | 上述形式结论 + `status="written-proof" proof="id"` | **禁止**，每版关联非空 proof | 是 | `书面证明 / WRITTEN PROOF`（紫，无链接，不计入 Lean 数量） |
 | 定义 | `definition` | 可选；给出则必须解析 | 是 | — |
 | 开放 | `conjecture` `problem` | **禁止** | 是 | `OPEN`（红） |
 | 非形式 | `example` `remark` | 可选；给出则必须解析 | 是 | — |

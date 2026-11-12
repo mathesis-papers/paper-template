@@ -135,9 +135,12 @@ for (const book of books) {
       ed.slides.forEach((s, i) => {
         const here = `${where} slide ${i + 1}`;
         for (const c of ed.cites[i]) {
+          if (c.attrs.status === 'written-proof' && c.attrs.kind != null && !['theorem', 'lemma', 'proposition', 'corollary'].includes(c.attrs.kind)) fail(`${here}: written-proof is only for formal results`);
+          if (c.attrs.status === 'written-proof' && Object.hasOwn(c.attrs, 'gid')) fail(`${here}: written-proof must not have gid`);
+          if (c.attrs.status != null && !['open', 'argued', 'written-proof'].includes(c.attrs.status)) fail(`${here}: unknown result status ${c.attrs.status}`);
           if (c.attrs.status === 'open' && c.gid) fail(`${here}: <${c.tag} status="open"> must not cite Lean (open problems have no proof); drop gid`);
           if (!c.gid) {
-            if (!c.attrs.status) fail(`${here}: <${c.tag}> needs gid="<GID>" or status="open|argued"`);
+            if (!c.attrs.status) fail(`${here}: <${c.tag}> needs gid="<GID>" or status="open|argued|written-proof"`);
             continue;
           }
           if (!GID_RE.test(c.gid)) { fail(`${here}: ${c.gid} is not a GID (<module path>.<name>, e.g. D5/S1/Deficit/DeficitThreeValued.deficit_three_valued)`); continue; }
