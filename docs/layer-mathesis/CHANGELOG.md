@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.3.0] - 2026-11-13
+
+- Configure a layer-owned post-build command: redirect a single paper's root to its existing book landing and publish `mathesis-materials.json` from built output only.
+- Migrate existing single-paper site settings and use the organization custom domain.
+- Provide the publisher's preparation issue checklist. Requires the upstream optional `site.post_build` command interface; no upstream version number is assumed.
+
 ## [0.2.1] - 2026-11-13
 
 - Record the temporary upstream 0.7.0 integration of PRs #48, #50 and #51, with exact heads, for the first real paper repository.
