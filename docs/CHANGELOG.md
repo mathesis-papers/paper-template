@@ -2,6 +2,17 @@
 
 本文件记录 trureturing-books-template 的版本变化，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。下游升级时请阅读跨越的所有版本，处理标为“需要手动操作”的条目。
 
+## [Unreleased]
+
+### 新增
+
+- 画图库补上下游用到却没有的形状，均为新增接口，已有的图逐字节不变：流程图的 `fig.box(…)`（自动定宽与换行、虚线框、强调色框与 `chip`/`chip_size`，返回锚点；默认字号按不宽于 358 的一栏设计）与 `fig.link(a, b, elbow=…)`；球上的 `sp.turn(轴, 起点, 角度, arrow=True)`、`sp.small_circle(…, start=, span=, arrow=True)`、`sp.sector(…)`、`sp.patch(…)`、`sp.polytope(…)`；`fig.axes(…, logx=True, logy=True)`（自动十的幂刻度与细刻度、`ax.decades()`）；`ax.step(…)`、`ax.bars(…)`；`figkit.hull(…)`、`figkit.hull3(…)`；`fig.bounce(a, 镜面点, b)`；文字标记 `***粗斜体***` 与 `\bar{z}`；脚本可选 `MARKUP = 2`，让下标、上标里的标记嵌套、斜体 `I` 用衬线字形（不写时按旧规则）；等宽文字按每字 0.6 em 估宽（组合附加符不计），`fig.measure()`、`fig.wrap_text()`。示例专著第四章新增三张图（证明骨架、黄金旋转、回归得分的对数图）。来源：下游《量子计算的几何直觉》150 张图中各章各写一遍的辅助代码（#35）。
+
+### 变更
+
+- `./tbook check` 拦住不按标准做的图（均为警告）：章节用图片语法引用、放在 `assets/`、写死颜色（没有角色类、也没有 `prefers-color-scheme`）的 SVG，提示改用 `::: {.figure}` 与 `figures/<name>.py`（照片与位图不报）；两种语言的章节共用一个带 `<text>` 的 SVG，提示每种语言一版标签；三块以上 `.figure`、`.viz`、`.film`、`.slides` 只隔着空行连排，从第三块起报位置。
+- 图在手机上的最小标签：`./tbook fig build` 与 `./tbook check` 按 `min(1, 358 / 宽度)`（`WRAP = True` 的分栏图按最宽一栏）算出手机上的最小字号，低于 10 px 时给出警告（图名、当前值与做窄、分栏、加大字号三种改法）；`site.toml` 的 `[figures]` `phone_labels = "error"` 可升为错误；`./tbook fig list` 增加一列“手机上的最小标签”。起始脚本 `templates/figure/figure.py` 与示例专著的 `carry-rules` 已调到不低于 10 px。`skills/book-figure`、`skills/book-viz` 与 `docs/AUTHORING.md` 写明手机上的字号下限、图片语法只用于照片一类、媒体块不连排。来源：《量子计算的几何直觉》有 9 张手绘图、73 张手机上标签不到 10 px 的图与 8 处媒体连排，`check` 均未报出（#34）。
+
 ## [0.5.2] - 2026-11-12
 
 ### 修复
