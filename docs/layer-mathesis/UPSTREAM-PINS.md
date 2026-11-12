@@ -12,7 +12,11 @@ using merge commits, and retains template version **0.7.0**:
 
 This is a local integration pending those PRs merging upstream. Once merged,
 ordinary upstream template updates take over; their already merged content
-requires no duplicate paper-side merge. The manifest was regenerated using
+requires no duplicate paper-side merge. The combined integration also reconciles
+the academic citation renderer with the written-proof status introduced by #50:
+nonempty associated proofs, an unlinked purple badge, and no GID. This resolves
+a semantic overlap between #50 and #51 and has a focused regression test.
+The manifest was regenerated using
 `./tbook template manifest`; no runtime interface was forked.
 
 Mathesis layer version: **0.2.1**. This note belongs to the layer, not the
