@@ -8,14 +8,27 @@ description: Reconcile Mathesis exact-version claim identities with a paper book
 Read `docs/layer-mathesis/PIPELINE.md`. Treat `paper.json` and
 `formalization/nodes.json` as publisher-owned `sdk/catalog` output. Do not add
 book ids or custom fields to nodes. Use publisher-owned `.mathesis/book.json`
-for the book mapping: its `results` maps a book environment id to `claim` and
-`gids`, and `pending_claims` explicitly covers every not-yet-mapped catalog node.
+for the book mapping: each `results` row has `claim`, `gids`,
+`comparison_verdict` (exactly `same` / `special case` / `variant` / `none`),
+`compared_public_gid` (closest inspected public frozen declaration, null for
+`none`) and `comparison_commit` (full inspected commit). These are the pilot's
+comparison fields, not additions to the catalog schema. `pending_claims`
+explicitly covers every not-yet-mapped catalog node.
 
 Use the exact node `identity` already present in nodes:
 `collected:<work>:<version>:<claim>`. Never derive a new id from a title or use
 lineage (which omits version) as the current-version identity. Attach that exact
 identity as the `mathesis` attribute on the corresponding book environment in
 both editions. Copy the same ordered GID list into the mapping's `gids`.
+Use `same` only when the frozen declaration states this complete written result;
+it must be one of the book's actual GIDs. For special case / variant / none,
+`gids` is empty. If the source supplies a written proof, use the original formal
+kind with `status="written-proof" proof="<proof-id>"` and a proof block in each
+edition; reserve conjecture/problem for actually open claims. The comparison
+GID belongs to the formalization pool, not the result's verification citations.
+Preserve the comparison scope and gaps in prose; never manufacture a GID or
+commit for an unperformed search. Keep a claim pending until this review exists.
+
 Every formal/open result environment is mapped; an attributed remark carrying a
 manuscript result is also mapped. The checker compares both language editions.
 

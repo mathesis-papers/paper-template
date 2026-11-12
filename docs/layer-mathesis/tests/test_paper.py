@@ -18,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "docs/layer-mathesis/scripts/paper.py"
 SOURCE = os.environ.get("MATHESIS_TEST_PAPER")
+UPSTREAM = Path(os.environ.get("MATHESIS_TEST_UPSTREAM", ROOT))
 
 
 @unittest.skipUnless(SOURCE, "set MATHESIS_TEST_PAPER to an existing sdk/catalog paper projection")
@@ -27,7 +28,7 @@ class PaperTests(unittest.TestCase):
         self.root = Path(self.tmp.name) / "paper"
         self.root.mkdir()
         for name in ("tools", "theme", "docs/layer-mathesis"):
-            shutil.copytree(ROOT / name, self.root / name,
+            shutil.copytree((ROOT if name.startswith("docs/") else UPSTREAM) / name, self.root / name,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         self.work = json.loads((Path(SOURCE) / "paper.json").read_text())["work"]
         self.slug = self.work["repository_name"]
@@ -55,6 +56,51 @@ class PaperTests(unittest.TestCase):
                      "--title-zh", self.work["title"], "--title-en", self.work["title"],
                      "--repository", "mathesis-papers/" + self.slug, expected=1)
 
+    def test_academic_pdf_is_the_only_default(self):
+        import tomllib
+        cfg = tomllib.loads((self.root / "books" / self.slug / "book.toml").read_text())
+        self.assertEqual(cfg["outputs"]["pdf"], ["academic"])
+
+    def test_old_upstream_refused_clearly(self):
+        path = self.root / "tools/tbook/model.py"
+        path.write_text(path.read_text().replace('WRITTEN_PROOF = "written-proof"', 'WRITTEN_PROOF = None'))
+        self.assertIn("requires upstream written-proof support", self.run_cli("check", expected=1))
+
+    def test_written_proof_mapping_and_comparison_verdict(self):
+        path = self.root / ".mathesis/book.json"
+        mapping = json.loads(path.read_text())
+        identity = mapping["pending_claims"].pop(0)
+        claim = identity.rsplit(":", 1)[1]
+        row = {"claim": identity, "gids": [], "comparison_verdict": "none",
+               "compared_public_gid": None,
+               "comparison_commit": json.loads((ROOT / "trureturing.lock.json").read_text())["commit"]}
+        mapping["results"][claim] = row
+        path.write_text(json.dumps(mapping))
+        for lang in ("zh", "en"):
+            page = self.root / "books" / self.slug / lang / "README.md"
+            page.write_text(page.read_text() +
+                f'\n::: {{.theorem #{claim} status="written-proof" proof="pf-{claim}" mathesis="{identity}"}}\n'
+                f'Integration fixture, no mathematical claim.\n:::\n\n::: {{.proof #pf-{claim}}}\nFixture argument.\n:::\n')
+        self.run_cli("check")
+        row["comparison_verdict"] = "almost"
+        path.write_text(json.dumps(mapping))
+        self.assertIn("comparison_verdict", self.run_cli("check", expected=1))
+        row["comparison_verdict"] = "variant"
+        path.write_text(json.dumps(mapping))
+        self.assertIn("closest public declaration", self.run_cli("check", expected=1))
+        row["comparison_verdict"] = "same"
+        # A real public declaration inspected by the pilot; deliberately NOT a match to this fixture.
+        row["compared_public_gid"] = "D5/S1/Recurrence/Algebraic/ChenChenParityPositivity.even_rows_positive"
+        path.write_text(json.dumps(mapping))
+        self.assertIn("same requires", self.run_cli("check", expected=1))
+        row["comparison_verdict"] = "special case"
+        row["comparison_commit"] = "2a8e85703420116c8f07e1eebebd34fa221c8d55"
+        path.write_text(json.dumps(mapping))
+        self.run_cli("check")
+        page = self.root / "books" / self.slug / "en/README.md"
+        page.write_text(page.read_text().replace("Fixture argument.", ""))
+        self.assertIn("is empty", self.run_cli("check", expected=1))
+
     def test_generated_tamper_refused(self):
         with (self.root / "paper.pdf").open("ab") as f:
             f.write(b"tampered")
@@ -80,7 +126,9 @@ class PaperTests(unittest.TestCase):
         mapping = json.loads(path.read_text())
         identity = mapping["pending_claims"].pop(0)
         claim = identity.rsplit(":", 1)[1]
-        mapping["results"][claim] = {"claim": identity, "gids": []}
+        mapping["results"][claim] = {"claim": identity, "gids": [], "comparison_verdict": "none",
+                                               "compared_public_gid": None,
+                                               "comparison_commit": json.loads((ROOT / "trureturing.lock.json").read_text())["commit"]}
         path.write_text(json.dumps(mapping))
         for lang in ("zh", "en"):
             page = self.root / "books" / self.slug / lang / "README.md"

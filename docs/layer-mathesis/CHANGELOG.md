@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.2.0] - 2026-11-12
+
+- Default to the academic PDF alone; figures → visualizations → academic Beamer when available → Slidev only on request.
+- Require upstream written-proof support, preserve proved manuscript results as written-proof environments, and validate per-edition proof presence and status parity.
+- Record same / special case / variant / none plus the closest public declaration and inspected commit in book integration metadata, without changing catalog schemas or verification receipts.
+
 ## [0.1.1] - 2026-11-12
 
 - Confirm independent propagation: a layer update leaves upstream and paper-owned files unchanged; an upstream update leaves layer and paper-owned files unchanged.

@@ -9,7 +9,7 @@ zh = {{TITLE_ZH}}
 en = {{TITLE_EN}}
 [outputs]
 html = true
-pdf = ["screen", "print"]
+pdf = ["academic"]
 epub = true
 [mathesis]
 work = {{WORK}}

@@ -23,6 +23,12 @@ is publisher-owned `.mathesis/book.json`; it is separate from catalog nodes.
 An agent updates its result mapping with the book, never catalog verification.
 Run the layer check and `./tbook check` after each conversion or sync.
 
+The default PDF is academic (`[outputs] pdf = ["academic"]`); enable screen/print
+only if the paper asks. Produce figures, visualizations, then academic Beamer
+when upstream provides it; Slidev is on request. Source-proved unmatched results
+use written-proof, not conjecture. Read the required upstream capability and
+comparison-record contract in the layer guide and pipeline before conversion.
+
 Keep the template's runtime, visual contracts, output discovery and build cache.
 Use upstream commands for each output. Future upstream outputs arrive through
 `./tbook template update`, then the upstream authoring/build instructions;

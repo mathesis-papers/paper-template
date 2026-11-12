@@ -204,10 +204,22 @@ def check(root, complete=False):
     os.environ["TBOOK_ROOT"] = str(root)
     sys.path.insert(0, str(root / "tools"))
     from tbook import config, model
+    require(getattr(model, "WRITTEN_PROOF", None) == "written-proof",
+            'Mathesis layer 0.2.0 requires upstream written-proof support '
+            '(status="written-proof" with proof="id"). Update the upstream template '
+            'to a release containing feat/written-proof-status before checking or publishing this paper.')
+    from tbook import check as book_check, lean
     books = config.load_books()
     require([b.slug for b in books] == [slug], "one visible book is required")
-    for lang, edition in model.load_book_models(books[0]).items():
+    editions = model.load_book_models(books[0])
+    parity_issues = []
+    book_check.check_parity(books[0], editions, parity_issues)
+    require(not parity_issues, "book edition parity: " + "; ".join(i.message for i in parity_issues))
+    for lang, edition in editions.items():
         require(not [i for i in edition.issues if i.severity == "error"], f"book parse errors in {lang}")
+        policy_issues = []
+        book_check.check_env_policy(edition, policy_issues)
+        require(not policy_issues, f"{lang} book evidence policy: " + "; ".join(i.message for i in policy_issues))
         result_envs = {env.id: env for env in edition.all_envs()
                        if env.kind in (*model.FORMAL, *model.OPEN) or env.attrs.get("mathesis")}
         require(set(result_envs) == set(mapping["results"]), f"{lang} result ids differ from claim mapping")
@@ -216,6 +228,32 @@ def check(root, complete=False):
             require(env.attrs.get("mathesis") == row["claim"] and env.lean == row["gids"],
                     f"{lang} #{result_id}: claim/GIDs differ from book mapping")
             require(len(env.lean) == len(set(env.lean)), f"{lang} #{result_id}: duplicate GID")
+            verdict = row.get("comparison_verdict")
+            require(verdict in ("same", "special case", "variant", "none"),
+                    f"{lang} #{result_id}: comparison_verdict must be same / special case / variant / none")
+            require("compared_public_gid" in row and "comparison_commit" in row,
+                    f"{lang} #{result_id}: record compared_public_gid (or null) and comparison_commit")
+            closest = row["compared_public_gid"]
+            require(isinstance(row["comparison_commit"], str) and
+                    re.fullmatch(r"[a-f0-9]{40}", row["comparison_commit"]),
+                    f"{lang} #{result_id}: comparison_commit must be the inspected full commit")
+            if verdict == "none":
+                require(closest is None, f"{lang} #{result_id}: none requires compared_public_gid=null")
+            else:
+                require(isinstance(closest, str) and bool(closest),
+                        f"{lang} #{result_id}: comparison needs the inspected closest public declaration")
+                try:
+                    lean.parse_gid(closest)
+                except lean.LeanError as exc:
+                    raise ValueError(f"{lang} #{result_id}: invalid compared_public_gid: {exc}") from exc
+            if verdict == "same":
+                require(env.kind in model.FORMAL and env.status == "lean" and closest in env.lean,
+                        f"{lang} #{result_id}: same requires a formal result citing that exact declaration")
+            else:
+                require(not env.lean, f"{lang} #{result_id}: a special case / variant / none must not cite Lean as verification")
+                if env.kind in model.FORMAL:
+                    require(env.status == model.WRITTEN_PROOF,
+                            f"{lang} #{result_id}: manuscript-proved unmatched results require written-proof")
         if complete or mapping["stage"] == "complete":
             require("Publisher-created skeleton" not in "\n".join(ch.text for ch in edition.chapters), "book still has a skeleton")
     if complete or mapping["stage"] == "complete":

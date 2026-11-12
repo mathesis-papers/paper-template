@@ -40,7 +40,18 @@ There are no fabricated paper or node files in the layer source template.
 The adapter creates `.mathesis/book.json`, separate from catalog data:
 `book`, `work`, `version`, `titles`, `stage`, `results`, `pending_claims`.
 `results` maps each stable book result id to an object with `claim` (the exact
-catalog node identity) and `gids` (the same ordered GID list as the environment).
+catalog node identity) and `gids` (the same ordered GID list as the environment), plus the pilot's
+`comparison_verdict` (`same`, `special case`, `variant`, `none`),
+`compared_public_gid` (the inspected closest public frozen declaration; null for
+`none`) and `comparison_commit` (the full inspected commit, even for `none`).
+These field names preserve the pilot comparison vocabulary. Do not copy pilot
+verdicts across versions without reviewing the statements. The closest GID is
+formalization-pool context, never added to `lean`, the lock or a green badge just
+because it is nearby. A `same` row requires that exact declaration as a book Lean
+citation. Every other formal result requires written-proof and an empty `gids`
+list; genuinely open items stay open. The checker validates syntax, consistency
+and proof presence, not the truth of the verdict or the declaration's membership
+at the recorded comparison commit; review against frozen state is required.
 Each mapped environment carries `mathesis="collected:<work>:<version>:<claim>"`.
 This file is book integration metadata, never a replacement for nodes or receipts.
 Every catalog node must be mapped or explicitly pending; several expository
@@ -69,7 +80,11 @@ python3 docs/layer-mathesis/scripts/paper.py check --complete
 
 Use upstream skills to render and review the enabled outputs in both languages,
 themes and phone widths. The layer does not constrain future upstream output
-formats or replace the existing build-unit/cache mechanism. Academic Beamer is
+formats or replace the existing build-unit/cache mechanism. The skeleton uses
+`[outputs] pdf = ["academic"]`, making academic its primary and only PDF variant;
+screen and print are opt-in per paper. Follow figures → visualizations → academic
+Beamer when available. Produce a Slidev deck only on explicit request, through
+`book-slides`; use `book-figure` and `book-viz` for the preceding steps. Academic Beamer is
 conditional on an upstream implementation being available; use its published
 interface when merged, without modifying this layer's upstream runtime now.
 
@@ -114,6 +129,7 @@ to publish; validate the current API contract before adding that separate step.
 Local integration checks use an existing rendered projection, without network:
 
 ```sh
+MATHESIS_TEST_UPSTREAM=/path/to/upstream-with-written-proof \
 MATHESIS_TEST_PAPER=/path/to/catalog-output/papers/PAPER-REPOSITORY \
   python3 -m unittest discover -s docs/layer-mathesis/tests
 ```

@@ -1,6 +1,6 @@
 ---
 name: layer-mathesis-paper-media
-description: Produce a Mathesis paper book's figures, interactive visualizations and slides through upstream book skills and build units, including an academic deck only when upstream provides it.
+description: Produce figures, visualizations and an academic Beamer deck when upstream provides it; make Slidev only on request, using upstream skills and build units.
 ---
 
 # Media from the checked paper book
@@ -13,13 +13,13 @@ mathematical object, make each experiment card independently referencable from
 the book, and retain the shared runtime, evidence classes and stageFirstChecks.
 A numerical example illustrates a result; it does not certify it.
 
-Next use `skills/book-slides/SKILL.md` to produce the template's aligned Slidev
-deck. Build through `./tbook build slides` and the upstream build cache. Inspect
-the installed upstream skill/CLI for an academic Beamer deck; when it provides
-one, follow that published interface and produce it after Slidev. If unavailable,
-record that output as pending upstream capability; never copy the concurrent
-slides branch, invent a build flag, implement a private deck runtime, or block
-the supported outputs on the future deck.
+Next inspect the installed upstream skill/CLI for the academic Beamer deck.
+When available, produce it through that published interface. If unavailable,
+record it as pending upstream capability. Another branch is implementing it;
+do not copy that branch, invent flags or build a private deck runtime.
+Only on explicit request, then use `skills/book-slides/SKILL.md` for the aligned
+Slidev deck and `./tbook build slides`. The default PDF is the academic variant
+(`outputs.pdf = ["academic"]`); screen/print require a paper-specific request.
 
 Use the existing upstream CLI, build units and cache for each additional output
 as it arrives through template updates. Enable/configure it using upstream docs,

@@ -33,8 +33,9 @@ The authority split is exact:
 A paper-level source URL, a variant theorem or a PR does not establish an exact
 claim's independent verification. Never promote catalog status from book work.
 Original authors and formalization contributors remain separate. A source
-proved in prose but lacking a matching frozen GID must be explained as attributed
-prose/remarks; formal theorem environments require a matching frozen declaration.
+proved in prose but lacking a matching frozen GID keeps its formal result kind with
+`status="written-proof" proof="<proof-id>"` and a proof block in each edition.
+It receives the purple WRITTEN PROOF badge, never a green Lean badge or Lean count.
 Use conjecture/problem for genuinely unsettled assertions, and label a missing
 formalization as such rather than declaring a proved manuscript result open.
 
@@ -48,6 +49,19 @@ The implementation was checked against local revision
 `6252803b149df73a4c06d268c4059d0e3ba34268`; these public links preserve the source
 identity but their remote availability was not checked in this work package.
 No alternate paper/node/generated-manifest schema is introduced here.
+
+Mathesis defaults to academic presentation: `outputs.pdf = ["academic"]` makes
+academic the primary and only enabled PDF. Enable screen/print only on a paper's
+explicit request. Media proceeds figures → visualizations → academic Beamer
+when upstream supplies it → Slidev only on request.
+
+Layer **0.2.0 requires upstream written-proof support**, the public
+`tbook.model.WRITTEN_PROOF = "written-proof"` capability with per-edition proof
+checks and consistent rendering. It also requires the independent template-layer
+support from Part A. These changes must arrive through upstream template updates;
+this layer does not ship copies of upstream tools or themes. Until written-proof
+support is installed, the paper checker fails with an actionable error, including
+for an empty skeleton. No unreleased upstream version number is assumed.
 
 [The pipeline](PIPELINE.md) documents the mechanical publisher step and its
 agent handoff. [Project rules](PROJECT.md) are imported from root `PROJECT.md`.

@@ -27,8 +27,16 @@ available GID, invent a GID, or cite a variant as the same result. Do not change
 pins/claims/receipts merely to make a check pass. If new formalization is needed,
 record the exact gap; this conversion does not authorize changes to trureturing.
 
-Use an attributed `remark` or explanatory prose for a manuscript-proved result
-without the required frozen declaration, making the formalization gap clear.
+For a manuscript-proved result without a matching frozen declaration, retain
+its theorem/lemma/proposition/corollary kind and use
+`status="written-proof" proof="<proof-id>"`, no `lean`. Add a nonempty proof
+block with that id in every edition, even when the source separates statement
+and argument across chapters. Attribute and review the written proof; the tool
+cannot prove it correct. The purple WRITTEN PROOF badge has no verification
+link and contributes nothing to Lean counts. Run the layer check first: it
+refuses an upstream that lacks this capability. Record the comparison verdict
+and closest public declaration through paper-sync, without citing a variant as
+verification.
 Use `conjecture`/`problem` for genuinely unproved conclusions as upstream requires;
 do not turn a proved manuscript claim into a mathematical open problem solely
 because its formalization is missing. Never emit a green verification claim from
