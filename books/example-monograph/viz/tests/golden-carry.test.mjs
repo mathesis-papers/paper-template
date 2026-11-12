@@ -287,6 +287,48 @@ for (const lang of ['zh', 'en']) {
   await fill.context().close();
 }
 
+/* ---------- the shared runtime: scripts in canvas text, scripts in a legend, a neutral tick ---------- */
+const drawn = await D(() => {
+  const cv = document.createElement('canvas'); cv.style.cssText = 'position:fixed;left:0;top:0;width:300px;height:200px'; document.body.appendChild(cv);
+  const calls = [], orig = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (t, x, y) { if (this.canvas === cv) calls.push({ t, x, y, px: parseFloat(this.font), w: this.measureText(t).width, align: this.textAlign }); return orig.apply(this, arguments); };
+  const runs = (fn) => { calls.length = 0; fn(); return calls.map((c) => ({ ...c })); };
+  const g = () => TRV.kit.plot(cv, { x: [0, 1], y: [0, 1] });
+  const out = {
+    plain: runs(() => g().text(0.5, 0.5, 'a_b and x^2', null, { size: 12 })),
+    marks: runs(() => g().text(0.5, 0.5, 'E_{n}^{2} + 1', null, { size: 12, align: 'center' })),
+    pieces: runs(() => g().text(0.2, 0.5, ['|ψ', { t: '1', sub: true }, '⟩'], null, { size: 12 })),
+    legend: runs(() => g().legend([['#fff', 'φ^{−n}']]))
+  };
+  CanvasRenderingContext2D.prototype.fillText = orig; cv.remove();
+  return out;
+});
+check('kit.plot: text without _{…} or ^{…} is drawn as one string, as before', drawn.plain.length === 1 && drawn.plain[0].t === 'a_b and x^2', JSON.stringify(drawn.plain));
+const mk = drawn.marks;
+check('kit.plot: E_{n}^{2} sets n lowered and 2 raised, both smaller, left to right', mk.length === 4 && mk.map((c) => c.t).join('|') === 'E|n|2| + 1'
+  && mk[1].y > mk[0].y && mk[2].y < mk[0].y && mk[3].y === mk[0].y && mk[1].px < mk[0].px && mk[2].px < mk[0].px && mk[0].x < mk[1].x && mk[1].x < mk[2].x && mk[2].x < mk[3].x, JSON.stringify(mk));
+// the plot's data x = 0.5 is at 38 + (300 − 38 − 12) / 2 = 163 px: the runs, set left-aligned one after another, centre there
+const ends = [mk[0].x, mk[3].x + mk[3].w];
+check('kit.plot: a centred label with scripts is centred as a whole', mk.every((c) => c.align === 'left') && Math.abs((ends[0] + ends[1]) / 2 - 163) < 0.5
+  && mk.slice(1).every((c, k) => Math.abs(c.x - (mk[k].x + mk[k].w)) < 0.01), JSON.stringify(mk.map((c) => [c.x, c.w])));
+check('kit.plot: pieces with { t, sub: true } are scripts too', drawn.pieces.map((c) => c.t).join('|') === '|ψ|1|⟩' && drawn.pieces[1].y > drawn.pieces[0].y, JSON.stringify(drawn.pieces));
+check('kit.plot: a legend label carries scripts', drawn.legend.map((c) => c.t).join('|') === 'φ|−n' && drawn.legend[1].y < drawn.legend[0].y, JSON.stringify(drawn.legend));
+const legendGap = await D(() => {
+  const box = document.createElement('div'); box.className = 'hud-bl'; box.style.position = 'fixed';
+  box.innerHTML = '<span><i class="sw cy"></i><span class="zh">|ψ<sub>1</sub>⟩ 与 E<sup>2</sup></span><span class="en">|ψ<sub>1</sub>⟩ and E<sup>2</sup></span></span>';
+  document.querySelector('.stage').appendChild(box);
+  const label = box.querySelector(`.${TRV.lang()}`), r = document.createRange(), psi = label.firstChild;
+  r.setStart(psi, psi.length - 1); r.setEnd(psi, psi.length);
+  const a = r.getBoundingClientRect(), sub = label.querySelector('sub').getBoundingClientRect(), sw = box.querySelector('.sw').getBoundingClientRect();
+  const out = { gap: sub.left - a.right, sw: label.getBoundingClientRect().left - sw.right, oneLine: box.firstElementChild.getClientRects().length === 1 };
+  box.remove();
+  return out;
+});
+check('legend (.hud-bl): a <sub> sits on its letter, the swatch keeps its gap', Math.abs(legendGap.gap) < 1.5 && legendGap.sw > 3 && legendGap.oneLine, JSON.stringify(legendGap));
+const ticks = await D(() => [...document.querySelectorAll('#roC .nummark, #roCount .nummark')].map((e) => [getComputedStyle(e).color, getComputedStyle(document.querySelector('.okmark') || e).color]));
+const okColor = await D(() => { const e = document.createElement('span'); e.className = 'okmark'; document.body.appendChild(e); const c = getComputedStyle(e).color; e.remove(); return c; });
+check('readouts mark the page\'s own checks with .nummark, not in the green of LEAN ✓', ticks.length === 2 && ticks.every(([c]) => c !== okColor), JSON.stringify({ ticks, okColor }));
+
 /* ---------- English; the hub ---------- */
 await page.click('[data-lang-set="en"]'); await settle(page, 150);
 check('English title', (await D(() => document.title)).startsWith('GOLDEN//CARRY · Golden carry'));

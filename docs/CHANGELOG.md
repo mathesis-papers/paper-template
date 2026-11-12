@@ -9,10 +9,18 @@
 - 可视化：受光的实体 `kit.solid(el, opts)`（`theme/viz/kit.js`）。任何页面都可以直接调用，页面契约不变：第一次调用时才用 `import()` 取造型核心 `theme/viz/solid-core.js`（不依赖 DOM、事件与动画循环，给定状态同步画一帧，供视频引擎复用；`createScene`、`createRenderer`、`p`、`occluded`）与它导入的、`theme/viz/vendor/` 里钉版的 three.js（three@0.183.2 的 `three.module.min.js` 与 `three.core.min.js`，原样复制，MIT，gzip 约 185 KB；`vendor/README.md` 记来源与校验和），不画实体的页面一个字节都不多下载。图元按本书的语汇：参数曲面或点阵（逐顶点光照、正背面可区分、网格线、令牌色或沿标量渐变）、平面着色多面体（顶点/面表）、玻璃球壳、沿曲线的管（平行移动标架）、线、箭头、环、珠、平面多边形、DOM 标签（被实体挡住时变淡）；一盏固定在相机坐标里的主光加环境光；相机、拖动、滚轮、捏合与投影同 `kit.stage3`。拾取 `sc.hit(ev)` 返回曲面上的参数点（在精确曲面上用牛顿法细化），`sc.nearest`、`sc.occluded` 跳过被挡住的标记。没有渲染循环；书内嵌入时进入视口才建 WebGL 上下文，静止约 1.6 秒后把画面留在页面的二维画布上并释放上下文，读者一碰再取回。`kit.ready()` 在 three.js 到位后兑现，测试工具的 `settle(page)` 会等它；`inkShare` 能读 WebGL 画布。
 - `stageFirstChecks(…, { solid: true })` 与单独导出的 `solidChecks`、`solidPixels`：舞台上确有受光实体（不透明像素占比、明暗起伏）、转动相机后明暗分布改变、被挡住的标记点不到、书内静止后释放上下文且一碰取回。已有页面不传这个选项，检查不变。
 - 示例专著新增可视化 `phase-torus`（把相位正方形粘成环面：颜色是相位判据的三块，两条斜线在环面上接成一条闭曲线，珠子可点），第一章按卡引用 `torus`，配浏览器测试。`skills/book-viz` 新增“具象”一节：实体舞台是多出来的一种能力，不是统一风格，何时用、何时不硬套、怎么做。`tools/tests/test_viz_solid.py` 在 Chromium 里核对拾取（球与环面对解析解）、遮挡随相机翻转、正背面、主光、上下文释放与取回、three.js 只在首次调用时下载。来源：下游 trureturing-books#158（具象可视化），#42。
+- 被引用卡的停帧成为契约：会自己播放的卡在页面的卡片表里写 `still`（时间轴上的值或 `'end'`），把表交给 `kit.cards(el, { presets })`，它把声明写到卡上的 `data-still`（也可直接写在 HTML 里），`cards.still(id)` 读回；`TRV.still` 时页面把时钟放到那里。`stageFirstChecks` 对点了之后时间轴在走、却没有 `data-still` 的卡给出警告（`T.warn`：打印 `WARN`、计数，不算失败；`{ still: false }` 关掉）。`viz-testkit.mjs` 新增 `openStill(T, book, id, preset, lang)`（按 `viz-thumbs.mjs` 出图的方式打开那张卡的静止帧，测试里核对停帧读数 = 图注里的数）与共用的 `STILL`、`stillQuery`、`prepareStill`（`viz-thumbs.mjs` 改用它们）。示例页 `golden-carry`、`phase-torus` 与起始页面补了声明，测试核对 CANCEL、FILL、TORUS 的停帧。
+- `playsAfter(page, action, read)`（`viz-testkit.mjs`）：先把观察器装进页面再做动作，页面在每一帧与每次 DOM 变化时取样 `{ playing, t }`（默认读时间轴的 ▶ 与滑块），记下“开始播放并越过起点”；只播零点几秒的卡也不会漏。`stageFirstChecks` 的停帧检查用同一观察器，示例测试里 ZOOM-OUT、FILL、SWEEP 改用它。`skills/book-viz` 写明短于一两秒的自动播放一律这样测。
+- 画图库：`Axes.xaxis`/`yaxis` 不传 `size` 时刻度字号按画布宽度取手机上不低于 10 px 的值（`Canvas.label_floor`：429 宽以内 12，480 宽 13.5，716 宽 20；`WRAP` 图按最宽一栏），显式传了 `size` 的照旧，示例与已有的图逐字节不变；`fig.overline(x, y, "*c*")` 与 `fig.hat(…)` 在字上画横线与尖帽，取代定位不稳的组合附加符；`mono=True` 文字与 `fig.chip` 里的减号“−”改用正文字体（`tr-fig-sans`，`tr-book.css` 同步）；球的明暗 `sp.shade(role)` / `sp.outline(shade=role)`（受光一点最浓、向边缘变淡，用同心圆盘画成，只用颜色角色）、球冠 `sp.cap(轴, 角, role)` 与 `sp.patch(…, front=True)` 只填朝向读者的部分。示例 `golden-rotation` 的球加了明暗。
+- 可视化运行时：`kit.plot` 的 `g.text` 与 `g.legend` 支持下标、上标（字符串里写 `_{…}`、`^{…}`，或传片段数组 `[text, { t, sub: true }, …]`），不含这两种写法的字符串照原样画；新的中性对勾 `.nummark` 给页面自己核对过的数，绿色 `.okmark` 只留给 `.lean` 依据框；`viz-validate` 与 `./tbook check` 对 `.lean` 框之外的 `.okmark` 给警告（示例 `golden-carry` 的两处已改为 `.nummark`）。示例专著的浏览器测试覆盖这三项与图例下标。
 
 ### 变更
 
 - 媒体连排两块就报（**下游升级后会出现新警告，需要手动操作**）：`./tbook check` 原先从第三块起才报，现在相邻两块 `.figure`、`.viz`、`.film`、`.slides` 只隔着空行或 HTML 注释时就给警告，每一对报在第二块，点名两块各自的种类、`src`（实验卡带 `preset`，完整实验室标为 the full lab）与行号；不带 `preset` 的完整实验室紧跟同一页面的卡时，另提示把实验室挪到章末最后一段之后，或在两者之间用一句正文交代。示例专著第一章的完整实验室与视频之间补了一句正文（中英同步）。`skills/book-write`、`skills/book-viz`、`skills/book-figure`、`docs/AUTHORING.md` 与 `docs/ARCHITECTURE.md` 改为“相邻两块之间要隔着正文”。来源：#44。
+
+### 修复
+
+- 图例（`.hud-bl`）里的 `<sub>`、`<sup>` 贴着前一个字：每一项改为色块加一行行内文字，不再是带间距的 flex 项（下游不必再用 `<bdi>` 包裹）。
 
 ## [0.6.1] - 2026-11-12
 

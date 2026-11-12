@@ -134,6 +134,8 @@ const h = sc.hit(ev);                            // { id, u, v, point, normal, f
 - 页面上的每个数都是真算出来的。几个事实并排展示时，说明它们是不同的事实，页面不声称其中一个推出另一个。
 - 页面只为自己算出的数负责。章节转述的新近文献（预印本、尚无定论的结果）在页面上只作为该章的转述出现，为它画的曲线标 `MODEL`，不替它背书；正文里的修辞（“永远无法”“必然”）进入页面之前先核对它在所画的例子里是否成立，不成立就只写图里成立的那一半。
 - 绿色只给 Lean 已验证；琥珀色只给“现在/当前选择”；颜色只来自令牌（`var(--cyan)`、`TRV.palette`），不写十六进制色值。
+- 读数旁的对勾分两种：`.okmark`（绿色 ✓）只用在 `.lean` 依据框里，紧挨着它担保的 Lean 定理；页面自己算出来、核对过的数（“= 13² ✓”“< 1 + sin 1 ✓”“∈ {−1, 0, 1} ✓”）用中性的 `.nummark`。`viz-validate` 与 `./tbook check` 对 `.lean` 框之外的 `.okmark` 给警告：页面里看祖先，脚本里看那一行写入的元素（`$('id')`、`getElementById`、`querySelector('#id')`）是否在 `.lean` 框里。
+- 图例（`.hud-bl`）里每一项是色块加一行文字，下标、上标直接写 `<sub>`、`<sup>`，贴着前一个字，不必再用 `<bdi>` 包起来。画布上的文字（`kit.plot` 的 `g.text`、`g.legend`）写 `E_{n}`、`φ^{−n}`，或传片段数组 `['|ψ', { t: '1', sub: true }, '⟩']`，下标缩小下沉、上标缩小上浮；不含 `_{`、`^{` 的字符串照原样画。
 - 所有可见文字中英成对（静态 `.zh`/`.en`，脚本用 `TRV.L` 并在语言切换时重绘，`kit.painter` 已代办）。
 
 ### 5. 看图
@@ -199,7 +201,7 @@ node tools/node/viz-validate.mjs <book> && ./tbook check
 | 重绘 | `const paint = kit.painter(draw, [要监听尺寸的元素])`；`paint()` 请求一帧，`kit.flush()` 走完进行中的过渡并立即重绘（测试用） |
 | 三维舞台（二维画布上） | `const st = kit.stage3(el, { canvas, onChange: paint, onPick, onDrag })`；每帧 `st.begin()` … `st.sphere()`、`st.arc(u, v)`、`st.arrow(a, b)`、`st.path(pts)`、`st.poly(pts)`、`st.dot(p)`、`st.circle(c, n, r)`、`st.tag(key, p, html, cls)` … `st.end()`；`st.pick(ev)` 取指针下的球面点，`st.view('iso' \| 'front' \| 'top')` |
 | 受光的实体（three.js，首次调用才加载） | `const sc = kit.solid(el, { canvas, onChange: paint, onPick, onDrag })`；每帧 `sc.begin()` … `sc.surface(key, f, s)`、`sc.glass(key, c, r)`、`sc.poly(key, { vertices, faces })`、`sc.tube(key, pts)`、`sc.line(pts)`、`sc.arrow(a, b)`、`sc.ring(p)`、`sc.bead(p)`、`sc.fan(pts)`、`sc.tag(…)` … `sc.end()`；`sc.hit(ev)`、`sc.nearest(ev, pts, px)`、`sc.occluded(p)`、`sc.view(…)`；`kit.ready()` |
-| 二维舞台与小图 | `const g = kit.plot(canvas, { x, y, pad, equal, logY })`；`g.axes()`、`g.line()`、`g.area()`、`g.rect()`、`g.poly()`、`g.dot()`、`g.vline()`、`g.hline()`、`g.text()`、`g.legend()`；`g.invX/invY` 把指针换回数据坐标 |
+| 二维舞台与小图 | `const g = kit.plot(canvas, { x, y, pad, equal, logY })`；`g.axes()`、`g.line()`、`g.area()`、`g.rect()`、`g.poly()`、`g.dot()`、`g.vline()`、`g.hline()`、`g.text()`、`g.legend()`（文字可写 `_{…}`、`^{…}` 或片段数组）；`g.invX/invY` 把指针换回数据坐标 |
 | 同一页既有二维又有三维场景 | 共用一块画布和一个 `kit.stage3`：二维场景里先 `st.begin(); st.end();` 再 `kit.plot(canvas, …)`；`onPick` 在二维场景返回 `true` 接管拖动（否则拖动会悄悄转动相机），并随场景切换舞台的 `still` 类 |
 | 时间轴 | `kit.clock({ range, play, label, speeds, max, rate, step, format, onChange })` → `set`、`setMax`、`play`、`pause`、`stepBy`；键盘 Space / ← → / Home / End 已绑定（用指针点过卡或 `kit.chips` 的按钮后焦点在舞台上，空格即播放）。`format(t, max)` 在构造时就被调用一次：只用这两个参数与页面状态，不引用时钟变量本身 |
 | 实验卡与导览条 | `kit.cards(el, { presets, notes, noteEl, tour, idle, onPick })` → `pick`、`mark(null)`（读者动了控件）、`initial(默认卡)`、`step(±1)`、`still(id)`（声明的停帧）；`presets` 是页面的卡片表，其中的 `still` 写到卡上的 `data-still` |
@@ -237,6 +239,7 @@ node tools/node/viz-validate.mjs <book> && ./tbook check
 | 静态图没有停在想要的画面 | 给那张卡写 `still`，把卡片表交给 `kit.cards({ presets })`，并在 `TRV.still` 时跳到它 |
 | 测试警告 `still: card … plays by itself but declares no still frame` | 同上；声明之后用 `openStill` 核对那一帧的读数与图注一致，再重新出图 |
 | `until(… playing && t > 0)` 在 CI 上偶尔 30 秒超时 | 那张卡的播放很短，测试开始看时已经播完：改用 `playsAfter(page, () => 点卡, () => 读 { playing, t })` |
+| 警告 `.okmark (a green ✓) at … is outside a .lean box` | 页面自己核对的数改用 `.nummark`；真是 Lean 定理担保的读数，把它放进带 `data-lean-gid` 链接的 `.lean` 框 |
 | `LEAN ✓` 链接 404 或 GID 未登记 | `./tbook pin --refresh`；GID 必须是已冻结的 `theorem`，定义写成 `data-trureturing-path` |
 | 手机宽度横向滚动 | 网格列用 `minmax(0, 1fr)`，长数字允许换行 |
 | 手机上舞台标题被场景按钮压住 | 标题太长；只写“场景 · 关键量” |

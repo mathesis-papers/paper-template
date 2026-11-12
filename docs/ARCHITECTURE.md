@@ -153,6 +153,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
   - 视频：`books/<slug>/films/<NNN>-<name>/`（`film.json`、`script.json`、`scenes.js`、`poster.jpg`）；规范见 `templates/film/README.md`。成片是构建产物（见下文“视频构建”），没有单独的 Release；`film.json` 中旧的 `release_tag`、`published_tag` 不再使用，`./tbook check` 给出警告。
   - 幻灯片：`books/<slug>/slides/<deck>/slides.md`（第一语言）与 `slides.<lang>.md`，逐页对应；不得有 `slides.<第一语言>.md`（会被 `slides.md` 遮蔽），也不得用 `src:` 导入别的文件的幻灯片（检查无法读取导入的内容），二者都报错；写法见 `theme/slides/README.md`。
 - 媒体中引用的 Lean GID 与章节引用一样必须在锁文件中，由 `./tbook pin --refresh` 解析、`./tbook check` 复核：登记表的 `lean`、页面的 `data-lean-gid`、`film.json` 的 `lean`、幻灯片的 `<LeanBadge>` / `<TheoremCard>`（`<lean-badge>`、`<theorem-card>` 等 Vue 认可的写法同样受检查；代码块之外的每个标签都受检查。代码块指围栏代码块、缩进代码块与 `<<<` 导入，按 Slidev 53 配置下 markdown-exit 的块规则识别：表格、组件 HTML 块、脚注、`$$` 公式块与各容器的规则都在内。Python 的 `slides.code_lines` 与 Node 的 `codeLines` 是同一份移植，测试用 Slidev 构建出的解析器比对二者）。它们显示为绿色 `LEAN ✓`，因此必须是种类为 `theorem` 的声明：页面中的定义用 `data-trureturing-path="<module>.lean"` 链接；幻灯片写 `kind="definition"` 时可以引用 Lean 定义，显示中性的 `LEAN DEF` 而不是绿色 `LEAN ✓`。
+- 可视化页面的绿色对勾 `.okmark` 只在 `.lean` 依据框里；页面里没有 `.lean` 祖先的 `.okmark`，以及脚本里写入 `.okmark`、却没有点名某个位于 `.lean` 框中的元素的那一行，`./tbook check`（`viz.okmarks_outside_lean`）与 `viz-validate`（`okmarksOutsideLean`）给警告；页面自己核对的数用中性的 `.nummark`。
 - `[@id]` 只能指向编号环境，不能指向媒体块。
 
 ### 3.5 数学

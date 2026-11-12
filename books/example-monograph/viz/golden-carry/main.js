@@ -409,10 +409,10 @@
     $('hudBig').textContent = big; $('hudSub').textContent = hud; $('roNote').textContent = note;
     const leg = LEGEND[S.scene].map(([cl, zh, en]) => `<span><i class="sw ${cl}"></i>${L(zh, en)}</span>`).join('');
     if ($('legend')._h !== leg) { $('legend').innerHTML = leg; $('legend')._h = leg; }
-    $('roC').innerHTML = `<span class="${signCls(c)}">${isInt ? fmtSigned(c) : fmtZphi(D.c)}</span> <span class="okmark">${isInt && Math.abs(c) <= 1 ? '∈ {−1, 0, 1} ✓' : '✗'}</span>`;
+    $('roC').innerHTML = `<span class="${signCls(c)}">${isInt ? fmtSigned(c) : fmtZphi(D.c)}</span> <span class="nummark">${isInt && Math.abs(c) <= 1 ? '∈ {−1, 0, 1} ✓' : '✗'}</span>`;
     $('roCSub').textContent = `= (${fmtZphi({ a: D.b1.a + D.b2.a, b: D.b1.b + D.b2.b })}) − (${fmtZphi(D.b3)})`;
     $('roR0').textContent = String(D.r0); $('roR1').textContent = String(D.r1);
-    $('roCount').innerHTML = `${D.r0} − ${D.r1} = <span class="${signCls(D.count)}">${fmtSigned(D.count)}</span> <span class="okmark">${isInt && D.count === c ? '= c ✓' : '≠ c ✗'}</span>`;
+    $('roCount').innerHTML = `${D.r0} − ${D.r1} = <span class="${signCls(D.count)}">${fmtSigned(D.count)}</span> <span class="nummark">${isInt && D.count === c ? '= c ✓' : '≠ c ✗'}</span>`;
     const three = [BC[S.v1], BC[S.v2], BC[sum]], inWin = three.every((x) => x >= LO - 1e-12 && x <= HI + 1e-12);
     $('roConj').innerHTML = `${three.map((x) => fix(x, 3)).join(' · ')} <small>∈ [−0.382, 0.618] ${inWin ? '✓' : '✗'}</small>`;
     $('pillPair').querySelector('strong').textContent = `${S.v1}, ${S.v2}`;
