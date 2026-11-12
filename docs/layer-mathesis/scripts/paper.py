@@ -208,6 +208,11 @@ def check(root, complete=False):
             'Mathesis layer 0.2.0 requires upstream written-proof support '
             '(status="written-proof" with proof="id"). Update the upstream template '
             'to a release containing feat/written-proof-status before checking or publishing this paper.')
+    from tbook import site as book_site
+    require(callable(getattr(book_site, "post_build", None)),
+            "Mathesis layer 0.3.0 requires upstream site.post_build support; update the upstream template before publishing")
+    require(site["site"].get("post_build") == ["python3", "docs/layer-mathesis/scripts/site.py"],
+            "site.post_build must run the Mathesis site postprocessor; apply the layer migration")
     from tbook import check as book_check, lean
     books = config.load_books()
     require([b.slug for b in books] == [slug], "one visible book is required")
