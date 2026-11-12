@@ -87,3 +87,15 @@ retains Mathesis as DOI authority and consumes these manifests anonymously.
 
 The mechanical publisher uses [PREPARATION_CHECKLIST.md](PREPARATION_CHECKLIST.md)
 for its one preparation issue; it does not execute the content skills itself.
+
+Layer 0.3.1 declares the hook through the canonical command in `site-hook.json`.
+Its standard-library Python bootstrap checks for the layer script before running
+it, so inherited settings work even in a repository without layer files. The
+postprocessor reads the repository in the hook's working directory and skips
+when that repository has no `.mathesis/book.json` or the assembled site does not
+contain the mapped book. Each skip prints one reason and changes no output.
+When the mapped book is present, the original strict `emit` checks still apply;
+malformed metadata, extra books, identity mismatches and unsafe material paths
+fail the build. `fill` and the `v0.3.1.py` migration use the same command, and
+`paper.py check` verifies its exact declaration. The upstream optional hook
+already supplies cwd and `TBOOK_SITE_OUT`; no upstream change is needed.

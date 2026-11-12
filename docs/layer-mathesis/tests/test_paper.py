@@ -60,6 +60,8 @@ class PaperTests(unittest.TestCase):
         import tomllib
         cfg = tomllib.loads((self.root / "books" / self.slug / "book.toml").read_text())
         self.assertEqual(cfg["outputs"]["pdf"], ["academic"])
+        site = tomllib.loads((self.root / "site.toml").read_text())
+        self.assertEqual(site["site"]["post_build"], json.loads((ROOT / "docs/layer-mathesis/site-hook.json").read_text()))
 
     def test_old_upstream_refused_clearly(self):
         path = self.root / "tools/tbook/model.py"

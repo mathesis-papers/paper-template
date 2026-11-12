@@ -142,7 +142,9 @@ def fill(root, source, slug, title_zh, title_en, repository):
         require(not dest.exists() or name in {"README.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSES/CC-BY-4.0.txt"},
                 f"publisher import would overwrite {name}")
     skeleton = root / "docs/layer-mathesis/skeleton"
-    values = {"SITE_BASE": "https://papers.trureturing.org/" + work["repository_name"] + "/", "REPOSITORY": repository, "SLUG": slug, "TITLE_ZH": title_zh, "TITLE_EN": title_en,
+    values = {"SITE_BASE": "https://papers.trureturing.org/" + work["repository_name"] + "/",
+              "SITE_POST_BUILD": read_json(ROOT / "docs/layer-mathesis/site-hook.json"),
+              "REPOSITORY": repository, "SLUG": slug, "TITLE_ZH": title_zh, "TITLE_EN": title_en,
               "VERSION": str(work["current_version"]), "VERSION_NUMBER": work["current_version"],
               "AUTHORS": [a["name"] for a in work["authors"]], "LICENSE": work["license"],
               "DATE": (work["published_on"] or "").split("T")[0], "WORK": work["work"], "SOURCE_TITLE": work["title"]}
@@ -210,8 +212,8 @@ def check(root, complete=False):
             'to a release containing feat/written-proof-status before checking or publishing this paper.')
     from tbook import site as book_site
     require(callable(getattr(book_site, "post_build", None)),
-            "Mathesis layer 0.3.0 requires upstream site.post_build support; update the upstream template before publishing")
-    require(site["site"].get("post_build") == ["python3", "docs/layer-mathesis/scripts/site.py"],
+            "Mathesis layer 0.3.1 requires upstream site.post_build support; update the upstream template before publishing")
+    require(site["site"].get("post_build") == read_json(ROOT / "docs/layer-mathesis/site-hook.json"),
             "site.post_build must run the Mathesis site postprocessor; apply the layer migration")
     from tbook import check as book_check, lean
     books = config.load_books()
