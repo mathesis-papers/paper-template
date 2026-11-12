@@ -1,0 +1,6 @@
+cff-version: 1.2.0
+message: "Cite the paper represented by this repository."
+title: "Paper title"
+authors:
+  - name: "Paper author"
+license: CC-BY-4.0
