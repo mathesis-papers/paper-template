@@ -467,13 +467,27 @@
     return api;
   }
   /** Experiment cards: buttons carrying data-preset inside el. opts: notes { id: [zh, en] }, noteEl, idle [zh, en],
-      onPick(id), tour (a .tour element with [data-tour="prev"], [data-tour="next"] and .what).
-      Returns { current, pick(id), step(±1), mark(id | null), initial(fallback) }: mark(null) when the reader leaves
-      the scenario by moving a control; initial() honours the card a chapter cites with ?preset=<id>. */
+      onPick(id), tour (a .tour element with [data-tour="prev"], [data-tour="next"] and .what), presets (the page's
+      table of cards { id: { …, still } }).
+      Still frame: a card that plays by itself declares the frame its still shows (the cover, the labelled figure a
+      chapter cites, PDF and EPUB) as `still` in the page's table, a clock time or 'end', and the page puts its clock
+      there when TRV.still is set. Passed the table as `presets`, cards() writes each declared value onto the card as
+      data-still (a card may also carry data-still in the HTML), where the quality gate (stageFirstChecks) reads it.
+      Returns { current, pick(id), step(±1), mark(id | null), initial(fallback), still(id) }: mark(null) when the reader
+      leaves the scenario by moving a control; initial() honours the card a chapter cites with ?preset=<id>; still(id)
+      is the declared still of a card (the table's value, else its data-still, else null). */
   function cards(el, o) {
     o = o || {};
     const api = { current: null };
     const ids = () => [...el.querySelectorAll('[data-preset]')].map((b) => b.dataset.preset);
+    const stillOf = (id) => {
+      const p = o.presets && o.presets[id];
+      if (p && p.still != null) return p.still;
+      const b = el.querySelector(`[data-preset="${id}"]`), v = b ? b.dataset.still : undefined;
+      return v == null || v === '' ? null : (Number.isFinite(Number(v)) ? Number(v) : v);
+    };
+    if (o.presets) for (const b of el.querySelectorAll('[data-preset]')) { const p = o.presets[b.dataset.preset]; if (p && p.still != null) b.dataset.still = String(p.still); }
+    api.still = stillOf;
     const tour = o.tour;
     function note() {
       const n = o.notes && api.current && o.notes[api.current], text = n ? TRV.L(n[0], n[1]) : (o.idle ? TRV.L(o.idle[0], o.idle[1]) : '');

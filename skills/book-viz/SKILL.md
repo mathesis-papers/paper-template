@@ -113,6 +113,7 @@ const h = sc.hit(ev);                            // { id, u, v, point, normal, f
 
 - 页面用 `cards.pick(cards.initial('<默认卡>'))` 开场：章节用 `preset` 指定了卡时就开在那张卡上。
 - 每张卡在数据里写三样东西：起始状态、是否播放（`play`）、静态图该停在哪一帧（`still`）。约定：`TRV.still`（封面与静态图）和整页打开时停在 `still`；书内的图用 `kit.autoplay` 在读者滚到它时才播放；读者点卡则立即播放。
+- **停帧是契约。** 会自己播放的卡必须声明 `still`（时间轴上的值，或 `'end'`），并把卡片表交给 `kit.cards(el, { presets: PRESETS, … })`：`kit.cards` 把每张卡的 `still` 写到按钮的 `data-still` 上（也可以直接在 HTML 里写 `data-still`），`cards.still(id)` 读回声明的值。页面在 `TRV.still` 为真时把时钟放到那里（`clock.set(p.still === 'end' ? clock.max : p.still)`）。PDF/EPUB 印的 `fig-<卡>.<语言>.jpg` 就是这一帧，所以图注讲终态，`still` 就停在终态；图注讲某个中间时刻，就停在那一刻。`stageFirstChecks` 对点了之后时间轴在走、却没有 `data-still` 的卡给出警告。
 - 卡片说明只说图里看得见的东西。被引用的图只显示舞台、说明条和时间轴，条带小图和读数栏不在场。
 - 章节里这样引用，各语言版本都要加，位置、`src` 与 `preset` 相同：
 
@@ -169,7 +170,9 @@ await stageFirstChecks(T, '<book>', '<id>');     // 所有舞台优先页面都�
 - `stageFirstChecks` 检查：舞台占比、每张卡能点且有说明、标签不重叠、抽屉、点卡之后空格键控制播放、如实标注（每条 Lean 链接都是锁文件里的定理并指向所钉提交的文件与行；登记表列出的定理与页面引用的一致；绿色框恰好是引用 Lean 定理的框；抽屉用两种语言写明“不是证明”）、英文无残留中文、书内第一屏、被引用的图不滚动、静态图、手机无横向滚动、封面非空白、减少动效。
 - 页面自己的检查：每个控件一条；页面声称的每条性质一条，**用测试里另写的独立算法核对**（另一种表示、暴力枚举、数值积分），不调用页面自己的函数。页面通过只读探针 `window.<NAME>_DEBUG` 暴露状态。
 - 读状态前调用 `settle(page)`：无头浏览器每秒只渲染几帧，不要靠等待碰运气。它先把进行中的过渡（`kit.tween`、相机的 `st.view`）走完，再重绘：点完一张卡 `settle` 一下就能读到终态，不要为过渡等一个固定的毫秒数。过渡只在动画帧上前进，机器一忙，结束它的那一帧可能比标称时长晚得多。
-- 播放不是过渡，`settle` 不替时钟往前走。检查“空格开始播放”“这张卡会自己播”时，等页面自己报告动了：`check('Space plays', await until(page, () => window.<NAME>_DEBUG.state.t > 0))`。`until` 由 `viz-testkit.mjs` 导出，条件一成立就返回 `true`，30 秒仍不成立返回 `false`，本身就是这条检查的结果。不要写“按空格、等 700 毫秒、再读 t”：播放靠动画帧推进，机器一忙，700 毫秒里可能一帧都没到，页面没错，检查却失败。
+- 播放不是过渡，`settle` 不替时钟往前走。检查“空格开始播放”这类会一直播下去的情形时，等页面自己报告动了：`check('Space plays', await until(page, () => window.<NAME>_DEBUG.state.t > 0))`。`until` 由 `viz-testkit.mjs` 导出，条件一成立就返回 `true`，30 秒仍不成立返回 `false`，本身就是这条检查的结果。不要写“按空格、等 700 毫秒、再读 t”：播放靠动画帧推进，机器一忙，700 毫秒里可能一帧都没到，页面没错，检查却失败。
+- **“这张卡会自己播”用 `playsAfter`，不用“点卡、`settle`、再 `until`”。** 一段只扫过一小段时间轴的播放（零点几秒）可能在测试开始看之前就播完了，`until(playing && t > 0)` 白等 30 秒超时。`playsAfter` 先把观察器装进页面，再做动作：`check('FILL plays', await playsAfter(page, () => page.click('[data-preset="fill"]'), () => window.<NAME>_DEBUG.state))`。第三个参数在页面里运行，返回 `{ playing, t }`（省略时读时间轴的 ▶ 按钮与滑块）；页面在每一帧和每次 DOM 变化时取样，记下“开始播放、随后越过起点”。短于一两秒的自动播放一律这样写。
+- **停帧读数要核对。** 被引用的卡，测试用 `openStill(T, '<book>', '<id>', '<卡>', '<语言>')` 按 `viz-thumbs.mjs` 出图的方式（800 × 450、`?shot=1`、减少动效）打开那张卡的静止帧，核对此时的读数就是图注里写的数：`const p = await openStill(T, BOOK, ID, 'cancel', 'zh'); check('…', (await p.evaluate(() => window.<NAME>_DEBUG.state)).pass === 3); await p.context().close();`。
 - 不写 `page.waitForTimeout(…)`：`viz-validate`（与 `./tbook check`）对测试里的每一处固定等待报警告，并给出行号与改法。
 - 交付前加上 `VIZ_SLOW_FRAMES=1000` 再跑一遍测试（`VIZ_SLOW_FRAMES=1000 node books/<book>/viz/tests/<id>.test.mjs`，或整本书 `node tools/node/viz-test.mjs <book> --slow`）：它把动画帧拉开到一秒一帧，比 CI 最忙时还慢，耗时与平时几乎相同。为过渡或播放等固定时间而碰巧通过的检查在这里必然失败；间隔取得比测试里最长的固定等待短，就可能照不出来。CI 每周（与手动触发时）用 `--slow` 把全部测试跑一遍（`ci.yml` 的 `viz-slow`，`docs/PUBLISHING.md` §4），PR 不等它。
 - 键盘：用指针点了实验卡、场景按钮或导览条之后，`kit` 把焦点交给舞台，空格直接播放或暂停；用 Tab 走到按钮上的读者，空格与回车仍按下那个按钮。测试里点完卡就按空格，读到的是时钟的翻转；要测按钮本身对空格的响应，先 `page.focus(…)` 或用 Tab 走到它。
@@ -199,7 +202,7 @@ node tools/node/viz-validate.mjs <book> && ./tbook check
 | 二维舞台与小图 | `const g = kit.plot(canvas, { x, y, pad, equal, logY })`；`g.axes()`、`g.line()`、`g.area()`、`g.rect()`、`g.poly()`、`g.dot()`、`g.vline()`、`g.hline()`、`g.text()`、`g.legend()`；`g.invX/invY` 把指针换回数据坐标 |
 | 同一页既有二维又有三维场景 | 共用一块画布和一个 `kit.stage3`：二维场景里先 `st.begin(); st.end();` 再 `kit.plot(canvas, …)`；`onPick` 在二维场景返回 `true` 接管拖动（否则拖动会悄悄转动相机），并随场景切换舞台的 `still` 类 |
 | 时间轴 | `kit.clock({ range, play, label, speeds, max, rate, step, format, onChange })` → `set`、`setMax`、`play`、`pause`、`stepBy`；键盘 Space / ← → / Home / End 已绑定（用指针点过卡或 `kit.chips` 的按钮后焦点在舞台上，空格即播放）。`format(t, max)` 在构造时就被调用一次：只用这两个参数与页面状态，不引用时钟变量本身 |
-| 实验卡与导览条 | `kit.cards(el, { notes, noteEl, tour, idle, onPick })` → `pick`、`mark(null)`（读者动了控件）、`initial(默认卡)`、`step(±1)` |
+| 实验卡与导览条 | `kit.cards(el, { presets, notes, noteEl, tour, idle, onPick })` → `pick`、`mark(null)`（读者动了控件）、`initial(默认卡)`、`step(±1)`、`still(id)`（声明的停帧）；`presets` 是页面的卡片表，其中的 `still` 写到卡上的 `data-still` |
 | 进入视野才播放 | `kit.autoplay(clock, stageEl)` |
 | 过渡 | `kit.tween(ms, step, done)`（尊重 `prefers-reduced-motion`） |
 | 其余 | `kit.chips`（互斥按钮组）、`kit.field`（滑块与读数）、`kit.keys`（快捷键）、`kit.v3`（向量、`rot`、`slerp`、`sph`）、`kit.fix` / `kit.sgn`（不出现 `-0.00` 的数字） |
@@ -231,7 +234,9 @@ node tools/node/viz-validate.mjs <book> && ./tbook check
 | `check` 报 draft 不能嵌入 | 完成登记表与测试，把状态改为 `live` |
 | `no experiment card data-preset="…"` | 章节引用的卡在页面里不存在；核对卡名，各语言版本一致 |
 | `the still of card "…" for <lang> is missing` | 运行 `node tools/node/viz-thumbs.mjs <book> <id>` 并提交生成的 `fig-*.jpg` |
-| 静态图没有停在想要的画面 | 给那张卡写 `still`，并在 `TRV.still` 时跳到它 |
+| 静态图没有停在想要的画面 | 给那张卡写 `still`，把卡片表交给 `kit.cards({ presets })`，并在 `TRV.still` 时跳到它 |
+| 测试警告 `still: card … plays by itself but declares no still frame` | 同上；声明之后用 `openStill` 核对那一帧的读数与图注一致，再重新出图 |
+| `until(… playing && t > 0)` 在 CI 上偶尔 30 秒超时 | 那张卡的播放很短，测试开始看时已经播完：改用 `playsAfter(page, () => 点卡, () => 读 { playing, t })` |
 | `LEAN ✓` 链接 404 或 GID 未登记 | `./tbook pin --refresh`；GID 必须是已冻结的 `theorem`，定义写成 `data-trureturing-path` |
 | 手机宽度横向滚动 | 网格列用 `minmax(0, 1fr)`，长数字允许换行 |
 | 手机上舞台标题被场景按钮压住 | 标题太长；只写“场景 · 关键量” |
@@ -245,6 +250,6 @@ node tools/node/viz-validate.mjs <book> && ./tbook check
 
 ## 完成标准
 
-一句话与每张卡都能在正文里找到对应的句子；看过全部截图并与参照页面比过；`stageFirstChecks` 与页面自己的检查全部通过；`viz-validate`、`./tbook check` 通过；登记表为 `live`，封面与被引用卡的静态图已提交；各语言章节的引用一致；在站点与 PDF 中实际看过。
+一句话与每张卡都能在正文里找到对应的句子；看过全部截图并与参照页面比过；会自己播放的卡都声明了停帧（`stageFirstChecks` 没有 `still:` 警告）；被引用卡的静态图与图注逐张对过，测试里用 `openStill` 核对停帧读数；`stageFirstChecks` 与页面自己的检查全部通过；`viz-validate`、`./tbook check` 通过；登记表为 `live`，封面与被引用卡的静态图已提交；各语言章节的引用一致；在站点与 PDF 中实际看过。
 
 当前版本来自 `trureturing.lock.json`，不复制 SHA 到源码。正文与审计表用 `docs/AUTHORING.md` 的保留链接标签；幻灯片用 `<PinnedCommit />`（复用主题的 `pinned`）；可视化锚点用 `data-lean-gid` / `data-trureturing-path` 和 `href="#"`，由构建与本地预览解析。动态声明数据可从 `../assets/trureturing.json` 取得（构建生成、本地预览从锁读取；不提交该文件）。真实历史版本仍按历史事实保留。钉版后复核摘要变化与媒体陈述，再重建；纯提交或行号变化不要求改正文或媒体源码。

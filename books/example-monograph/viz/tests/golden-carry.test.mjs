@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { session, stageFirstChecks, settle, until, cjkLeftovers } from '../../../../tools/node/viz-testkit.mjs';
+import { session, stageFirstChecks, settle, until, cjkLeftovers, playsAfter, openStill } from '../../../../tools/node/viz-testkit.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const BOOK = 'example-monograph', ID = 'golden-carry';
@@ -207,8 +207,9 @@ pt = await D(() => window.GC_DEBUG.point.mini(21, 3));
 await page.mouse.click(pt.x, pt.y); st = await state();
 check('clicking the small map under the stage picks a pair too', st.v1 === 21 && st.v2 === 3, JSON.stringify([st.v1, st.v2]));
 check('the row plot under the stage follows v₂', (await text('#pATitle')).includes('c(v₁, 3)'));
-await pick('zoom');
-check('ZOOM-OUT plays the range outward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'map' && d.t > 0; }));
+// the watcher is in the page before the click (playsAfter), so a playback that ends quickly still counts; the reader
+// runs in the page and gives { playing, t } only while the card's scene is shown
+check('ZOOM-OUT plays the range outward', await playsAfter(page, () => pick('zoom'), () => { const d = window.GC_DEBUG.state; return d.scene === 'map' ? d : null; }));
 await page.keyboard.press('End'); st = await state();
 check('at the end the map covers 0 … 987: 976144 cells, three colours', st.N === 987 && st.cells.odd === 0 && (await text('#hudSub')).includes('976144'));
 
@@ -229,8 +230,7 @@ check('the HUD prints the two areas', (await text('#hudSub')).includes(P.toFixed
 await seek(21); pt = await D(() => window.GC_DEBUG.point.phase(4, 7));
 await page.mouse.click(pt.x, pt.y); st = await state();
 check('clicking a point of the phase square picks that pair', st.v1 === 4 && st.v2 === 7, JSON.stringify([st.v1, st.v2]));
-await pick('fill');
-check('FILL plays n upward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'phase' && d.n > 2; }));
+check('FILL plays n upward', await playsAfter(page, () => pick('fill'), () => { const d = window.GC_DEBUG.state; return d.scene === 'phase' ? d : null; }));
 await page.keyboard.press('Space');
 
 /* ---------- the window on the contraction face ---------- */
@@ -242,8 +242,7 @@ let inside = true, least = 9, greatest = -9; for (let v = 0; v <= 233; v++) { co
 st = await seek(233);
 check('every β′(v) with v ≤ 233 lies in [−1/φ², 1/φ], here and on the page', inside && near(st.least, least) && near(st.greatest, greatest) && (await text('#hudSub')).includes('✓'));
 check('the window is exactly 1 long and leaves room for −1, 0, 1 only', near(hi - lo, 1) && Math.ceil(2 * lo - hi) === -1 && Math.floor(2 * hi - lo) === 1);
-await pick('sweep');
-check('SWEEP plays v upward', await until(page, () => { const d = window.GC_DEBUG.state; return d.scene === 'window' && d.m > 0; }));
+check('SWEEP plays v upward', await playsAfter(page, () => pick('sweep'), () => { const d = window.GC_DEBUG.state; return d.scene === 'window' ? d : null; }));
 await page.keyboard.press('Space');
 
 /* ---------- scenes from the keyboard ---------- */
@@ -269,6 +268,24 @@ await page.click('#infoBtn');
 check('the drawer says the page is a numerical illustration, not a proof', /数值演示，不是证明/.test(await text('#drawer div.zh')) && /numerical illustration, not a proof/.test(await text('#drawer div.en')));
 await page.keyboard.press('Escape');
 check('Esc closes the drawer and focus returns to its button', (await D(() => document.getElementById('drawer').hidden)) && (await D(() => document.activeElement.id)) === 'infoBtn');
+
+/* ---------- the stills a chapter cites: the frame each caption describes ---------- */
+// what tools/node/viz-thumbs.mjs photographs for PDF and EPUB; each card that plays declares its still (data-still)
+check('every card that plays declares its still frame', eq(await D(() => [...document.querySelectorAll('[data-preset]')].filter((b) => b.dataset.still != null).map((b) => `${b.dataset.preset}:${b.dataset.still}`)),
+  ['plus:end', 'minus:end', 'cancel:end', 'long:end', 'zoom:7', 'fill:89', 'sweep:144']));
+for (const lang of ['zh', 'en']) {
+  const still = await openStill(T, BOOK, ID, 'cancel', lang), s1 = await still.evaluate(() => window.GC_DEBUG.state);
+  // the caption: three carries, the gauge back at 0, so c(6, 6) = 0
+  check(`still CANCEL (${lang}): the third and last pass of 6 + 6, at rest, c = 0`, s1.v1 === 6 && s1.v2 === 6 && s1.pass === 3 && s1.passes === 3 && !s1.playing
+    && (await still.evaluate(() => window.GC_DEBUG.info().c)) === 0, JSON.stringify(s1));
+  await still.context().close();
+  const fill = await openStill(T, BOOK, ID, 'fill', lang), s2 = await fill.evaluate(() => window.GC_DEBUG.state);
+  // the caption: n is written in the title, the line under it gives the two shares and the two areas
+  const hud = await fill.textContent('#hudSub');
+  check(`still FILL (${lang}): n = 89 at rest, the shares of the page under the title`, s2.scene === 'phase' && s2.n === 89 && !s2.playing
+    && hud.includes(s2.shares.pos.toFixed(4)) && hud.includes((1 / (2 * PHI ** 2)).toFixed(4)), `${JSON.stringify(s2)} ${hud}`);
+  await fill.context().close();
+}
 
 /* ---------- English; the hub ---------- */
 await page.click('[data-lang-set="en"]'); await settle(page, 150);
