@@ -10,15 +10,20 @@
 - `playsAfter(page, action, read)`（`viz-testkit.mjs`）：先把观察器装进页面再做动作，页面在每一帧与每次 DOM 变化时取样 `{ playing, t }`（默认读时间轴的 ▶ 与滑块），记下“开始播放并越过起点”；只播零点几秒的卡也不会漏。`stageFirstChecks` 的停帧检查用同一观察器，示例测试里 ZOOM-OUT、FILL、SWEEP 改用它。`skills/book-viz` 写明短于一两秒的自动播放一律这样测。
 - 画图库：`Axes.xaxis`/`yaxis` 不传 `size` 时刻度字号按画布宽度取手机上不低于 10 px 的值（`Canvas.label_floor`：429 宽以内 12，480 宽 13.5，716 宽 20；`WRAP` 图按最宽一栏），显式传了 `size` 的照旧，示例与已有的图逐字节不变；`fig.overline(x, y, "*c*")` 与 `fig.hat(…)` 在字上画横线与尖帽，取代定位不稳的组合附加符；`mono=True` 文字与 `fig.chip` 里的减号“−”改用正文字体（`tr-fig-sans`，`tr-book.css` 同步；**含这种减号的已有图会被 `./tbook check` 判为过期，升级后运行 `./tbook fig build` 重新生成并提交**）；球的明暗 `sp.shade(role)` / `sp.outline(shade=role)`（受光一点最浓、向边缘变淡，用同心圆盘画成，只用颜色角色）、球冠 `sp.cap(轴, 角, role)` 与 `sp.patch(…, front=True)` 只填朝向读者的部分。示例 `golden-rotation` 的球加了明暗。
 - 可视化运行时：`kit.plot` 的 `g.text` 与 `g.legend` 支持下标、上标（字符串里写 `_{…}`、`^{…}`，或传片段数组 `[text, { t, sub: true }, …]`），不含这两种写法的字符串照原样画；新的中性对勾 `.nummark` 给页面自己核对过的数，绿色 `.okmark` 只留给 `.lean` 依据框；`viz-validate` 与 `./tbook check` 对 `.lean` 框之外的 `.okmark` 给警告（示例 `golden-carry` 的两处已改为 `.nummark`）。示例专著的浏览器测试覆盖这三项与图例下标。
+- 视频的实体镜头（#45）：`film.json` 写 `"solid": true` 的视频可以在场景里用 `solid(key, { x, y, w, h, yaw, pitch, zoom … })` 画受光的实体，图元与页面的 `kit.solid` 同名（`surface`、`poly`、`glass`、`tube`、`line`、`arrow`、`ring`、`bead`、`fan`），`end(a)` 同步用造型核心 `theme/viz/solid-core.js` 画到离屏 WebGL 画布再 `drawImage` 合成，字幕、标签、徽章与面板仍盖在上面；`sh.anchor(v)` 给二维标签的位置与“是否被实体挡住”。没有时钟、动画循环与随机数，像素比 1：同一时刻两次渲染逐像素相同，与之前画过的帧无关（分段并行截帧与整段相同）。只有 `"solid": true` 的视频才在 `out/solid/` 放造型核心与 three.js 并在启动前导入；不能创建 WebGL 上下文时页面启动失败并说明原因（不回退）。`theme/film/lib.js` 以 `--enable-unsafe-swiftshader` 启动 Chromium，`FILM_CHROMIUM_ARGS` 可加参数；`./tbook doctor` 报告能否画实体镜头。新增 `film.json` 的 `scripts`：书里的经典脚本（如 `viz/<id>/model.js`），内联在 `scenes.js` 之前，让页面与视频共用一处造型。示例片 001 的结尾镜头画示例页 `phase-torus` 的环面，造型移到 `books/example-monograph/viz/phase-torus/model.js`，页面与视频都加载它；旁白、字幕与时间轴不变。有实体镜头的视频的构建键加上 `theme/viz/solid-core.js`、`theme/viz/vendor/` 与 `scripts` 所列脚本。
+- `./tbook build films --film <NNN>-<name>`（可重复）：只渲染或恢复这几部视频，本书其他视频只从缓存恢复、不渲染；`build site`、`build all` 不受影响（不接受 `--film`）。
+- 旁白短语对不上不再静默：`Q(S, k, '短语')`、`phraseAt`、`badgeQ` 的短语不在第 k 句旁白里（或 `at`/`Q` 的句号越界）时，`./tbook check` 静态扫描 `scenes.js` 里字面量形式的调用并给警告，`film.sh <dir> timeline|build|all` 报出场景、行号与短语（`FILM_STRICT=1` 时失败，构建就这样运行），引擎渲染时也报出写成变量的短语。
 
 ### 变更
 
 - 媒体连排两块就报（**下游升级后会出现新警告，需要手动操作**）：`./tbook check` 原先从第三块起才报，现在相邻两块 `.figure`、`.viz`、`.film`、`.slides` 只隔着空行或 HTML 注释时就给警告，每一对报在第二块，点名两块各自的种类、`src`（实验卡带 `preset`，完整实验室标为 the full lab）与行号；不带 `preset` 的完整实验室紧跟同一页面的卡时，另提示把实验室挪到章末最后一段之后，或在两者之间用一句正文交代。示例专著第一章的完整实验室与视频之间补了一句正文（中英同步）。`skills/book-write`、`skills/book-viz`、`skills/book-figure`、`docs/AUTHORING.md` 与 `docs/ARCHITECTURE.md` 改为“相邻两块之间要隔着正文”。来源：#44。
+- 引擎（`theme/film/`）改动后，所有视频的构建键都变了，下一次构建会把每部视频重新渲染一次。没有实体镜头的视频画面不变（示例片前四个场景的抽样帧与海报，改动前后逐像素比对相同），LEAN 清单只在命名空间会被误读时改为显示 GID。
 
 ### 修复
 
 - 实体舞台的浏览器单元测试（`tools/tests/solid_harness.mjs`）不再把测试页写死挂在 `example-monograph` 下：改为挂在第一本可见、且有 `viz/` 的书下。下游书库用 `site.toml` 的 `hide = ["example-*"]` 隐藏示例书，可视化服务器只服务可见的书，原写法在下游会因取不到运行时而失败；没有可用的书时这组测试跳过。
 - 图例（`.hud-bl`）里的 `<sub>`、`<sup>` 贴着前一个字：每一项改为色块加一行行内文字，不再是带间距的 flex 项（下游不必再用 `<bdi>` 包裹）。
+- 视频的 LEAN 清单按完整 GID 解析：`DATA.lean` 每条新增 `label`，`leanList` 与视频页显示它——Lean 全名，命名空间不在模块路径上时改显示 GID（下游 `…/Bloch/QubitBloch.B_formula_core` 的 Lean 全名在命名空间 `…Measurement.FourQubitParentConstruction` 里，原样显示会被读成另一个模块的同名声明）；`short` 取自所引 GID 的名字。引擎新增 `leanCite(gid)`，示例片改为按 GID 查引用，不再按短名取第一个匹配。
 
 ## [0.7.0] - 2026-11-12
 

@@ -96,6 +96,8 @@ const h = sc.hit(ev);                            // { id, u, v, point, normal, f
 
 **测试**：`stageFirstChecks(T, book, id, { solid: true })` 另加实体检查（舞台上确有受光实体：不透明像素占比、明暗有起伏、转动相机后明暗分布改变；被挡住的标记点不到、看得见的点得到；书内静止后释放上下文、一碰取回），也可单独调用 `solidChecks(T, book, id, page, opts)`。页面声称的几何性质照样用测试里另写的算法核对（例如沿中线搬运法向，一圈反向、两圈复原）。本机无头 Chromium 用 SwiftShader 软件渲染，`viz-shots`、`viz-thumbs` 截到的就是实体画面。
 
+视频也能画同一个实体（`skills/book-film`、`templates/film/README.md` 的“实体镜头”）：把对象的造型与画法写成 `viz/<id>/model.js`（经典脚本，只用两边同名的图元，颜色由调用方传入），页面在 `main.js` 之前加载它，视频在 `film.json` 的 `scripts` 里列出它，改一处两边都变。
+
 成品示例：`books/example-monograph/viz/phase-torus/`（把相位正方形粘成环面：时间轴就是粘合，颜色是相位判据的三块，珠子可点），第一章按卡引用它的 `torus`。
 
 ### 2. 用共享的实验室版式
