@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "ff2ba3a122432253c1855003d86d3dd8c93107342e3a415fc2c155c797bfc5e6",
+      "sha256": "4a20bfd4d6ff0320c1ffb5033eb3ff8c8d9881bf0b2325b3e95d7361b29809a7",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -772,7 +772,7 @@
       "mode": "100644"
     },
     "tools/tests/solid_harness.mjs": {
-      "sha256": "62e78bbecd79fdd63ae35bcc49c98960c1477aea39f54af3b5cfca79fb68aeb8",
+      "sha256": "f666564e85d637b63f2226bba7592ab0e3672d790bc769bc687a8cecf6b04f5d",
       "mode": "100644"
     },
     "tools/tests/test_blocks.py": {
@@ -884,7 +884,7 @@
       "mode": "100644"
     },
     "tools/tests/test_viz_solid.py": {
-      "sha256": "232b87aeb9232df1f7ab16e07d7a800256ad36b66d61a367e05692fea5a02cda",
+      "sha256": "f5b68e8cdd2e341e64635837e38b8083abfc6e8fc62dce99003e876bb9d427da",
       "mode": "100644"
     }
   }
