@@ -87,6 +87,7 @@ When the object itself is a surface or a body and a lit solid makes it clearer, 
   | `?shot=1&preset=<卡>&lang=<语言>` | 被引用卡的带标签静态图，供 PDF/EPUB | `TRV.shot`、`TRV.still` |
 
   `TRV.still` 为真时不播放动画，直接显示那张卡的关键帧。
+- 停帧（still frame）：会自己播放的卡在页面的卡片表里声明 `still`（时间轴上的值，或 `'end'`），把表交给 `kit.cards(el, { presets: PRESETS, … })`，它把声明写到卡上的 `data-still`（也可直接写在 HTML 里）；`TRV.still` 为真时页面把时钟放到那里。A card that plays by itself declares the frame its still shows as `still` in the page's table of cards; `kit.cards({ presets })` writes it onto the card as `data-still`, and the page puts its clock there when `TRV.still` is set. `stageFirstChecks` warns about a card that plays without one; a suite opens the still with `openStill(T, book, id, card, lang)` and checks that the frame carries the numbers of its caption.
 - 手机宽度（390px）无横向滚动；尊重 `prefers-reduced-motion`。
 
 ## 嵌入书中 · Embedding in a chapter

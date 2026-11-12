@@ -148,7 +148,7 @@
     if (p.play) { if (TRV.still || (booting && !TRV.embed)) clock.set(p.still); else if (booting) kit.autoplay(clock, $('stage')); else clock.play(); }
     paint();
   }
-  const cards = kit.cards($('presets'), { notes: NOTES, noteEl: $('presetNote'), tour: $('tour'), onPick: applyPreset,
+  const cards = kit.cards($('presets'), { presets: PRESETS, notes: NOTES, noteEl: $('presetNote'), tour: $('tour'), onPick: applyPreset,
     idle: ['自由探索：拖动时间轴或滑块改变粘合程度，拖动舞台转动环面，点一颗珠子换一对数。', 'Free play: move the rail or the slider to glue, drag the stage to turn the torus, click a bead to change the pair.'] });
 
   TRV.drawer({ drawer: $('drawer'), open: $('infoBtn'), close: $('drawerClose') });
