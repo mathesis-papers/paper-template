@@ -64,15 +64,15 @@
       "mode": "100644"
     },
     "docs/ARCHITECTURE.md": {
-      "sha256": "b3c87f3eff672d4c5f618bd1618eee7cc1cf627dd152fe67a893d3af4d1c40c3",
+      "sha256": "47803fe19f4854bac0ce8bd55fa6dbaa88f94e0859cac809f953e4b6f5b2939a",
       "mode": "100644"
     },
     "docs/AUTHORING.md": {
-      "sha256": "7948ea1d438f8d3b8063aa74ccd2e21f1a3b3812593495b0c1c38af26946662d",
+      "sha256": "27de39da5bfea22767d2d8f49f9b7c676fea6af0642cc09e282ee2a49c50d36b",
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "f50335d0de74a0e3b9efe3a889945baa375e67251764750aa8b8719ca2bce4d1",
+      "sha256": "52d2ad6c3d5404a29a1fdf5c0d91fafb1c816f7e3612d7903a1dbd68cca49306",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -108,7 +108,7 @@
       "mode": "100644"
     },
     "skills/book-figure/SKILL.md": {
-      "sha256": "4b098b56d8dd0073974b296abd1b6f49835271aecba12f1e732eb99384d9ba6c",
+      "sha256": "a9a7d89172e24775589dc62e427c65d471b9a06f9e189e80d66e4c47ca451fe3",
       "mode": "100644"
     },
     "skills/book-film/SKILL.md": {
@@ -128,7 +128,7 @@
       "mode": "100644"
     },
     "skills/book-viz/SKILL.md": {
-      "sha256": "ceb019a04daf0ee9648052ebd4aaa5c28e9526b5cf9793e560b382b656d54255",
+      "sha256": "724c8be2b2a2a2bc93d0b5db55d1d4c42960d20276fe9bd33f4d822a433a6fa4",
       "mode": "100644"
     },
     "skills/book-write/SKILL.md": {
@@ -188,7 +188,7 @@
       "mode": "100644"
     },
     "templates/figure/figure.py": {
-      "sha256": "55fa4c29ed916421eae3ed259894452d4aedeb8a57942f1cf52272676d4d6f2d",
+      "sha256": "8bf11953cf1f2c7132a8e3b6cc12f00668eb1b340776708544ceee6bf724bf35",
       "mode": "100644"
     },
     "templates/film/README.md": {
@@ -628,7 +628,7 @@
       "mode": "100644"
     },
     "tools/tbook/check.py": {
-      "sha256": "0d60153ff9be7db7f0b89422c9e06d94e9ffec3fe5fa80d38aaec69fe910fc77",
+      "sha256": "f1e34e8bb9b5920d3593cdc7264e6000c9540339225a098c237066d76ef47b7e",
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
@@ -652,7 +652,7 @@
       "mode": "100644"
     },
     "tools/tbook/figure.py": {
-      "sha256": "1845740a51878ceb5c0c118ef7406f14b75dc54118be4e77765340bb85b5208b",
+      "sha256": "70d798d0bd86683570551f1b5bf6308190aa0a5339a44b1cb3943c6eeef2c55d",
       "mode": "100644"
     },
     "tools/tbook/film.py": {
@@ -760,7 +760,7 @@
       "mode": "100644"
     },
     "tools/tests/test_figure.py": {
-      "sha256": "081df906f57449b8d3fdf54d39b1dc32736fb88c65edc9adb480ab598de1bea3",
+      "sha256": "99d3bb729e074ec88e6e2c59882cd95bb081f8c83e4a1aa7b60814b57ca8ef3d",
       "mode": "100644"
     },
     "tools/tests/test_film.py": {
