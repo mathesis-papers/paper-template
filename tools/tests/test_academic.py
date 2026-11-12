@@ -13,6 +13,31 @@ from tbook import academic, buildcache, config, figure, lean, model, paths, slid
 
 
 class AcademicTests(unittest.TestCase):
+    def test_written_proof_is_purple_without_a_verification_link_and_requires_its_proof(self):
+        with Repo() as repo:
+            book = self.prepare(repo)
+            chapter = book.dir / 'en/ch01.md'
+            original = chapter.read_text().replace(
+                f'lean="{FAKE_THM}"', 'status="written-proof" proof="pf-one"')
+            chapter.write_text(original + '\n::: {.proof #pf-one}\nManuscript argument.\n:::\n')
+            self.assertEqual(self.errors(book), '')
+            out = repo.root / 'generated'
+            out.mkdir()
+            academic.generate_package(book, 'en', academic.read_source(book, 'talk', 'en'), fake_lock(), out)
+            text = (out / 'tbook-lean.sty').read_text()
+            self.assertIn(r'\TBookBadge{TBookArgued}{WRITTEN PROOF}', text)
+            self.assertIn('No GID (written proof)', text)
+            self.assertNotIn('UNVERIFIED', text)
+            self.assertNotIn(r'Lean $\checkmark$', text)
+            self.assertNotIn('blob/', text)
+            chapter.write_text(original)
+            self.assertIn('needs proof=', self.errors(book))
+            chapter.write_text(original + '\n::: {.proof #pf-one}\n<!-- empty -->\n:::\n')
+            self.assertIn('is empty', self.errors(book))
+            chapter.write_text((original + '\n::: {.proof #pf-one}\nArgument.\n:::\n').replace(
+                'status="written-proof"', f'status="written-proof" lean="{FAKE_THM}"'))
+            self.assertIn('must not also have lean', self.errors(book))
+
     def prepare(self, repo):
         book = repo.book()
         chapter = (f'# One\n\n::: {{.theorem #thm-one title="A $x$ bound" lean="{FAKE_THM}"}}\nStatement.\n:::\n\n'

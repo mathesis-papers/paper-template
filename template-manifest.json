@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "7aa9c921056546fc1987c1ab9ae84c033a5c3008166ecb346491b58ebc5fa546",
+      "sha256": "71362ef79568582de573ba596800f6d6df103435f7c0442d18501bd65287bea7",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -244,7 +244,7 @@
       "mode": "100644"
     },
     "theme/beamer/README.md": {
-      "sha256": "1e99fc3ec2974359d11eb710c2aad115f0fac7919a16bb368729710f79d04862",
+      "sha256": "fa04b618d90f842e2e211460043a364ec364efbfa79ce454ee3a679711f84f67",
       "mode": "100644"
     },
     "theme/beamer/beamerthemeTBookAcademic.sty": {
@@ -668,7 +668,7 @@
       "mode": "100644"
     },
     "tools/tbook/academic.py": {
-      "sha256": "5625d691013fbbc301d59541616ebfb050f0e10620bbaa1a85d5f98dc315e0cb",
+      "sha256": "605b2f47328217397a818912110485d1b7e0d678c6ae81eba142f10c396e36bd",
       "mode": "100644"
     },
     "tools/tbook/build.py": {
@@ -804,7 +804,7 @@
       "mode": "100644"
     },
     "tools/tests/test_academic.py": {
-      "sha256": "fc150eb346d1ca2116eb1c63359710e64d0e040c56e928238ddd626c63fa1190",
+      "sha256": "c7d4f0f7f2636c97f9a239991d5eb573a75715cf17628bce3354c6846307669e",
       "mode": "100644"
     },
     "tools/tests/test_blocks.py": {

@@ -232,6 +232,9 @@ def validate_source(book, lang, source, lock) -> list[model.Issue]:
     def err(c, msg):
         issues.append(model.Issue("error", source.path, c.line, msg))
     edition = model.load_edition(book.edition(lang))
+    # PR #50's written-proof contract applies to academic citations as well.
+    from . import check as book_check
+    book_check.check_env_policy(edition, issues)
     for c in source.calls:
         if c.name in ("input", "include") and c.args != ["tbook-deck"]:
             err(c, "academic deck imports are not checked: keep frames and citations in this edition file; only \\input{tbook-deck} is supported")
@@ -253,7 +256,7 @@ def validate_source(book, lang, source, lock) -> list[model.Issue]:
                 err(c, f"#{env.id} is a {env.kind}; bookresult cites formal results, definitions or open problems")
             if env.kind in model.OPEN and env.lean:
                 err(c, f"open problem #{env.id} must not have a GID")
-            if env.kind in model.FORMAL and not env.lean:
+            if env.kind in model.FORMAL and not env.lean and env.status != model.WRITTEN_PROOF:
                 err(c, f"#{env.id}: unverified result has no GID")
             for gid in env.lean:
                 res = lock.get(gid) if lock else None
@@ -364,7 +367,8 @@ def generate_package(book, lang, source, lock, dest):
     edition = model.load_edition(book.edition(lang))
     tokens = json.loads(paths.TOKENS.read_text(encoding="utf-8"))
     colours = {"Lean": tokens["paper"][tokens["semantic"]["lean"]],
-               "Open": tokens["paper"][tokens["semantic"]["open"]], "Neutral": tokens["paper"]["dim"]}
+               "Open": tokens["paper"][tokens["semantic"]["open"]],
+               "Argued": tokens["paper"][tokens["semantic"]["argued"]], "Neutral": tokens["paper"]["dim"]}
     lines = [r"\ProvidesPackage{tbook-lean}[Generated from the book and trureturing lock]",
              r"\RequirePackage{amssymb}", r"\RequirePackage{xurl}", r"\RequirePackage{array}",
              r"\newcommand{\TBookBadge}[2]{\begingroup\setlength{\fboxsep}{1pt}\colorbox{white}{\textcolor{#1}{#2}}\endgroup}"]
@@ -383,6 +387,8 @@ def generate_package(book, lang, source, lock, dest):
             resolutions = [lock.get(gid) for gid in env.lean]
             if env.kind in model.OPEN:
                 badge = r"\TBookBadge{TBookOpen}{OPEN}"
+            elif env.status == model.WRITTEN_PROOF:
+                badge = r"\TBookBadge{TBookArgued}{WRITTEN PROOF}"
             elif env.kind == "definition" and all(resolutions) and env.lean:
                 badge = r"\TBookBadge{TBookNeutral}{LEAN DEF}"
             elif env.kind == "definition" and not env.lean:
@@ -414,6 +420,8 @@ def generate_package(book, lang, source, lock, dest):
                     gids.append(rf"\href{{{url_tex(lock.source_url(gid))}}}{{{label}}}" if lock.get(gid) else label)
             elif env and env.kind in model.OPEN:
                 gids = ["No GID (open problem)"]
+            elif env and env.status == model.WRITTEN_PROOF:
+                gids = ["No GID (written proof)"]
             elif env and env.kind in model.DEFINITION:
                 gids = ["No Lean citation"]
             else:
