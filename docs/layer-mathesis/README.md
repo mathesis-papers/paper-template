@@ -98,4 +98,7 @@ When the mapped book is present, the original strict `emit` checks still apply;
 malformed metadata, extra books, identity mismatches and unsafe material paths
 fail the build. `fill` and the `v0.3.1.py` migration use the same command, and
 `paper.py check` verifies its exact declaration. The upstream optional hook
-already supplies cwd and `TBOOK_SITE_OUT`; no upstream change is needed.
+already supplies cwd and `TBOOK_SITE_OUT`; its production behavior is unchanged.
+The full consumer suite also needs the upstream film sandbox to bind its cached
+site configuration to its own root; otherwise the subprocess cannot start in an
+already removed fixture directory. See [UPSTREAM-PINS.md](UPSTREAM-PINS.md).

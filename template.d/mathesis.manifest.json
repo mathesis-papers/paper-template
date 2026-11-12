@@ -12,7 +12,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/CHANGELOG.md": {
-      "sha256": "e4b323e82bf6074b888fcb7762e7c317348e7b217beaea49ca63dad121579841",
+      "sha256": "b3e51386e567d35160ad39d6815b1c1bfa6fde10584e4b88cc466c6399bfbbad",
       "mode": "100644"
     },
     "docs/layer-mathesis/PIPELINE.md": {
@@ -28,11 +28,11 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/README.md": {
-      "sha256": "c0a2c9621dd0c907d24c5493c6f7c40924909bad307963973cd4245eb18141ef",
+      "sha256": "64c0686b2449bef96693904e5cd484bc3b449ac0f1f76a0f54825061e9ded1ca",
       "mode": "100644"
     },
     "docs/layer-mathesis/UPSTREAM-PINS.md": {
-      "sha256": "22104757f63402c3d991bedab581426d3aeda42f33c5192c8f2cb88e693dc89e",
+      "sha256": "f22f61f1f082067d56723a382aac454f581682a4ec8d2e43c03b2a3ca69da9f3",
       "mode": "100644"
     },
     "docs/layer-mathesis/migrations/v0.3.0.py": {
