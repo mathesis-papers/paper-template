@@ -872,7 +872,7 @@
       "mode": "100644"
     },
     "tools/tests/test_viz.py": {
-      "sha256": "917140bdd01a09a883034475af3f75f509dabcbb09d93d9b75ae40e05204044c",
+      "sha256": "a4c0373ab2fe618326327e9f699788cb269272af28a6e200cd465fe8c273865c",
       "mode": "100644"
     },
     "tools/tests/test_viz_solid.py": {
