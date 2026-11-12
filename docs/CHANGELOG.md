@@ -10,6 +10,18 @@
 - `stageFirstChecks(…, { solid: true })` 与单独导出的 `solidChecks`、`solidPixels`：舞台上确有受光实体（不透明像素占比、明暗起伏）、转动相机后明暗分布改变、被挡住的标记点不到、书内静止后释放上下文且一碰取回。已有页面不传这个选项，检查不变。
 - 示例专著新增可视化 `phase-torus`（把相位正方形粘成环面：颜色是相位判据的三块，两条斜线在环面上接成一条闭曲线，珠子可点），第一章按卡引用 `torus`，配浏览器测试。`skills/book-viz` 新增“具象”一节：实体舞台是多出来的一种能力，不是统一风格，何时用、何时不硬套、怎么做。`tools/tests/test_viz_solid.py` 在 Chromium 里核对拾取（球与环面对解析解）、遮挡随相机翻转、正背面、主光、上下文释放与取回、three.js 只在首次调用时下载。来源：下游 trureturing-books#158（具象可视化），#42。
 
+- 视频的实体镜头（#45）：`film.json` 写 `"solid": true` 的视频可以在场景里用 `solid(key, { x, y, w, h, yaw, pitch, zoom … })` 画受光的实体，图元与页面的 `kit.solid` 同名（`surface`、`poly`、`glass`、`tube`、`line`、`arrow`、`ring`、`bead`、`fan`），`end(a)` 同步用造型核心 `theme/viz/solid-core.js` 画到离屏 WebGL 画布再 `drawImage` 合成，字幕、标签、徽章与面板仍盖在上面；`sh.anchor(v)` 给二维标签的位置与“是否被实体挡住”。没有时钟、动画循环与随机数，像素比 1：同一时刻两次渲染逐像素相同，与之前画过的帧无关（分段并行截帧与整段相同）。只有 `"solid": true` 的视频才在 `out/solid/` 放造型核心与 three.js 并在启动前导入；不能创建 WebGL 上下文时页面启动失败并说明原因（不回退）。`theme/film/lib.js` 以 `--enable-unsafe-swiftshader` 启动 Chromium，`FILM_CHROMIUM_ARGS` 可加参数；`./tbook doctor` 报告能否画实体镜头。新增 `film.json` 的 `scripts`：书里的经典脚本（如 `viz/<id>/model.js`），内联在 `scenes.js` 之前，让页面与视频共用一处造型。示例片 001 的结尾镜头画示例页 `phase-torus` 的环面，造型移到 `books/example-monograph/viz/phase-torus/model.js`，页面与视频都加载它；旁白、字幕与时间轴不变。有实体镜头的视频的构建键加上 `theme/viz/solid-core.js`、`theme/viz/vendor/` 与 `scripts` 所列脚本。
+- `./tbook build films --film <NNN>-<name>`（可重复）：只渲染或恢复这几部视频，本书其他视频只从缓存恢复、不渲染；`build site`、`build all` 不受影响（不接受 `--film`）。
+- 旁白短语对不上不再静默：`Q(S, k, '短语')`、`phraseAt`、`badgeQ` 的短语不在第 k 句旁白里（或 `at`/`Q` 的句号越界）时，`./tbook check` 静态扫描 `scenes.js` 里字面量形式的调用并给警告，`film.sh <dir> timeline|build|all` 报出场景、行号与短语（`FILM_STRICT=1` 时失败，构建就这样运行），引擎渲染时也报出写成变量的短语。
+
+### 修复
+
+- 视频的 LEAN 清单按完整 GID 解析：`DATA.lean` 每条新增 `label`，`leanList` 与视频页显示它——Lean 全名，命名空间不在模块路径上时改显示 GID（下游 `…/Bloch/QubitBloch.B_formula_core` 的 Lean 全名在命名空间 `…Measurement.FourQubitParentConstruction` 里，原样显示会被读成另一个模块的同名声明）；`short` 取自所引 GID 的名字。引擎新增 `leanCite(gid)`，示例片改为按 GID 查引用，不再按短名取第一个匹配。
+
+### 变化
+
+- 引擎（`theme/film/`）改动后，所有视频的构建键都变了，下一次构建会把每部视频重新渲染一次。没有实体镜头的视频画面不变（示例片前四个场景的抽样帧与海报，改动前后逐像素比对相同），LEAN 清单只在命名空间会被误读时改为显示 GID。
+
 ## [0.6.1] - 2026-11-12
 
 ### 修复
