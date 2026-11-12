@@ -80,6 +80,9 @@ def copy_golden_carry(book) -> None:
         (book.dir / lang).mkdir(exist_ok=True)
         (book.dir / lang / "ch01-golden-deficit.md").write_text("# 1\n", encoding="utf-8")
     shutil.copytree(src / "golden-carry", book.viz_dir / "golden-carry")
+    # a downstream copy of the example may predate .nummark: its readout ticks are the page's own checks either way
+    script = book.viz_dir / "golden-carry" / "main.js"
+    script.write_text(script.read_text(encoding="utf-8").replace('class="okmark"', 'class="nummark"'), encoding="utf-8")
     (book.viz_dir / "tests").mkdir(parents=True, exist_ok=True)
     # Downstream example books are not managed and may retain an older browser
     # suite. Registry fixtures do not execute it; browser behaviour is checked
