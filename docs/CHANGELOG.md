@@ -7,7 +7,7 @@
 ### 新增
 
 - 画图库补上下游用到却没有的形状，均为新增接口，已有的图逐字节不变：流程图的 `fig.box(…)`（自动定宽与换行、虚线框、强调色框与 `chip`/`chip_size`，返回锚点；默认字号按不宽于 358 的一栏设计）与 `fig.link(a, b, elbow=…)`；球上的 `sp.turn(轴, 起点, 角度, arrow=True)`、`sp.small_circle(…, start=, span=, arrow=True)`、`sp.sector(…)`、`sp.patch(…)`、`sp.polytope(…)`；`fig.axes(…, logx=True, logy=True)`（自动十的幂刻度与细刻度、`ax.decades()`）；`ax.step(…)`、`ax.bars(…)`；`figkit.hull(…)`、`figkit.hull3(…)`；`fig.bounce(a, 镜面点, b)`；文字标记 `***粗斜体***` 与 `\bar{z}`；脚本可选 `MARKUP = 2`，让下标、上标里的标记嵌套、斜体 `I` 用衬线字形（不写时按旧规则）；等宽文字按每字 0.6 em 估宽（组合附加符不计），`fig.measure()`、`fig.wrap_text()`。示例专著第四章新增三张图（证明骨架、黄金旋转、回归得分的对数图）。来源：下游《量子计算的几何直觉》150 张图中各章各写一遍的辅助代码（#35）。
-- `viz-validate` 与 `./tbook check` 对 `viz/tests/*.test.mjs` 里的每一处 `waitForTimeout(…)` 报警告（行号与改法：过渡用 `settle(page)`，播放用 `until(page, …)`）。下游当前有 13 处（5 个文件）。
+- `viz-validate` 与 `./tbook check` 对 `viz/tests/*.test.mjs` 里的每一处 `waitForTimeout(…)` 报警告（行号与改法：过渡用 `settle(page)`，播放用 `until(page, …)`）。
 - `node tools/node/viz-test.mjs --slow`：等价于 `VIZ_SLOW_FRAMES=1000`，以一秒一帧跑浏览器测试。`ci.yml` 新增 `viz-slow` 作业（8 片，同 `viz`），只在手动运行（输入 `slow_frames`，默认勾选）与每周三定时运行中出现，定时运行只跑它；PR 与推送的 CI 不变。何时跑见 `docs/PUBLISHING.md` §4。**需要手动操作（仅当分支保护列出所有检查时）**：新检查 “Visualization browser tests, slow frames (i/8)” 不在 PR 上运行，不要把它设为必需检查。
 
 ### 变更
