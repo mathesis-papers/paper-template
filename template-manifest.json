@@ -40,7 +40,7 @@
       "mode": "100644"
     },
     ".github/workflows/template-sync.yml": {
-      "sha256": "74ef01a9043c3240a8dc785fa6936b760e2a6e5ec791c1daa50960b7c86b6d2f",
+      "sha256": "6171ab45e358af2f1ea764743f049a0ca3654fc83377981d20b23b967019d3c4",
       "mode": "100644"
     },
     ".github/workflows/toolchain-image.yml": {
@@ -72,7 +72,7 @@
       "mode": "100644"
     },
     "docs/CHANGELOG.md": {
-      "sha256": "c956847b46694c663b0fb2d7a4b4a472fc2f6273bde34c51d297293b876b5698",
+      "sha256": "a1591ef01199e13f511fefe818b7913fbecc3ca97d0acee6c289ea500ec87771",
       "mode": "100644"
     },
     "docs/CONTAINERS.md": {
@@ -88,7 +88,7 @@
       "mode": "100644"
     },
     "docs/UPGRADING.md": {
-      "sha256": "4e10e076d9fc6ba048bc1f25c254006aaec5671c62e8171a499170c6a4b1ad03",
+      "sha256": "679996069a1f5181c7136bf27f21d4ad4511f3ae8c0dfbd4b3da1b83437ef2fd",
       "mode": "100644"
     },
     "docs/VERIFICATION.md": {
@@ -140,7 +140,7 @@
       "mode": "100644"
     },
     "skills/template-update/SKILL.md": {
-      "sha256": "fb093862a560b4fb4e582365d532ffd69be6fe1fc30a812cdebdad6317d51bbe",
+      "sha256": "5a1ac4532eac70bf9d1d7e84a45db8f9e9269302a1023ac9d27abf519538c5e8",
       "mode": "100644"
     },
     "skills/theorem-formalize/SKILL.md": {
@@ -660,7 +660,7 @@
       "mode": "100644"
     },
     "tools/tbook/cli.py": {
-      "sha256": "3cd60bee8ae8ff6fc25dc87e3b3c0474a5e3dc7120ca91bb707e3277faf9c4e3",
+      "sha256": "d3e38dad5213eed55ad393d405bd55d2a06c034012d1d69abadf2901e6edc623",
       "mode": "100644"
     },
     "tools/tbook/config.py": {
@@ -752,7 +752,7 @@
       "mode": "100644"
     },
     "tools/tbook/template.py": {
-      "sha256": "59c5beb1e7e7f3829cddd7be0a1273652d85b4a23c8057980d0b858bfc0e9842",
+      "sha256": "6e173054f7742256f05dd3b1c3ce5623365da12368fd84126f2c1820367ecc14",
       "mode": "100644"
     },
     "tools/tbook/theme.py": {
@@ -884,7 +884,11 @@
       "mode": "100644"
     },
     "tools/tests/test_template.py": {
-      "sha256": "781a333c98f6a058039497de1baf829cfb202adfedeb15fd94849451c6829fc5",
+      "sha256": "685ea06ae4175902d97b2f0a8a7c570ec3b16ecb0234c9b3ee4b866902575c1e",
+      "mode": "100644"
+    },
+    "tools/tests/test_template_layers.py": {
+      "sha256": "2edb21cb7fb6e17769014f8acc2924bf1c7fe1c7c29d51269875898614c1ddf7",
       "mode": "100644"
     },
     "tools/tests/test_verification.py": {
