@@ -32,10 +32,10 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/UPSTREAM-PINS.md": {
-      "sha256": "a566b4475d2072f2093d5d9ee01094161f85c1a897df6a2682383629ad4cca30",
+      "sha256": "22104757f63402c3d991bedab581426d3aeda42f33c5192c8f2cb88e693dc89e",
       "mode": "100644"
     },
-    "docs/layer-mathesis/migrations/0.3.0.py": {
+    "docs/layer-mathesis/migrations/v0.3.0.py": {
       "sha256": "5eacd632695dd2d5b1d8011d281f187db442a42c9c338e31659f3b1c2a0e764d",
       "mode": "100644"
     },
@@ -64,7 +64,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/tests/test_site.py": {
-      "sha256": "c22014149f7bdcaba03cb4666cc49e92e6bbc1f1e4e2a1c61c58312972d47836",
+      "sha256": "e12b970c77bf1a33d465bb13023f5b89bf239c153808b0a97ca1dd03565b3909",
       "mode": "100644"
     },
     "skills/layer-mathesis-paper-book/SKILL.md": {

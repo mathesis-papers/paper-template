@@ -25,3 +25,13 @@ The manifest was regenerated using
 Mathesis layer version: **0.2.1**. This note belongs to the layer, not the
 upstream-managed template. It is historical provenance of the initial rollout,
 not an instruction to freeze later paper repositories forever.
+
+## Layer 0.3.0 site integration
+
+The optional `site.post_build` argument-array interface is prepared in upstream
+commit `7d73e5a76bd347f03cb4d5b68319ec0e06cd28f8` on
+`feat/site-post-build-20261113`. The combined template integrates that change
+alongside the existing written-proof / academic-slide compatibility work.
+This is a local dependency pending dispatcher review and upstream integration;
+no release number or remote publication is claimed. Layer-owned policy lives in
+`scripts/site.py`, not upstream. Keep this hook when refreshing upstream tools.

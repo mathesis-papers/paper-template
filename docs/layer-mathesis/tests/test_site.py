@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -74,3 +75,22 @@ class SiteTests(unittest.TestCase):
         self.add("manifest.json", json.dumps(self.manifest).encode())
         with self.assertRaisesRegex(ValueError, "invalid published"):
             site.emit(self.root, self.out)
+
+    def test_migration_is_discoverable_and_idempotent(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "tools"))
+        from tbook import template
+        migrations = template.find_migrations(ROOT / "docs/layer-mathesis/migrations", "0.2.1", "0.3.0")
+        self.assertEqual([m.name for m in migrations], ["v0.3.0.py"])
+        spec = importlib.util.spec_from_file_location("mathesis_migration", migrations[0].path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        path = self.root / "site.toml"
+        path.write_text('[site]\nrepo = "mathesis-papers/' + self.work["repository_name"] + '"\nbase_url = "https://mathesis-papers.github.io/' + self.work["repository_name"] + '/"\n')
+        module.migrate(self.root)
+        first = path.read_bytes()
+        cfg = tomllib.loads(path.read_text())["site"]
+        self.assertEqual(cfg["post_build"], ["python3", "docs/layer-mathesis/scripts/site.py"])
+        self.assertEqual(cfg["base_url"], "https://papers.trureturing.org/" + self.work["repository_name"] + "/")
+        module.migrate(self.root)
+        self.assertEqual(first, path.read_bytes())
