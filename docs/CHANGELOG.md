@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
+### 新增
+
+- Academic Beamer decks alongside Slidev: edition subsets, 4:3/16:9 descriptors, an original Apache-2.0 white seminar theme and optional deck-owned themes/graphics. Book result blocks, pinned commits and deck verification ledgers derive from the book model and lock; TeX citations are checked with comments/verbatim/argument handling.
+- Original seminar theme with solid structure-colour navigation/title/footer bands, white block titles over 12% body tints, red open-problem blocks, an even title-box shadow and optional coauthor metadata. Compact verification tables paginate at twelve results, high-resolution paper stills fill the slide width, and navigation symbols are opt-in.
+- Paper visualization snapshots linked to the live page, canonical figure materialization, hidden audience notes and separate notes PDFs. Both PDFs join slides cache/publication, chapter cards, site manifests and book Release attachments. An English example talk demonstrates the source format.
+- Tectonic 0.16.9 with checksum-verified Linux binaries and a versioned TeX bundle, fixed epoch and deterministic mode; doctor, hosted setup and the optional container support academic decks. See theme/beamer/README.md for the source contract and reproducibility settings.
+
 ## [0.6.1] - 2026-11-12
 
 ### 修复
