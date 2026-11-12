@@ -1,8 +1,8 @@
 # trureturing-books-template
 
-**出版“每一条定理都经 Lean 内核验证”的专著。** 一个仓库容纳多本书、多种语言（默认中文与英文），一次编写，导出为在线 HTML、PDF（深色屏幕版 / 白底印刷版）与 Apple Books 兼容的 EPUB，配交互可视化、视频与演示文稿，经 GitHub Pages 与 Release 自动发布。
+**出版显式区分 Lean 内核验证、书面证明与开放问题的专著。** 一个仓库容纳多本书、多种语言（默认中文与英文），一次编写，导出为在线 HTML、PDF（深色屏幕版 / 白底印刷版）与 Apple Books 兼容的 EPUB，配交互可视化、视频与演示文稿，经 GitHub Pages 与 Release 自动发布。
 
-*Publish monographs in which every theorem is kernel-verified in Lean. Multiple books, multiple languages (Chinese and English by default), one source exported to HTML, PDF (screen and print) and EPUB for Apple Books, with interactive visualizations, films and slides, published automatically to GitHub Pages and Releases.*
+*Publish monographs that distinguish kernel-verified Lean results, written proofs and open questions. Multiple books, multiple languages (Chinese and English by default), one source exported to HTML, PDF (screen and print) and EPUB for Apple Books, with interactive visualizations, films and slides, published automatically to GitHub Pages and Releases.*
 
 | 组成 | 方案 |
 | --- | --- |
@@ -14,9 +14,14 @@
 | PDF / EPUB | Pandoc → Typst；Pandoc EPUB 3 + MathML |
 | 视觉 | trureturing 赛博朋克风，配色唯一来源 `theme/tokens.json` |
 
+源文有书面证明但没有匹配冻结声明时，保留形式结论种类，使用
+`status="written-proof" proof="<proof-id>"` 且不带 `lean`；每版要有对应的非空 proof 块。
+各端显示紫色“书面证明 / WRITTEN PROOF”，不带验证链接、不计入 Lean 数量，
+账本单列；真正开放才用 conjecture/problem。见 [写作手册](docs/AUTHORING.md)。
+
 ## 承诺与检查
 
-书中的 `theorem / lemma / proposition / corollary` 必须写成：
+书中的 `theorem / lemma / proposition / corollary` 默认引用匹配的冻结 Lean 声明：
 
 ```markdown
 ::: {.theorem #thm-deficit-three-valued title="亏量只取三个值" lean="D5/S1/Deficit/DeficitThreeValued.deficit_three_valued"}

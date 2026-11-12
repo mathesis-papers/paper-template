@@ -1574,11 +1574,15 @@ def _check_citation(c: Citation, ed: DeckEdition, s: Slide, lock: lean.Lock | No
     status = c.attrs.get("status")
     if status == "open" and c.gid:
         err(ed.path, s.line, f'<{c.tag} status="open"> must not cite Lean: open problems have no proof; drop gid')
-    if status not in (None, "open", "argued"):
-        err(ed.path, s.line, f'<{c.tag} status="{status}">: status is "open" or "argued"')
+    if status == "written-proof" and c.attrs.get("kind") not in (None, "theorem", "lemma", "proposition", "corollary"):
+        err(ed.path, s.line, 'written-proof is only for formal results, not open items or definitions')
+    if status == "written-proof" and "gid" in c.attrs:
+        err(ed.path, s.line, f'<{c.tag} status="written-proof"> must not have gid; a written proof is not kernel verification')
+    if status not in (None, "open", "argued", "written-proof"):
+        err(ed.path, s.line, f'<{c.tag} status="{status}">: status is "open", "argued" or "written-proof"')
     if not c.gid:
         if not status:
-            err(ed.path, s.line, f'<{c.tag}> needs gid="<GID>" (a frozen Lean declaration) or status="open|argued"')
+            err(ed.path, s.line, f'<{c.tag}> needs gid="<GID>" (a frozen Lean declaration) or status="open|argued|written-proof"')
         return
     try:
         lean.parse_gid(c.gid)
@@ -1609,6 +1613,8 @@ def _check_cite(c: Citation, ed: DeckEdition, s: Slide, model, err) -> None:
         err(ed.path, s.line, f'<TheoremCard cite="{cite}">: cites {c.gid}, the book cites {" ".join(env.lean)}')
     if not c.gid and env.lean and c.attrs.get("status") != "argued":
         err(ed.path, s.line, f'<TheoremCard cite="{cite}">: the book cites {" ".join(env.lean)}; add gid')
+    if (c.attrs.get("status") == "written-proof") != (env.status == "written-proof"):
+        err(ed.path, s.line, f'<TheoremCard cite="{cite}">: written-proof status must agree with the book')
     is_open = c.attrs.get("status") == "open"
     if is_open != (env.kind in OPEN):
         err(ed.path, s.line, f'<TheoremCard cite="{cite}">: #{cite} is a {env.kind}; '
