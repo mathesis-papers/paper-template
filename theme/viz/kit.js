@@ -6,9 +6,12 @@
      kit.v3                       vector algebra on [x, y, z]: add sub scale dot cross len unit lerp rot slerp sph
      kit.painter(draw, [els])     coalesced redraw: paint() asks for one frame; repaints on resize, fonts and language
      kit.flush()                  finish running transitions and draw every painter now (browser suites use it instead of waiting)
+     kit.ready()                  a promise: resolves once the work the page waits for (three.js for kit.solid) is in
      kit.tween(ms, step, done)    eased 0 → 1 animation (one jump under prefers-reduced-motion); returns { cancel }
      kit.stage3(el, opts)         a 3D scene on a 2D canvas: orbit camera (drag, wheel, pinch), depth-cued lines, sphere,
                                   arcs, arrows, polygons, DOM labels, picking on the unit sphere
+     kit.solid(el, opts)          lit solids, glass shells, polyhedra, tubes and marks with occlusion and picking (three.js,
+                                  fetched on the first call only; see the section at the end of this file)
      kit.plot(canvas, opts)       a 2D chart or equal-aspect 2D stage: scales, axes, lines, areas, bars, dots, labels
      kit.clock(opts)              the bottom rail: play / pause / speed / scrub over t in [0, max], with keyboard
      kit.autoplay(clock, el)      start playing when the reader can see it (in a book: when el scrolls into view)
@@ -27,6 +30,7 @@
   const TAU = Math.PI * 2;
   const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
   const P = () => TRV.palette;
+  const SRC = document.currentScript && document.currentScript.src;   // kit.solid finds vendor/ next to this file
 
   /* ---------- vectors ---------- */
   const v3 = {
@@ -78,6 +82,11 @@
       deliver the frame that ends it long after its nominal duration. */
   const tweens = new Set();
   function flush() { [...tweens].forEach((finish) => finish()); painters.forEach((p) => p.now()); }
+  /** Work the page is waiting for before its first true frame (kit.solid registers the loading of three.js):
+      kit.ready() resolves once all of it is in; the suites' settle() waits for it before calling flush(). */
+  const waits = [];
+  const pending = (promise) => { waits.push(promise); return promise; };
+  const ready = () => Promise.all(waits.map((w) => w.catch(() => null))).then(() => undefined);
   /** step(e) with e eased from 0 to 1 over ms; done() at the end. Under reduced motion: step(1) at once. */
   function tween(ms, step, done) {
     let live = true;
@@ -536,5 +545,561 @@
   /** As fix, with an explicit sign. */
   function sgn(x, d) { const s = fix(x, d); return s[0] === '−' || Number(s.replace('−', '-')) === 0 ? s : '+' + s; }
 
-  TRV.kit = { v3, painter, flush, tween, stage3, plot, clock, autoplay, chips, cards, field, keys, fix, sgn, clamp, TAU };
+  TRV.kit = { v3, painter, flush, ready, pending, src: SRC, tween, stage3, plot, clock, autoplay, chips, cards, field, keys, fix, sgn, clamp, TAU };
+})();
+
+/* ---------- kit.solid: lit solids (three.js, fetched on first use) ----------
+   const sc = TRV.kit.solid(stageEl, { canvas, onChange: paint, onPick, onDrag, onDrop, yaw, pitch, zoom, radius, cx, cy });
+   Every page may call it; three.js (theme/viz/vendor/, pinned: see vendor/README.md) is fetched by the first call only,
+   so a page that draws no solid downloads nothing more. The camera, the pointer handling, the labels and the projection
+   are those of kit.stage3 (x right, z up, orthographic orbit: yaw, pitch, zoom), and a page draws in the same painter
+   pattern:
+     sc.begin();
+     sc.surface('band', (u, v) => [x, y, z], { u: [0, 1], v: [0, 1], nu: 96, nv: 20, value: (u, v) => s,
+                                              colors: [P.magenta, P.violet, P.cyan], range: [-1, 1], grid: { every: [4, 2] } });
+     sc.glass('ball', [0, 0, 0], 1);                         a glass shell: what is inside stays visible
+     sc.poly('ico', { vertices, faces }, { color });         a flat-shaded polyhedron from a vertex and face list
+     sc.tube('path', points, { width, color });              a tube along a curve (parallel-transported frame)
+     sc.line(points, { color, width, dash, alpha, close })   a line: a thin unlit tube, hidden by what is in front of it
+     sc.arrow(a, b, s)  sc.ring(p, s)  sc.bead(p, s)  sc.fan(points, s)    marks on and around the solid
+     sc.tag(key, p, html, cls, s)                            a DOM label, dimmed where a solid hides its point
+     sc.end();                                               draws the frame (no render loop: frames come from paint())
+   sc.hit(ev) → { id, u, v, point, normal, front } | null;  sc.nearest(ev, points, px);  sc.occluded(p);  sc.view(…).
+   Surfaces, glass shells, polyhedra and tubes take a key and keep their buffers from frame to frame; lines, arrows,
+   beads, rings and fans are made for one frame. One key light fixed in camera coordinates plus ambient light; colours
+   are token colours (TRV.palette) or a ramp through two or three of them. Inside a book (TRV.embed) the WebGL context
+   is made only once the stage is on screen and is given back after a short rest (the frame stays on the page's 2D
+   canvas as a picture); a touch or a new frame takes it back. sc.ready resolves once three.js is in; kit.ready() waits
+   for every stage, and the suites' settle() waits for kit.ready(). */
+(function () {
+  'use strict';
+  const TRV = window.TRV;
+  if (!TRV || !TRV.kit) return;
+  const kit = TRV.kit, v3 = kit.v3, clamp = kit.clamp, TAU = Math.PI * 2;
+  const P = () => TRV.palette;
+  const VENDOR = new URL('vendor/three.module.min.js', kit.src || location.href).href;
+  let threeP = null;
+  /** three.js, fetched once per page, on the first call of kit.solid. */
+  const loadThree = () => threeP || (threeP = import(VENDOR));
+  const lumOf = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+  /** Sample f(u, v) → [x, y, z] on a grid of nu × nv cells (or take rows[j][i] = [x, y, z]). */
+  function grid(f, o) {
+    o = o || {};
+    const rows = Array.isArray(f), nu = rows ? f[0].length - 1 : o.nu || 48, nv = rows ? f.length - 1 : o.nv || 24;
+    const [u0, u1] = rows ? [0, 1] : o.u || [0, 1], [v0, v1] = rows ? [0, 1] : o.v || [0, 1];
+    const us = [], vs = [], pts = [];
+    for (let i = 0; i <= nu; i++) us.push(u0 + (u1 - u0) * i / nu);
+    for (let j = 0; j <= nv; j++) vs.push(v0 + (v1 - v0) * j / nv);
+    for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) pts.push(rows ? f[j][i] : f(us[i], vs[j]));
+    return { nu, nv, us, vs, pts, f: rows ? null : f };
+  }
+
+  function solid(el, opts) {
+    const o = opts || {};
+    const still = o.canvas || el.querySelector('canvas');     // the page's 2D canvas: shows the frame while the context rests
+    const cam = { yaw: o.yaw == null ? -0.62 : o.yaw, pitch: o.pitch == null ? 0.34 : o.pitch, zoom: o.zoom || 1 };
+    const sc = { el, cam, W: 0, H: 0, cx: 0, cy: 0, unit: 1, lw: o.lineScale || (TRV.thumbMode ? 1.8 : 1), mode: 'loading', faces: 0, frameMs: 0 };
+    let R = [1, 0, 0], U = [0, 0, 1], D = [0, -1, 0];
+    function axes() {
+      const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+      R = [cy, -sy, 0]; U = [sy * sp, cy * sp, cp]; D = [-sy * cp, -cy * cp, sp];
+    }
+    function box() {
+      sc.W = el.clientWidth || 300; sc.H = el.clientHeight || 150;
+      sc.cx = sc.W * (o.cx == null ? 0.5 : o.cx); sc.cy = sc.H * (o.cy == null ? 0.5 : o.cy);
+      sc.unit = Math.min(sc.W, sc.H) * (o.radius || 0.36) * cam.zoom;
+    }
+    axes(); box();
+    /** World point → [screen x, screen y, depth] in CSS pixels (depth > 0 faces the viewer), as kit.stage3. */
+    sc.p = (v) => [sc.cx + sc.unit * v3.dot(v, R), sc.cy - sc.unit * v3.dot(v, U), v3.dot(v, D)];
+    sc.facing = () => D.slice();
+    /** Distance in CSS pixels from a pointer event to the projection of a world point. */
+    sc.near = (ev, v) => { const b = el.getBoundingClientRect(), q = sc.p(v); return Math.hypot(ev.clientX - b.left - q[0], ev.clientY - b.top - q[1]); };
+    /** The point of the unit sphere under a pointer event (front side), as kit.stage3. */
+    sc.pick = (ev) => {
+      const b = el.getBoundingClientRect(), x = (ev.clientX - b.left - sc.cx) / sc.unit, y = (sc.cy - (ev.clientY - b.top)) / sc.unit, r2 = x * x + y * y;
+      if (r2 > 1) { const k = 1 / Math.sqrt(r2); return v3.add(v3.scale(R, x * k), v3.scale(U, y * k)); }
+      return v3.add(v3.add(v3.scale(R, x), v3.scale(U, y)), v3.scale(D, Math.sqrt(1 - r2)));
+    };
+
+    /* ---------- three.js state ---------- */
+    let T = null, scene = null, camera = null, keyLight = null, ambient = null, renderer = null, glCanvas = null, parked = false;
+    const keyed = new Map();     // key → { obj, kind, … }
+    let loose = [], pickables = [], marks = [], used = new Set();
+    const ready = loadThree().then((mod) => {
+      T = mod;
+      scene = new T.Scene();
+      camera = new T.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+      ambient = new T.AmbientLight(0xffffff, 1);
+      keyLight = new T.DirectionalLight(0xffffff, 2.2);
+      keyLight.position.set(-0.42, 0.62, 0.66);                 // above, to the left and in front of the viewer
+      camera.add(keyLight); camera.add(keyLight.target); keyLight.target.position.set(0, 0, -1);
+      scene.add(camera); scene.add(ambient);
+      sc.mode = 'webgl';
+      if (o.onChange) o.onChange();
+    });
+    sc.ready = ready;
+    if (kit.pending) kit.pending(ready);
+
+    /** The renderer and its canvas, made on demand; inside a book only once the stage is on screen. */
+    let onScreen = !TRV.embed || !window.IntersectionObserver;
+    function ensureRenderer() {
+      if (renderer) return true;
+      if (!T || !onScreen) return false;
+      glCanvas = document.createElement('canvas');
+      glCanvas.className = 'fill solid-gl';
+      glCanvas.style.touchAction = 'none';
+      el.insertBefore(glCanvas, el.firstChild);
+      renderer = new T.WebGLRenderer({ canvas: glCanvas, antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'low-power' });
+      renderer.setClearColor(0x000000, 0);
+      glCanvas.addEventListener('webglcontextlost', (ev) => ev.preventDefault());
+      parked = false;
+      if (still) still.style.visibility = 'hidden';
+      sc.contexts = (sc.contexts || 0) + 1;
+      return true;
+    }
+    /** Keep the last frame as a picture on the 2D canvas and give the WebGL context back. */
+    function park() {
+      if (!renderer) return;
+      if (still) {
+        TRV.fitCanvas(still);
+        const c = still.getContext('2d');
+        c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, still.width, still.height);
+        c.drawImage(glCanvas, 0, 0, still.width, still.height);
+        still.style.visibility = 'visible';
+      }
+      renderer.forceContextLoss(); renderer.dispose(); renderer = null;
+      glCanvas.remove(); glCanvas = null; parked = true;
+    }
+    sc.park = park;
+    sc.parked = () => !renderer;
+    let restTimer = 0;
+    const restMs = o.park != null ? o.park : TRV.embed ? 1600 : 0;
+    const rest = () => { if (!restMs) return; clearTimeout(restTimer); restTimer = setTimeout(park, restMs); };
+    if (TRV.embed && window.IntersectionObserver) {
+      new IntersectionObserver((entries) => {
+        const seen = entries[entries.length - 1].isIntersecting;
+        if (seen && !onScreen) { onScreen = true; if (o.onChange) o.onChange(); } else if (!seen && onScreen) { onScreen = false; park(); }
+      }).observe(el);
+    }
+
+    /* ---------- colours ---------- */
+    const col = (c) => { const k = new T.Color(); k.setStyle(c); return k; };
+    function ramp(stops, t) {
+      if (stops.length === 1) return stops[0];
+      const x = clamp(t, 0, 1) * (stops.length - 1), k = Math.min(stops.length - 2, Math.floor(x));
+      return stops[k].clone().lerp(stops[k + 1], x - k);
+    }
+    let dark = true;
+    function lighting() {
+      dark = lumOf(col(P().stage)) < 0.3;
+      ambient.intensity = dark ? 0.55 : 1.2;
+      keyLight.intensity = dark ? 2.6 : 1.9;
+    }
+
+    /* ---------- buffers ---------- */
+    function setAttr(g, name, arr, size) {
+      const a = g.getAttribute(name);
+      if (a && a.array.length === arr.length) { a.array.set(arr); a.needsUpdate = true; } else g.setAttribute(name, new T.BufferAttribute(arr, size));
+    }
+    function gridIndex(nu, nv) {
+      const idx = new Uint32Array(nu * nv * 6);
+      let k = 0;
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const a = j * (nu + 1) + i, b = a + 1, c = a + nu + 2, d = a + nu + 1;
+        idx[k++] = a; idx[k++] = b; idx[k++] = c; idx[k++] = a; idx[k++] = c; idx[k++] = d;
+      }
+      return idx;
+    }
+    /** Lit, both sides, shaded by vertex colour; the back side mixed towards its own colour (default: darker). */
+    function surfaceMaterial() {
+      const m = new T.MeshStandardMaterial({ vertexColors: true, side: T.DoubleSide, roughness: 0.52, metalness: 0.06, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+      m.userData.back = { value: new T.Vector3(0, 0, 0) };
+      m.userData.backMix = { value: 0.45 };
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.backTint = m.userData.back; sh.uniforms.backMix = m.userData.backMix;
+        sh.fragmentShader = 'uniform vec3 backTint;\nuniform float backMix;\n' + sh.fragmentShader.replace('#include <color_fragment>',
+          '#include <color_fragment>\n  if (!gl_FrontFacing) diffuseColor.rgb = mix(diffuseColor.rgb, backTint, backMix);');
+      };
+      return m;
+    }
+
+    /* ---------- the frame ---------- */
+    let t0 = 0;
+    sc.begin = () => {
+      box(); axes(); tagsUsed.clear(); used = new Set();
+      loose.forEach((x) => { scene.remove(x); if (x.geometry) x.geometry.dispose(); if (x.material) x.material.dispose(); });
+      loose = []; pickables = []; marks = []; sc.faces = 0;
+      t0 = performance.now();
+      if (!T) return;
+      lighting();
+      camera.left = -sc.cx / sc.unit; camera.right = (sc.W - sc.cx) / sc.unit; camera.top = sc.cy / sc.unit; camera.bottom = -(sc.H - sc.cy) / sc.unit;
+      camera.position.set(D[0] * 50, D[1] * 50, D[2] * 50); camera.up.set(U[0], U[1], U[2]); camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld(true);
+    };
+    function take(k, kind, make) {
+      used.add(k);
+      let it = keyed.get(k);
+      if (!it || it.kind !== kind) { if (it) drop(k); it = make(); it.kind = kind; keyed.set(k, it); scene.add(it.obj); }
+      it.obj.visible = true;
+      return it;
+    }
+    function drop(k) {
+      const it = keyed.get(k); if (!it) return;
+      scene.remove(it.obj); it.obj.traverse((x) => { if (x.geometry) x.geometry.dispose(); if (x.material) x.material.dispose(); });
+      keyed.delete(k);
+    }
+    /**
+     * A lit surface. f(u, v) → [x, y, z] (or rows of points). s: u, v ([lo, hi]), nu, nv, value(u, v) → the scalar of
+     * the colour ramp; color, or colors (two or three token colours) with range [lo, hi]; back (the colour of the back
+     * side; default the front colour, darker); alpha; grid ({ every: [ku, kv], color, alpha } | true); id (what hit
+     * returns; default the key); pick (false: not pickable; it still hides what is behind it).
+     */
+    sc.surface = (k, f, s) => {
+      s = s || {};
+      if (!T) return null;
+      const g = grid(f, s), n = g.pts.length;
+      const it = take(k, 'surface', () => {
+        const mesh = new T.Mesh(new T.BufferGeometry(), surfaceMaterial()), obj = new T.Group();
+        const lines = new T.LineSegments(new T.BufferGeometry(), new T.LineBasicMaterial({ transparent: true }));
+        obj.add(mesh); obj.add(lines);
+        return { obj, mesh, lines, nu: -1, nv: -1 };
+      });
+      const geo = it.mesh.geometry, pos = new Float32Array(n * 3), uv = new Float32Array(n * 2), cl = new Float32Array(n * 3);
+      const stops = (s.colors || [s.color || P().cyan]).map(col);
+      const [lo, hi] = s.range || [0, 1];
+      for (let j = 0; j <= g.nv; j++) for (let i = 0; i <= g.nu; i++) {
+        const q = j * (g.nu + 1) + i, p = g.pts[q];
+        pos[3 * q] = p[0]; pos[3 * q + 1] = p[1]; pos[3 * q + 2] = p[2];
+        uv[2 * q] = g.us[i]; uv[2 * q + 1] = g.vs[j];
+        const c = ramp(stops, s.value && hi > lo ? (s.value(g.us[i], g.vs[j]) - lo) / (hi - lo) : 0);
+        cl[3 * q] = c.r; cl[3 * q + 1] = c.g; cl[3 * q + 2] = c.b;
+      }
+      setAttr(geo, 'position', pos, 3); setAttr(geo, 'uv', uv, 2); setAttr(geo, 'color', cl, 3);
+      if (it.nu !== g.nu || it.nv !== g.nv) { geo.setIndex(new T.BufferAttribute(gridIndex(g.nu, g.nv), 1)); it.nu = g.nu; it.nv = g.nv; }
+      geo.computeVertexNormals(); geo.computeBoundingSphere(); geo.computeBoundingBox();
+      const m = it.mesh.material, bc = s.back ? col(s.back) : new T.Color(0, 0, 0);
+      m.userData.back.value.set(bc.r, bc.g, bc.b); m.userData.backMix.value = s.back ? 1 : dark ? 0.5 : 0.35;
+      m.opacity = s.alpha == null ? 1 : s.alpha; m.transparent = m.opacity < 1; m.depthWrite = m.opacity >= 1;
+      const ln = it.lines, gr = s.grid === true ? {} : s.grid;
+      ln.visible = !!gr;
+      if (gr) {   // every ku-th u-line and kv-th v-line, kept on top of the faces they bound by the faces' polygon offset
+        const ev = [].concat(gr.every || 1), ku = ev[0], kv = ev[ev.length - 1], seg = [];
+        const add = (a, b) => { const A = g.pts[a], B = g.pts[b]; seg.push(A[0], A[1], A[2], B[0], B[1], B[2]); };
+        for (let i = 0; i <= g.nu; i += ku) for (let j = 0; j < g.nv; j++) add(j * (g.nu + 1) + i, (j + 1) * (g.nu + 1) + i);
+        for (let j = 0; j <= g.nv; j += kv) for (let i = 0; i < g.nu; i++) add(j * (g.nu + 1) + i, j * (g.nu + 1) + i + 1);
+        setAttr(ln.geometry, 'position', new Float32Array(seg), 3); ln.geometry.setDrawRange(0, seg.length / 3); ln.geometry.computeBoundingSphere();
+        ln.material.color = gr.color ? col(gr.color) : new T.Color(0, 0, 0);
+        ln.material.opacity = gr.alpha == null ? (dark ? 0.34 : 0.22) : gr.alpha;
+      }
+      sc.faces += g.nu * g.nv * 2;
+      pickables.push({ mesh: it.mesh, id: s.id || k, grid: g, noPick: s.pick === false });
+      return it.mesh;
+    };
+    /** A flat-shaded polyhedron: vertices [[x, y, z], …], faces [[i, j, k, …], …] (convex polygons). s: color, colors
+        (one per face), alpha, edges (the colour of the edges; false: none), id. hit() returns the face index. */
+    sc.poly = (k, m, s) => {
+      s = s || {};
+      if (!T) return null;
+      const it = take(k, 'poly', () => {
+        const mesh = new T.Mesh(new T.BufferGeometry(), new T.MeshStandardMaterial({ vertexColors: true, side: T.DoubleSide, roughness: 0.6, metalness: 0.05, flatShading: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+        const edges = new T.LineSegments(new T.BufferGeometry(), new T.LineBasicMaterial({ transparent: true }));
+        const obj = new T.Group(); obj.add(mesh); obj.add(edges);
+        return { obj, mesh, edges };
+      });
+      const pos = [], cl = [], seg = [], faceOf = [];
+      m.faces.forEach((f, fi) => {
+        const c = col((s.colors && s.colors[fi]) || s.color || P().violet);
+        for (let t = 1; t + 1 < f.length; t++) {
+          for (const q of [f[0], f[t], f[t + 1]]) { const p = m.vertices[q]; pos.push(p[0], p[1], p[2]); cl.push(c.r, c.g, c.b); }
+          faceOf.push(fi);
+        }
+        f.forEach((q, t) => { const A = m.vertices[q], B = m.vertices[f[(t + 1) % f.length]]; seg.push(A[0], A[1], A[2], B[0], B[1], B[2]); });
+      });
+      const geo = it.mesh.geometry;
+      setAttr(geo, 'position', new Float32Array(pos), 3); setAttr(geo, 'color', new Float32Array(cl), 3);
+      geo.computeVertexNormals(); geo.computeBoundingSphere(); geo.setDrawRange(0, pos.length / 3);
+      const mat = it.mesh.material; mat.opacity = s.alpha == null ? 1 : s.alpha; mat.transparent = mat.opacity < 1; mat.depthWrite = mat.opacity >= 1;
+      it.edges.visible = s.edges !== false;
+      setAttr(it.edges.geometry, 'position', new Float32Array(seg), 3); it.edges.geometry.setDrawRange(0, seg.length / 3); it.edges.geometry.computeBoundingSphere();
+      it.edges.material.color = col(s.edges || P().ink); it.edges.material.opacity = 0.35;
+      sc.faces += pos.length / 9;
+      pickables.push({ mesh: it.mesh, id: s.id || k, faceOf });
+      return it.mesh;
+    };
+    /** A glass shell, centre c and radius r: faint where it faces the viewer and brighter towards the rim, so that what
+        is inside stays visible and the ball still reads as a ball. s: color (default cyan), alpha, rim. It hides nothing
+        and is not picked. */
+    sc.glass = (k, c, r, s) => {
+      s = s || {};
+      if (!T) return null;
+      const it = take(k, 'glass', () => {
+        const geo = new T.SphereGeometry(1, 72, 36), obj = new T.Group();
+        const mk = (side, order) => {
+          const m = new T.MeshStandardMaterial({ side, transparent: true, depthWrite: false, roughness: 0.3, metalness: 0 });
+          m.userData.rim = { value: 0.5 };
+          m.onBeforeCompile = (sh) => {
+            sh.uniforms.rimAlpha = m.userData.rim;
+            sh.fragmentShader = 'uniform float rimAlpha;\n' + sh.fragmentShader.replace('#include <opaque_fragment>',
+              '  diffuseColor.a = mix(diffuseColor.a, rimAlpha, pow(1.0 - abs(normalize(vNormal).z), 3.0));\n#include <opaque_fragment>');
+          };
+          const mesh = new T.Mesh(geo, m); mesh.renderOrder = order; return mesh;
+        };
+        const back = mk(T.BackSide, 1), front = mk(T.FrontSide, 3);
+        obj.add(back); obj.add(front);
+        return { obj, back, front };
+      });
+      it.obj.position.set(c[0], c[1], c[2]); it.obj.scale.setScalar(r);
+      const k0 = col(s.color || P().cyan), a = s.alpha == null ? 0.07 : s.alpha;
+      for (const [m, f] of [[it.back.material, 0.6], [it.front.material, 1]]) { m.color = k0.clone(); m.opacity = a * f; m.userData.rim.value = Math.min(1, (s.rim == null ? 0.5 : s.rim) * f); }
+      return it.obj;
+    };
+
+    /* tubes and lines: a parallel-transported frame, which does not flip on straight runs */
+    function tubeGeo(pts, rad, sides) {
+      const n = pts.length, pos = [], nor = [], idx = [];
+      if (n < 2) return null;
+      const tan = pts.map((p, i) => v3.unit(v3.sub(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)])));
+      let N = v3.unit(v3.cross(tan[0], Math.abs(tan[0][2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]));
+      for (let i = 0; i < n; i++) {
+        if (i > 0) {
+          const b = v3.cross(tan[i - 1], tan[i]), sn = v3.len(b);
+          if (sn > 1e-9) N = v3.rot(N, v3.scale(b, 1 / sn), Math.atan2(sn, v3.dot(tan[i - 1], tan[i])));
+          N = v3.unit(v3.sub(N, v3.scale(tan[i], v3.dot(N, tan[i]))));
+        }
+        const B = v3.cross(tan[i], N);
+        for (let k = 0; k < sides; k++) {
+          const a = TAU * k / sides, d = v3.add(v3.scale(N, Math.cos(a)), v3.scale(B, Math.sin(a)));
+          pos.push(pts[i][0] + rad * d[0], pts[i][1] + rad * d[1], pts[i][2] + rad * d[2]); nor.push(d[0], d[1], d[2]);
+        }
+      }
+      for (let i = 0; i + 1 < n; i++) for (let k = 0; k < sides; k++) {
+        const a = i * sides + k, b = i * sides + (k + 1) % sides, c = a + sides, d = b + sides;
+        idx.push(a, b, c, b, d, c);   // counter-clockwise seen from outside
+      }
+      const g = new T.BufferGeometry();
+      g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new T.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
+      return g;
+    }
+    /** A polyline cut into dashes of [on, off] CSS pixels. */
+    function dashes(pts, dash) {
+      const on = dash[0] / sc.unit, off = (dash[1] == null ? dash[0] : dash[1]) / sc.unit, out = [];
+      let cur = [pts[0]], drawn = true, left = on;
+      for (let i = 1; i < pts.length; i++) {
+        let a = pts[i - 1], L = v3.len(v3.sub(pts[i], a));
+        while (L > left) {
+          const m = v3.lerp(a, pts[i], left / L);
+          L -= left; a = m;
+          if (drawn) { cur.push(m); out.push(cur); } else cur = [m];
+          drawn = !drawn; left = drawn ? on : off;
+        }
+        left -= L; if (drawn) cur.push(pts[i]);
+      }
+      if (drawn && cur.length > 1) out.push(cur);
+      return out;
+    }
+    function addLoose(obj) { scene.add(obj); loose.push(obj); return obj; }
+    const flatMat = (c, a) => new T.MeshBasicMaterial({ color: col(c), transparent: a < 1, opacity: a, depthWrite: a >= 1 });
+    const litMat = (c, a, glow) => new T.MeshStandardMaterial({ color: col(c), emissive: col(c), emissiveIntensity: glow == null ? 0.35 : glow, roughness: 0.45, metalness: 0.05, transparent: a < 1, opacity: a });
+    /** A line through world points: a thin unlit tube; width and dash ([on, off]) in CSS pixels; alpha; close. */
+    sc.line = (pts, s) => {
+      s = s || {};
+      if (!T || pts.length < 2) return;
+      const p = s.close ? pts.concat([pts[0]]) : pts, rad = (s.width || 1.2) * sc.lw * 0.5 / sc.unit, a = s.alpha == null ? 1 : s.alpha;
+      for (const run of s.dash && s.dash.length ? dashes(p, s.dash) : [p]) {
+        const g = tubeGeo(run, rad, 6);
+        if (g) addLoose(new T.Mesh(g, flatMat(s.color || P().cyan, a))).renderOrder = a < 1 ? 2 : 0;
+      }
+    };
+    /** A lit tube along a curve, with a key. s: width (CSS px) or r (world units), color, alpha, glow (0.2: how much of
+        its own colour it gives off, so that it stands out on a solid of the same colour), sides. */
+    sc.tube = (k, pts, s) => {
+      s = s || {};
+      if (!T || pts.length < 2) return null;
+      const it = take(k, 'tube', () => ({ obj: new T.Mesh(new T.BufferGeometry(), litMat(s.color || P().cyan, 1, 0.2)) }));
+      const rad = s.r || (s.width || 3) * sc.lw * 0.5 / sc.unit;
+      it.obj.geometry.dispose(); it.obj.geometry = tubeGeo(pts, rad, s.sides || 10);
+      const c = col(s.color || P().cyan), a = s.alpha == null ? 1 : s.alpha;
+      it.obj.material.color = c; it.obj.material.emissive = c.clone(); it.obj.material.emissiveIntensity = s.glow == null ? 0.2 : s.glow;
+      it.obj.material.opacity = a; it.obj.material.transparent = a < 1;
+      return it.obj;
+    };
+    /** An arrow from a to b: a shaft and a lit cone; width and headSize in CSS pixels; dash; alpha. */
+    sc.arrow = (a, b, s) => {
+      s = s || {};
+      if (!T) return;
+      const d = v3.sub(b, a), L = v3.len(d);
+      if (L < 1e-9) return;
+      const u = v3.scale(d, 1 / L), h = Math.min((s.headSize || 10) * sc.lw / sc.unit, L * 0.6), w = (s.width || 2) * sc.lw / sc.unit, c = s.color || P().cyan, al = s.alpha == null ? 1 : s.alpha;
+      const base = v3.sub(b, v3.scale(u, s.head === false ? 0 : h));
+      sc.line([a, base], { color: c, width: s.width || 2, dash: s.dash, alpha: al });
+      if (s.head === false) return;
+      const cone = addLoose(new T.Mesh(new T.ConeGeometry(Math.max(w * 1.6, h * 0.42), h, 18), litMat(c, al, 0.5)));
+      cone.position.set(base[0] + u[0] * h / 2, base[1] + u[1] * h / 2, base[2] + u[2] * h / 2);
+      cone.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), new T.Vector3(u[0], u[1], u[2]));
+    };
+    /** A small lit ball at p, r in CSS pixels; key names it among the marks (nearest(), the suites). */
+    sc.bead = (p, s) => {
+      s = s || {};
+      if (!T) return;
+      const m = addLoose(new T.Mesh(new T.SphereGeometry(1, 20, 12), litMat(s.color || P().amber, s.alpha == null ? 1 : s.alpha, s.glow == null ? 0.55 : s.glow)));
+      m.position.set(p[0], p[1], p[2]); m.scale.setScalar((s.r || 5) * sc.lw / sc.unit);
+      marks.push({ key: s.key, p, kind: 'bead' });
+    };
+    /** A ring marker at p lying on a surface of normal s.normal (default: facing the viewer); r in CSS pixels. */
+    sc.ring = (p, s) => {
+      s = s || {};
+      if (!T) return;
+      const r = (s.r || 5) * sc.lw / sc.unit, m = addLoose(new T.Mesh(new T.TorusGeometry(r, r * 0.28, 8, 28), litMat(s.color || P().violet, s.alpha == null ? 1 : s.alpha, 0.5)));
+      const n = v3.unit(s.normal || D);
+      m.position.set(p[0], p[1], p[2]); m.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), new T.Vector3(n[0], n[1], n[2]));
+      marks.push({ key: s.key, p, kind: 'ring' });
+    };
+    /** A filled planar polygon (unlit) through world points: fill, alpha; color (with width, dash) for its outline. */
+    sc.fan = (pts, s) => {
+      s = s || {};
+      if (!T || pts.length < 3) return;
+      if (s.fill) {
+        const pos = [];
+        for (let t = 1; t + 1 < pts.length; t++) for (const q of [pts[0], pts[t], pts[t + 1]]) pos.push(q[0], q[1], q[2]);
+        const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+        const a = s.alpha == null ? 0.25 : s.alpha;
+        addLoose(new T.Mesh(g, new T.MeshBasicMaterial({ color: col(s.fill), transparent: a < 1, opacity: a, side: T.DoubleSide, depthWrite: a >= 1 }))).renderOrder = 2;
+      }
+      if (s.color) sc.line(pts, { color: s.color, width: s.width || 1, dash: s.dash, alpha: s.strokeAlpha == null ? 0.9 : s.strokeAlpha, close: true });
+    };
+
+    /* ---------- picking: a ray from the eye through the screen point ---------- */
+    let ray = null;
+    function cast(x, y, list) {
+      if (!T || !list.length) return null;
+      if (!ray) ray = new T.Raycaster();
+      ray.setFromCamera(new T.Vector2(x / sc.W * 2 - 1, -(y / sc.H) * 2 + 1), camera);
+      const hits = ray.intersectObjects(list.map((p) => p.mesh), false);
+      for (const h of hits) { const p = list.find((q) => q.mesh === h.object); if (p) return { h, p }; }
+      return null;
+    }
+    /** What lies under the screen point (x, y), CSS pixels from the stage's corner: { id, u, v, point, normal, front,
+        depth } (face instead of u, v on a polyhedron), or null. On a surface given by a function, (u, v) is refined on
+        the exact surface (Newton on its projection), so it agrees with the surface rather than with its flat faces. */
+    sc.hitAt = (x, y) => {
+      const r = cast(x, y, pickables);
+      if (!r || r.p.noPick) return null;
+      const { h, p } = r, pt = [h.point.x, h.point.y, h.point.z];
+      const n = h.face ? v3.unit([h.face.normal.x, h.face.normal.y, h.face.normal.z]) : D;
+      const out = { id: p.id, point: pt, normal: n, front: v3.dot(n, D) >= 0, depth: v3.dot(pt, D) };
+      if (p.faceOf && h.faceIndex != null) out.face = p.faceOf[h.faceIndex];
+      if (p.grid && h.uv) {
+        const g = p.grid;
+        let u = h.uv.x, v = h.uv.y;
+        if (g.f) {
+          const du = (g.us[g.nu] - g.us[0]) / g.nu, dv = (g.vs[g.nv] - g.vs[0]) / g.nv, u0 = u, v0 = v;
+          const scr = (uu, vv) => sc.p(g.f(uu, vv));
+          for (let it = 0; it < 8; it++) {
+            const q = scr(u, v), ex = q[0] - x, ey = q[1] - y;
+            if (Math.hypot(ex, ey) < 1e-7) break;
+            const hu = du * 1e-4, hv = dv * 1e-4, qu = scr(u + hu, v), qv = scr(u, v + hv);
+            const a11 = (qu[0] - q[0]) / hu, a21 = (qu[1] - q[1]) / hu, a12 = (qv[0] - q[0]) / hv, a22 = (qv[1] - q[1]) / hv, det = a11 * a22 - a12 * a21;
+            if (Math.abs(det) < 1e-12) break;
+            const nu = u - (a22 * ex - a12 * ey) / det, nv = v - (a11 * ey - a21 * ex) / det;
+            if (Math.abs(nu - u0) > 2 * Math.abs(du) || Math.abs(nv - v0) > 2 * Math.abs(dv)) break;
+            u = nu; v = nv;
+          }
+          const q = scr(u, v);
+          if (Math.hypot(q[0] - x, q[1] - y) < 0.5) { out.point = g.f(u, v); out.depth = v3.dot(out.point, D); } else { u = h.uv.x; v = h.uv.y; }
+        }
+        out.u = u; out.v = v;
+      }
+      return out;
+    };
+    sc.hit = (ev) => { const b = el.getBoundingClientRect(); return sc.hitAt(ev.clientX - b.left, ev.clientY - b.top); };
+    /** True when a surface or polyhedron of this frame is in front of the world point p (by more than eps). */
+    sc.occluded = (p, eps) => {
+      const q = sc.p(p), r = cast(q[0], q[1], pickables);
+      return !!r && v3.dot([r.h.point.x, r.h.point.y, r.h.point.z], D) > q[2] + (eps == null ? 1e-3 : eps);
+    };
+    /** The index of the nearest point of `list` within px CSS pixels of a pointer event that no solid hides, or −1. */
+    sc.nearest = (ev, list, px) => {
+      let best = -1, bd = px == null ? 16 : px;
+      list.forEach((v, k) => { const d = sc.near(ev, v); if (d <= bd && !sc.occluded(v, 0.02)) { bd = d; best = k; } });
+      return best;
+    };
+    /** The beads and rings of the frame: { key, kind, p, x, y, hidden } in viewport pixels (for the suites). */
+    sc.marks = () => { const b = el.getBoundingClientRect(); return marks.map((m) => { const q = sc.p(m.p); return { key: m.key, kind: m.kind, p: m.p, x: b.left + q[0], y: b.top + q[1], hidden: sc.occluded(m.p, 0.02) }; }); };
+
+    /* ---------- labels, as kit.stage3; dimmed where a solid hides their point ---------- */
+    const tags = new Map(), tagsUsed = new Set(), tagPts = new Map();
+    let tagBox = el.querySelector('.tags');
+    sc.tag = (k, v, html, cls, s) => {
+      if (!tagBox) { tagBox = document.createElement('div'); tagBox.className = 'tags'; el.appendChild(tagBox); }
+      let t = tags.get(k);
+      if (!t) { t = document.createElement('div'); tags.set(k, t); tagBox.appendChild(t); }
+      const q = s && s.screen ? [v[0], v[1], 1] : sc.p(v), dx = (s && s.dx) || 0, dy = (s && s.dy) || 0;
+      t.className = 'tag ' + (cls || '');
+      if (t._html !== html) { t.innerHTML = html; t._html = html; }
+      t.style.transform = `translate(-50%, -50%) translate(${(q[0] + dx).toFixed(1)}px, ${(q[1] + dy).toFixed(1)}px)`;
+      t.style.opacity = '1'; t.hidden = false; tagsUsed.add(k);
+      if (!(s && s.screen) && !(s && s.occlude === false)) tagPts.set(k, [t, v]); else tagPts.delete(k);
+    };
+    /** Draw the frame. Objects and labels this frame did not place are hidden; labels behind a solid are dimmed. */
+    sc.end = () => {
+      keyed.forEach((it, k) => { if (!used.has(k)) it.obj.visible = false; });
+      tags.forEach((t, k) => { if (!tagsUsed.has(k)) { t.hidden = true; tagPts.delete(k); } });
+      if (!T) return;
+      if (ensureRenderer()) {
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        if (renderer.getPixelRatio() !== dpr) renderer.setPixelRatio(dpr);
+        const sz = renderer.getSize(new T.Vector2());
+        if (sz.x !== sc.W || sz.y !== sc.H) renderer.setSize(sc.W, sc.H, false);
+        renderer.render(scene, camera);
+        rest();
+      }
+      tagPts.forEach(([t, v]) => { if (sc.occluded(v, 0.02)) t.style.opacity = '0.28'; });
+      sc.frameMs = performance.now() - t0;
+    };
+
+    /* ---------- camera: named views, drag to orbit, wheel and pinch to zoom (as kit.stage3) ---------- */
+    const VIEWS = { iso: [-0.62, 0.34], front: [0, 0], top: [0, Math.PI / 2 - 0.001], side: [-Math.PI / 2, 0] };
+    let camTween = null;
+    sc.view = (name, ms) => {
+      const v = Array.isArray(name) ? name : VIEWS[name] || VIEWS.iso, y0 = cam.yaw, p0 = cam.pitch, z0 = cam.zoom;
+      if (camTween) camTween.cancel();
+      camTween = kit.tween(ms == null ? 600 : ms, (e) => { cam.yaw = y0 + (v[0] - y0) * e; cam.pitch = p0 + (v[1] - p0) * e; cam.zoom = z0 + ((v[2] || 1) - z0) * e; if (o.onChange) o.onChange(); });
+    };
+    const ptrs = new Map();
+    let mode = null, pinch = 0;
+    const changed = () => { if (camTween) { camTween.cancel(); camTween = null; } if (o.onChange) o.onChange(); };
+    el.addEventListener('pointerdown', (ev) => {
+      if (ev.target.closest('button, a, input, .chip')) return;
+      if (parked && o.onChange) o.onChange();                   // a touch takes the context back
+      ptrs.set(ev.pointerId, [ev.clientX, ev.clientY]);
+      try { el.setPointerCapture(ev.pointerId); } catch (e) { /* synthetic events have no capture */ }
+      if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = Math.hypot(a[0] - b[0], a[1] - b[1]); mode = 'pinch'; return; }
+      mode = o.onPick && o.onPick(ev, sc) ? 'drag' : (o.rotate === false ? null : 'orbit');
+      if (mode === 'drag' && o.onDrag) o.onDrag(ev, sc);
+    });
+    el.addEventListener('pointermove', (ev) => {
+      const last = ptrs.get(ev.pointerId);
+      if (!last) return;
+      const dx = ev.clientX - last[0], dy = ev.clientY - last[1];
+      ptrs.set(ev.pointerId, [ev.clientX, ev.clientY]);
+      if (mode === 'pinch' && ptrs.size === 2) {
+        const [a, b] = [...ptrs.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinch > 0) { cam.zoom = clamp(cam.zoom * d / pinch, 0.6, 2.6); changed(); }
+        pinch = d;
+      } else if (mode === 'drag') { if (o.onDrag) o.onDrag(ev, sc); } else if (mode === 'orbit') {
+        cam.yaw -= dx * 0.008; cam.pitch = clamp(cam.pitch + dy * 0.008, -1.5, 1.5); changed();
+      }
+    });
+    const up = (ev) => { ptrs.delete(ev.pointerId); if (mode === 'drag' && o.onDrop) o.onDrop(ev, sc); if (!ptrs.size) mode = null; };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    if (o.rotate !== false && o.wheel !== false) {
+      el.addEventListener('wheel', (ev) => { ev.preventDefault(); cam.zoom = clamp(cam.zoom * Math.exp(-ev.deltaY * 0.0012), 0.6, 2.6); changed(); }, { passive: false });
+    }
+    (TRV.solids || (TRV.solids = [])).push(sc);
+    return sc;
+  }
+  solid.grid = grid;
+  kit.solid = solid;
 })();
