@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 
-ROOT = Path(__file__).resolve().parents[3]
+SCRIPT_PATH = Path("docs/layer-mathesis/scripts/site.py")
 
 
 def load(path):
@@ -80,8 +80,30 @@ def emit(root, out):
     return materials
 
 
+def post_build(root, out):
+    """Apply paper policy only when this build contains the selected Mathesis book.
+
+    The hook's cwd is the repository being built. Inherited site settings and an
+    externally invoked copy of this script must not select the script's repository.
+    Keep emit strict: once the mapped book is present, every inconsistency fails.
+    """
+    if not (root / SCRIPT_PATH).is_file():
+        print("Mathesis post-build skipped: layer script is absent from repository being built")
+        return
+    mapping_path = root / ".mathesis/book.json"
+    if not mapping_path.exists() and not mapping_path.is_symlink():
+        print("Mathesis post-build skipped: no .mathesis/book.json in repository being built")
+        return
+    mapping = load(mapping_path)
+    manifest = load(out / "manifest.json")
+    if not any(book["slug"] == mapping["book"] for book in manifest["books"]):
+        print(f"Mathesis post-build skipped: mapped book {mapping['book']!r} is absent from site manifest")
+        return
+    return emit(root, out)
+
+
 if __name__ == "__main__":
     try:
-        emit(ROOT, Path(os.environ["TBOOK_SITE_OUT"]))
+        post_build(Path.cwd(), Path(os.environ["TBOOK_SITE_OUT"]))
     except (KeyError, ValueError, OSError, TypeError) as exc:
         sys.exit(f"Mathesis site: {exc}")

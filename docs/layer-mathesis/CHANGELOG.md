@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.3.1] - 2026-11-13
+
+- Run the postprocessor against the hook's working directory, rather than the script's source repository.
+- Skip inherited hooks when the build has no layer script, no Mathesis book mapping, or no mapped book in its site manifest; leave output untouched and print one reason.
+- Keep all real-paper `emit` checks strict and migrate legacy hook declarations to a guarded Python bootstrap. No upstream hook change is required.
+
 ## [0.3.0] - 2026-11-13
 
 - Configure a layer-owned post-build command: redirect a single paper's root to its existing book landing and publish `mathesis-materials.json` from built output only.

@@ -1,7 +1,7 @@
 {
   "schema": "trureturing-books.template-manifest.v1",
   "template": "mathesis",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "files": {
     ".github/workflows/layer-mathesis-check.yml": {
       "sha256": "48c3a611d3cea19f6c144543daeec8bd8ff05071221a98baa7cc4de588ce2c1f",
@@ -12,7 +12,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/CHANGELOG.md": {
-      "sha256": "0ba010c3983353a7c2f86d506543cb0e06f50d808a19379f4bd007ae6b17444b",
+      "sha256": "e4b323e82bf6074b888fcb7762e7c317348e7b217beaea49ca63dad121579841",
       "mode": "100644"
     },
     "docs/layer-mathesis/PIPELINE.md": {
@@ -28,7 +28,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/README.md": {
-      "sha256": "771f0da1f8e9d0cd3942c78511662446704168b9b44f322d11c9901513096ef6",
+      "sha256": "c0a2c9621dd0c907d24c5493c6f7c40924909bad307963973cd4245eb18141ef",
       "mode": "100644"
     },
     "docs/layer-mathesis/UPSTREAM-PINS.md": {
@@ -39,12 +39,20 @@
       "sha256": "5eacd632695dd2d5b1d8011d281f187db442a42c9c338e31659f3b1c2a0e764d",
       "mode": "100644"
     },
+    "docs/layer-mathesis/migrations/v0.3.1.py": {
+      "sha256": "35e019b91320c6d7f7e4a4ffbccd28970679d3f08e4d59c01a0efed2dd4132f0",
+      "mode": "100644"
+    },
     "docs/layer-mathesis/scripts/paper.py": {
-      "sha256": "75dc491fd9ab682bded991ac71939d5d21800665f62ae51a16ef1322d45a7ed7",
+      "sha256": "e0843e175cbc9001585e5ffdc96f13107234a123d10771b6a7099875bdeabfa4",
       "mode": "100644"
     },
     "docs/layer-mathesis/scripts/site.py": {
-      "sha256": "b4e2fda4b90a9ca0f5b5dd8d9bb0cbe25acf63877609ea35316c84e583c5a329",
+      "sha256": "fd1c4f236f5fdbe98a60f134a27ca9549ded739fa009ef6092c9d73a1400b8c2",
+      "mode": "100644"
+    },
+    "docs/layer-mathesis/site-hook.json": {
+      "sha256": "d2364708f1b4f370f32364a01bc666ec4020f042b234e64479bc243951e06685",
       "mode": "100644"
     },
     "docs/layer-mathesis/skeleton/README.md.in": {
@@ -56,15 +64,15 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/skeleton/site.toml.in": {
-      "sha256": "1509f3cd94bff0e5bad17c9e286d19a2c4555991ace942d2e1afd75579f34d81",
+      "sha256": "a6cc452a72b932ba500b2b5a52c2a95fbfd35f45a4046d2508c8cd4748e13c5d",
       "mode": "100644"
     },
     "docs/layer-mathesis/tests/test_paper.py": {
-      "sha256": "5203a867907640ab887097e276f899d986059098de0aa55fc9d9cc8c5dcfee5a",
+      "sha256": "ac0d50f69947c42fbad2e9bbf783e22a8d793a60cdec268133b9241ab80d1053",
       "mode": "100644"
     },
     "docs/layer-mathesis/tests/test_site.py": {
-      "sha256": "e12b970c77bf1a33d465bb13023f5b89bf239c153808b0a97ca1dd03565b3909",
+      "sha256": "59aba5d8716bfbff1cec395a20683c728bab2135a5c0e5bf266ba6389a9d2f7b",
       "mode": "100644"
     },
     "skills/layer-mathesis-paper-book/SKILL.md": {
