@@ -55,13 +55,14 @@ academic the primary and only enabled PDF. Enable screen/print only on a paper's
 explicit request. Media proceeds figures → visualizations → academic Beamer
 when upstream supplies it → Slidev only on request.
 
-Layer **0.2.0 requires upstream written-proof support**, the public
-`tbook.model.WRITTEN_PROOF = "written-proof"` capability with per-edition proof
-checks and consistent rendering. It also requires the independent template-layer
-support from Part A. These changes must arrive through upstream template updates;
-this layer does not ship copies of upstream tools or themes. Until written-proof
-support is installed, the paper checker fails with an actionable error, including
-for an empty skeleton. No unreleased upstream version number is assumed.
+Layer **0.4.0 requires upstream trureturing-books-template ≥ 0.8.2**, including
+independent layers, per-edition written-proof checks, academic Beamer rendering
+and the site post-build hook. No PR-head pins or local upstream-managed patches
+are required. These capabilities arrive through upstream template updates;
+the layer does not ship copies of upstream tools or themes. Written-proof
+results require a bare DOI, original source location and a registered
+formalization-request issue as well as their nonempty proof in every edition.
+See [the release requirement and migration notes](UPSTREAM-PINS.md).
 
 [The pipeline](PIPELINE.md) documents the mechanical publisher step and its
 agent handoff. [Project rules](PROJECT.md) are imported from root `PROJECT.md`.
@@ -70,9 +71,8 @@ Layer 0.3.0 opts selected papers into the optional upstream `site.post_build`
 interface. The layer-owned `scripts/site.py` replaces only the root index with a
 relative redirect to the sole book landing; existing book URLs remain valid.
 `./tbook build site` and `./tbook build all` also emit `mathesis-materials.json`
-at the site root. Until the upstream hook is installed, run the postprocessor
-explicitly with `TBOOK_SITE_OUT` pointing at the assembled site; automatic Pages
-publication requires the hook. A layer migration configures existing selected
+at the site root. The required upstream release supplies this hook. A layer
+migration configures existing selected
 papers; `paper.py fill` configures new ones.
 
 The manifest schema is `mathesis.materials.v1`: `work`, integer `version`,

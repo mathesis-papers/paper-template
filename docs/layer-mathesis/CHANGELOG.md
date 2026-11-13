@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.4.0] - 2026-11-13
+
+- Require upstream trureturing-books-template ≥ 0.8.2 and retire all temporary PR-head pins.
+- Confirm that the release includes written-proof academic citations and the active-root film fixture correction; use upstream managed files without compatibility patches.
+- Document the released DOI, source-location and registered formalization-request contract for written proofs, and adapt the offline layer fixture to it.
+
 ## [0.3.1] - 2026-11-13
 
 - Run the postprocessor against the hook's working directory, rather than the script's source repository.

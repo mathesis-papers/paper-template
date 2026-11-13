@@ -1,48 +1,42 @@
-# Temporary upstream integration
+# Upstream release requirement
 
-The first Mathesis template combines upstream `main` at
-`e506a8841cf9deb89e2f70dff69dc5b88b4d8510` with these three pushed PR heads,
-using merge commits, and retains template version **0.7.0**:
+Mathesis layer **0.4.0 requires trureturing-books-template ≥ 0.8.2**.
+Use ordinary upstream template releases; no pull-request heads are pinned.
+The combined template and first paper were upgraded with:
 
-| PR | Branch | Head |
-|---|---|---|
-| [#48](https://github.com/the-omega-institute/trureturing-books-template/pull/48) | `feat/template-layers` | `dc4481b85ad3316b9c8556b68cb6da9d8720eed3` |
-| [#50](https://github.com/the-omega-institute/trureturing-books-template/pull/50) | `feat/written-proof-status` | `899013b9bad204e0996374082addf6d4a17fd3c2` |
-| [#51](https://github.com/the-omega-institute/trureturing-books-template/pull/51) | `feat/academic-slides` | `2738f71a80f04e88cb10c000e5f5bf6dc2c465b8` |
+```sh
+./tbook template update --layer upstream --to v0.8.2 \
+  --source https://github.com/the-omega-institute/trureturing-books-template.git
+```
 
-This is a local integration pending those PRs merging upstream. Once merged,
-ordinary upstream template updates take over; their already merged content
-requires no duplicate paper-side merge. The combined integration also reconciles
-the academic citation renderer with the written-proof status introduced by #50:
-nonempty associated proofs, an unlinked purple badge, and no GID. This resolves
-a semantic overlap between #50 and #51 and has a focused regression test.
-Merging those three unmodified heads alone does not include this compatibility
-reconciliation: preserve it in the upstream integration before a later ordinary
-template update replaces these managed files.
-The manifest was regenerated using
-`./tbook template manifest`; no runtime interface was forked.
+The verified release is `v0.8.2` at
+`85e533c20bad105dbb6999b2919bda2a6ddcb1d1`. Its managed code includes the
+independent layers, written-proof results, academic Beamer decks and optional
+`site.post_build` argument-array interface previously integrated from PRs
+#48, #50, #51 and #55.
 
-Mathesis layer version: **0.2.1**. This note belongs to the layer, not the
-upstream-managed template. It is historical provenance of the initial rollout,
-not an instruction to freeze later paper repositories forever.
+## Compatibility review
 
-## Layer 0.3.0 site integration
+The release already supplies the behavior of local compatibility commit
+`690ec33`: academic citations accept written-proof results, check their
+associated nonempty proof, render a purple badge without a Lean verification
+link, and do not assign a GID. Upstream now also renders DOI, source location
+and formalization-request links in the result and ledger. The badge name and
+ledger wording differ from the earlier local implementation. Coverage lives in
+`tools/tests/test_written_proof.py` and `tools/tests/test_academic.py`; the
+earlier local regression test is superseded by these upstream tests.
 
-The optional `site.post_build` argument-array interface is prepared in upstream
-commit `7d73e5a76bd347f03cb4d5b68319ec0e06cd28f8` on
-`feat/site-post-build-20261113`. The combined template integrates that change
-alongside the existing written-proof / academic-slide compatibility work.
-This is a local dependency pending dispatcher review and upstream integration;
-no release number or remote publication is claimed. Layer-owned policy lives in
-`scripts/site.py`, not upstream. Keep this hook when refreshing upstream tools.
+The film test sandbox also contains the local fixture correction: the cached
+site configuration is replaced with `root=self.root`, so inherited post-build
+hooks run in the active sandbox. No local upstream-managed patch is needed.
 
-## Layer 0.3.1 fixture correction
+## Written-proof migration
 
-Upstream commit `7eb37dae97c276c656400e4ddc32dc8feec6e9e3` on the same
-`feat/site-post-build-20261113` branch fixes only the film test sandbox and
-regenerates its managed-file manifest. `config.load_site()` is cached, so a
-later sandbox could inherit a `Site.root` pointing to a removed temporary
-directory. The sandbox now sets `root=self.root` when replacing site settings.
-The production hook is unchanged. A layer bootstrap cannot handle this error:
-the subprocess fails while changing working directory, before Python starts.
-Consumer validation needs this fixture correction as well as layer 0.3.1.
+Upstream 0.8.2 requires each written-proof environment, in both editions, to
+include a bare `doi`, an original theorem/section/page `source`, and a canonical
+`request` issue URL in `the-omega-institute/trureturing-requests`, in addition
+to the associated nonempty proof. The issue must have the upstream title format
+and register the consuming repository, book and result. Existing papers must
+provide real provenance and registration before their checks and deck build
+can pass. Never invent a request URL or alter a catalog-owned projection to
+satisfy this gate. See upstream `docs/FORMALIZATION-REQUESTS.md`.

@@ -24,7 +24,9 @@ Use `same` only when the frozen declaration states this complete written result;
 it must be one of the book's actual GIDs. For special case / variant / none,
 `gids` is empty. If the source supplies a written proof, use the original formal
 kind with `status="written-proof" proof="<proof-id>"` and a proof block in each
-edition; reserve conjecture/problem for actually open claims. The comparison
+edition, together with the bare DOI, original source location and registered
+formalization-request URL required by upstream ≥ 0.8.2; reserve conjecture/problem
+for actually open claims. Never invent a request or use an unrelated issue. The comparison
 GID belongs to the formalization pool, not the result's verification citations.
 Preserve the comparison scope and gaps in prose; never manufacture a GID or
 commit for an unperformed search. Keep a claim pending until this review exists.
