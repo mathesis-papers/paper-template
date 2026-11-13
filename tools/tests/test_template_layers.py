@@ -26,7 +26,7 @@ version = "1.0.0"
 [managed]
 paths = ["tools/", "docs/", "skills/", ".github/workflows/", "template.toml"]
 owned = ["books/", "site.toml", "PROJECT.md", "template.d/"]
-exclude = ["docs/project/", "docs/layer-", "skills/layer-", ".github/workflows/layer-"]
+exclude = ["docs/project/", "skills/local-", "docs/layer-", "skills/layer-", ".github/workflows/layer-"]
 ''')
         write(self.up / "docs/base.md", "base one\n")
         t.cmd_manifest(self.up, out=lambda _: None)
@@ -89,6 +89,20 @@ paths = {claims or [f"docs/layer-{name}/", f"skills/layer-{name}-task/", f".gith
         changed = {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)}
         self.assertEqual(changed, {"docs/layer-alpha/guide.md", "template.d/alpha.toml", "template.d/alpha.manifest.json"})
 
+    def test_standalone_layer_source_manifest_and_install(self):
+        source = self.root / "standalone"
+        source.mkdir()
+        cfg = t.TemplateConfig.load(self.layer, "alpha")
+        for name in [cfg.config_path, *t.build_manifest(self.layer, cfg).files]:
+            dest = source / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.layer / name, dest)
+        self.assertFalse((source / "template.toml").exists())
+        self.assertEqual(t.cmd_manifest(source, layer="alpha", out=lambda _: None), 0)
+        self.assertEqual(t.cmd_manifest(source, layer="alpha", check=True, out=lambda _: None), 0)
+        self.assertEqual(self.install(source=source).exit_code, 0)
+        self.assertEqual((self.down / "docs/layer-alpha/guide.md").read_text(), "layer one\n")
+
     def test_conflict_dry_run_and_force(self):
         self.install()
         target = self.down / "docs/layer-alpha/guide.md"
@@ -116,13 +130,15 @@ paths = {claims or [f"docs/layer-{name}/", f"skills/layer-{name}-task/", f".gith
         self.assertEqual(changed, {"docs/base.md", "template-manifest.json"})
 
     def test_path_claims_refused_before_writes(self):
-        for path in ["tools/", "docs/", "docs/base.md", "books/", "template.d/", "../escape", "docs/layer-beta/"]:
+        for path in ["tools/", "docs/", "docs/base.md", "books/", "template.d/", "../escape", "docs/layer-beta/",
+                     "docs/project/", "docs/project/owned.md", "skills/local-task/"]:
             with self.subTest(path=path):
                 p = self.layer / "template.d/alpha.toml"
                 p.write_text('[template]\nname="alpha"\nversion="1.0.0"\n[managed]\npaths=["' + path + '"]\n')
                 before = tree_snapshot(self.down)
-                with self.assertRaises(t.TemplateError):
-                    self.install()
+                for force in (False, True):
+                    with self.subTest(force=force), self.assertRaises(t.TemplateError):
+                        self.install(force=force)
                 self.assertEqual(before, tree_snapshot(self.down))
 
     def test_two_layers_and_overlap(self):

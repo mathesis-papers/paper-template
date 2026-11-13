@@ -207,12 +207,12 @@ def check(root, complete=False):
     sys.path.insert(0, str(root / "tools"))
     from tbook import config, model
     require(getattr(model, "WRITTEN_PROOF", None) == "written-proof",
-            'Mathesis layer 0.2.0 requires upstream written-proof support '
+            'Mathesis layer 0.4.0 requires upstream written-proof support '
             '(status="written-proof" with proof="id"). Update the upstream template '
-            'to a release containing feat/written-proof-status before checking or publishing this paper.')
+            'to version 0.8.2 or later before checking or publishing this paper.')
     from tbook import site as book_site
     require(callable(getattr(book_site, "post_build", None)),
-            "Mathesis layer 0.3.1 requires upstream site.post_build support; update the upstream template before publishing")
+            "Mathesis layer 0.4.0 requires upstream site.post_build support; update to upstream 0.8.2 or later before publishing")
     require(site["site"].get("post_build") == read_json(ROOT / "docs/layer-mathesis/site-hook.json"),
             "site.post_build must run the Mathesis site postprocessor; apply the layer migration")
     from tbook import check as book_check, lean

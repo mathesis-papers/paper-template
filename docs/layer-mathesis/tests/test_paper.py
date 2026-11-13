@@ -86,7 +86,9 @@ class PaperTests(unittest.TestCase):
         for lang in ("zh", "en"):
             page = self.root / "books" / self.slug / lang / "README.md"
             page.write_text(page.read_text() +
-                f'\n::: {{.theorem #{claim} status="written-proof" proof="pf-{claim}" mathesis="{identity}"}}\n'
+                f'\n::: {{.theorem #{claim} status="written-proof" proof="pf-{claim}" mathesis="{identity}" '
+                'doi="10.1000/integration.fixture" source="Integration fixture" '
+                'request="https://github.com/the-omega-institute/trureturing-requests/issues/1"}\n'
                 f'Integration fixture, no mathematical claim.\n:::\n\n::: {{.proof #pf-{claim}}}\nFixture argument.\n:::\n')
         self.run_cli("check")
         row["comparison_verdict"] = "almost"

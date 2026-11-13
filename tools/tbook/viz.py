@@ -75,7 +75,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, lean, paths
-from .model import Issue
+from .model import Issue, load_edition
 
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -673,6 +673,81 @@ def okmark_message(where: str, line: int) -> str:
             "statements; mark a number the page checked itself with .nummark (neutral) (skills/book-viz)")
 
 
+# The evidence boxes of skills/book-viz: .lean (green, LEAN ✓: a theorem the book's text cites with lean=) and its
+# modifiers. .frozen (neutral, FROZEN) is a theorem frozen in trureturing that no theorem environment of the text
+# cites; it names that theorem with <a data-lean-gid> like a green box (the GID must be a theorem of the lock).
+EVIDENCE_KINDS = ("num", "model", "argued", "open", "frozen")
+
+
+def evidence_boxes(page_html: str) -> list[dict]:
+    """Every ``.lean`` evidence box of a page: ``[{"line", "kinds", "gids"}]`` where ``kinds`` are the classes after
+    ``lean`` and ``gids`` the ``data-lean-gid`` links inside it. tools/node/viz-validate.mjs reads boxes the same way."""
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))
+    body = re.sub(r"<!--.*?-->", blank, page_html, flags=re.S)
+    body = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", blank, body, flags=re.S | re.I)
+    boxes: list[dict] = []
+    stack: list[tuple[str, int]] = []   # (tag, index of the innermost evidence box or -1)
+    for m in _TAG_RE.finditer(body):
+        tag = m.group(2).lower()
+        if m.group(1):
+            names = [t for t, _ in stack]
+            if tag in names:
+                del stack[len(names) - 1 - names[::-1].index(tag):]
+            continue
+        cm = re.search(r'\bclass\s*=\s*"([^"]*)"', m.group(3))
+        classes = cm.group(1).split() if cm else []
+        box = stack[-1][1] if stack else -1
+        if "lean" in classes:
+            boxes.append({"line": page_html.count("\n", 0, m.start()) + 1,
+                          "kinds": [c for c in classes if c != "lean"], "gids": []})
+            box = len(boxes) - 1
+        gm = re.search(r'\bdata-lean-gid\s*=\s*"([^"]*)"', m.group(3))
+        if tag == "a" and gm and box >= 0:
+            boxes[box]["gids"].append(gm.group(1))
+        if not m.group(4) and tag not in _VOID_TAGS:
+            stack.append((tag, box))
+    return boxes
+
+
+def evidence_problems(page_html: str) -> list[tuple[int, str]]:
+    """Warnings about the evidence boxes of a page: ``[(line, message)]`` (same rules as viz-validate.mjs)."""
+    out: list[tuple[int, str]] = []
+    for b in evidence_boxes(page_html):
+        odd = [k for k in b["kinds"] if k not in EVIDENCE_KINDS]
+        if odd:
+            out.append((b["line"], f'evidence box class "lean {" ".join(b["kinds"])}" names {", ".join(odd)}, which is not an '
+                                   f'evidence kind; the kinds are .lean (LEAN ✓) and .lean.{", .lean.".join(EVIDENCE_KINDS)} (skills/book-viz)'))
+        if "frozen" in b["kinds"] and not b["gids"]:
+            out.append((b["line"], 'a .lean.frozen box (FROZEN) names the theorem it shows with <a data-lean-gid="<GID>">; '
+                                   'the GID must be a theorem of trureturing.lock.json (skills/book-viz)'))
+    return out
+
+
+def frozen_gids(page_html: str) -> list[str]:
+    """GIDs linked from ``.lean.frozen`` boxes: frozen in trureturing, cited by no theorem environment of the text."""
+    return [g for b in evidence_boxes(page_html) if "frozen" in b["kinds"] for g in b["gids"]]
+
+
+def check_frozen(book, models) -> list[Issue]:
+    """A ``.lean.frozen`` box shows a theorem no theorem environment of the text cites; one the text does cite with
+    ``lean=`` belongs in a green ``.lean`` box (LEAN ✓). ``models``: the book's edition models (warnings only)."""
+    from .model import FORMAL
+    in_text = {gid for m in models.values() for _, _, gid, env in m.cited_gids() if env is not None and env.kind in FORMAL}
+    issues: list[Issue] = []
+    for v in entries(book):
+        vid = str(v.get("id", ""))
+        page = book.viz_dir / vid / "index.html"
+        if not (ID_RE.match(vid) and page.is_file()):
+            continue
+        text = page.read_text(encoding="utf-8")
+        for gid in frozen_gids(text):
+            if gid in in_text:
+                issues.append(Issue("warning", page, text.count("\n", 0, text.find(gid)) + 1,
+                                    f"{gid} is in a .lean.frozen box but a theorem environment of the text cites it "
+                                    "(lean=): show it in a green .lean box (LEAN ✓) and list it in the registry's lean"))
+    return issues
+
+
 PAGE_NEEDLES = (
     ('data-viz-id="{id}"', "body carries data-viz-id"),
     ('href="../assets/theme.css"', "loads the shared theme"),
@@ -709,6 +784,8 @@ def check_page(book, vid: str, page: Path, ids: set[str], *, lock=None, ledger=N
     script = page.parent / "main.js"
     for where, line in okmarks_outside_lean(text, script.read_text(encoding="utf-8") if script.is_file() else ""):
         issues.append(Issue("warning", script if where == "main.js" else page, line, okmark_message(where, line)))
+    for line, msg in evidence_problems(text):
+        issues.append(Issue("warning", page, line, msg))
     for kind, value in pinned_refs(text):
         line = text.count("\n", 0, text.find(value)) + 1 if value else 0
         if kind == "gid":
@@ -816,17 +893,53 @@ def items(book) -> list[dict]:
 # --------------------------------------------------------------------------- embeds
 
 
-def _height(env, ctx) -> int:
-    raw = env.attrs.get("height", str(DEFAULT_HEIGHT)).strip().removesuffix("px")
+def _frame_height(attrs) -> tuple[int | None, str]:
+    """The frame height in pixels that ``height=`` of an embed gives (None when unusable), and the value as read."""
+    raw = attrs.get("height", str(DEFAULT_HEIGHT)).strip().removesuffix("px")
     try:
         h = int(raw)
     except ValueError:
         h = 0
-    if not HEIGHT_RANGE[0] <= h <= HEIGHT_RANGE[1]:
+    return (h if HEIGHT_RANGE[0] <= h <= HEIGHT_RANGE[1] else None), raw
+
+
+def _height(env, ctx) -> int:
+    h, raw = _frame_height(env.attrs)
+    if h is None:
         ctx.issues.append(f"viz {env.attrs.get('src')}: height must be a number of pixels between "
                           f"{HEIGHT_RANGE[0]} and {HEIGHT_RANGE[1]}, got {raw!r}; using {DEFAULT_HEIGHT}")
         return DEFAULT_HEIGHT
     return h
+
+
+def citations(book, viz_id: str) -> list[dict]:
+    """Every embed of the local visualization ``viz_id`` in the published chapters of ``book``, as the builds read
+    them: the editions of book.toml in order, the chapters their SUMMARY.md lists (drafts and unlisted files are not
+    published), and in each the ``viz`` blocks of :func:`tbook.model.load_edition` (not in code or HTML comments).
+    ``[{"lang", "preset", "height"}]`` in that order: preset is the cited card (None for the whole lab, or a name that
+    is no card name, which the build shows as the whole lab), height the frame height in pixels (:func:`_height`).
+
+    tools/node/viz-common.mjs ``vizCitations`` returns this list to the browser quality gate and to viz-thumbs.mjs,
+    which removes the stills no chapter cites: an edition with a directory whose chapters cannot be selected
+    (SUMMARY.md missing or unreadable, a listed chapter missing) raises :class:`VizError` rather than reading as
+    citing nothing. An edition without a directory has no text, so it cites nothing (``./tbook check`` reports it)."""
+    out: list[dict] = []
+    for edition in book.editions:
+        if not edition.dir.is_dir():
+            continue
+        model = load_edition(edition)
+        broken = [i.format() for i in model.issues if i.severity == "error" and i.path == edition.summary]
+        if broken:
+            raise VizError(f"cannot read the chapters of {edition.key}: " + "; ".join(broken))
+        for doc in model.chapters:
+            for env in doc.media:
+                if env.kind != "viz" or (env.attrs.get("src") or "").strip() != viz_id:
+                    continue
+                preset = (env.attrs.get("preset") or "").strip()
+                height = _frame_height(env.attrs)[0]
+                out.append({"lang": edition.lang, "preset": preset if PRESET_RE.match(preset) else None,
+                            "height": DEFAULT_HEIGHT if height is None else height})
+    return out
 
 
 def published_url(site, book, viz_id: str) -> str:

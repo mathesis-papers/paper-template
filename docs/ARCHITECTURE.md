@@ -4,10 +4,10 @@
 
 ## 1. 原则
 
-1. **Lean 验证只来自 trureturing。** 书中 `theorem / lemma / proposition / corollary` 默认引用 trureturing 中已被 Lean 内核验证并冻结的声明；源文有证明但无匹配声明时必须显式标为 `status="written-proof" proof="id"` 且不带 `lean`，每版关联非空书面证明。冻结成员身份的唯一判据是所钉提交上存在 `Golden/Frozen/state/<module>.lean.json` 且其中列有该声明（trureturing CLAUDE.md §1.3 冻结律）。Lean 代码只写在 trureturing，本仓库不含 `.lean` 文件。
+1. **Lean 验证只来自 trureturing。** 书中 `theorem / lemma / proposition / corollary` 默认引用 trureturing 中已被 Lean 内核验证并冻结的声明；源文有证明但无匹配声明时必须显式标为 `status="written-proof" proof="id"` 且不带 `lean`，每版关联非空书面证明，并提供 DOI、原文定位与 trureturing-requests issue，见 [形式化请求规范](FORMALIZATION-REQUESTS.md)。已有匹配 Lean 验证时必须引用 Lean。冻结成员身份的唯一判据是所钉提交上存在 `Golden/Frozen/state/<module>.lean.json` 且其中列有该声明（trureturing CLAUDE.md §1.3 冻结律）。Lean 代码只写在 trureturing，本仓库不含 `.lean` 文件。
 2. **证据状态不可混淆。** Lean 结果由冻结声明支撑；书面证明由作者与评审负责，紫色徽章不带验证链接、不计入 Lean 数量。真正开放的结论用 `conjecture` 或 `problem`。
 3. **一次编写，多端导出。** 同一份 Markdown 生成 HTML（mdBook）、PDF（Typst，屏幕版与印刷版）、EPUB 3（Apple Books）。编号、标签、徽章与 Lean 链接由 `tools/tbook/render.py` 统一计算，各端一致。
-4. **多语言，默认中文与英文。** 每本书有若干语言版本（edition），第一个为权威版本；`./tbook check` 要求各版本的章节文件、环境序列（种类、id、Lean 引用）逐条一致。
+4. **多语言，默认中文与英文。** 每本书有若干语言版本（edition），第一个为权威版本；`./tbook check` 要求各版本的章节文件、环境序列（种类、id、Lean 引用、证据状态、证明关联与来源字段）逐条一致。
 5. **配色单一来源。** 赛博朋克配色只在 `theme/tokens.json` 定义，`./tbook theme` 派生出各端使用的 CSS / Typst / JS（幻灯片的打印背景图由 Chromium 按派生的 CSS 渲染，见 §2 的 `slides/`）。绿色只留给 Lean 已验证，琥珀色只留给“现在/当前选择”，红色标开放问题。
 6. **模板可升级。** `template.toml` 列出模板托管的路径；下游只改自己的路径（`books/`、`site.toml`、`trureturing.lock.json`、`i18n/`、`PROJECT.md`、`README.md`）。`./tbook template update` 把托管路径同步到模板的新版本。
 
@@ -85,7 +85,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 | 种类 | 类名 | Lean 引用 | 编号 | 徽章 |
 | --- | --- | --- | --- | --- |
 | 形式结论 | `theorem` `lemma` `proposition` `corollary` | 默认**必须**，且解析为 Lean `theorem` | 是 | `LEAN ✓`（绿，链接到第一条声明）；所引 GID 不能全部经锁文件解析为 Lean `theorem` 时，构建显示红色 `UNVERIFIED`，各端徽章都不是链接，页脚与账本只链接锁文件解析了的声明（`./tbook check` 报错） |
-| 书面证明 | 上述形式结论 + `status="written-proof" proof="id"` | **禁止**，每版关联非空 proof | 是 | `书面证明 / WRITTEN PROOF`（紫，无链接，不计入 Lean 数量） |
+| 书面证明 | 上述形式结论 + `status="written-proof" proof="id"` | **禁止**，每版关联非空 proof，必须有 DOI、原文定位和已登记的请求 issue | 是 | `书面证明 / WRITTEN PROOF`（紫，无链接，不计入 Lean 数量） |
 | 定义 | `definition` | 可选；给出则必须解析 | 是 | — |
 | 开放 | `conjecture` `problem` | **禁止** | 是 | `OPEN`（红） |
 | 非形式 | `example` `remark` | 可选；给出则必须解析 | 是 | — |
@@ -169,7 +169,7 @@ skills/                   内置 agent skills（.claude/skills → ../skills）
 2. 结构：SUMMARY 可解析、章节文件存在、未列入 SUMMARY 的 `.md`（警告）、fenced div 与 HTML 注释块闭合、无法解析的 div 开头行（报错）；行内 `<!--` 未在所在段落内闭合而后文另有 `-->`，围栏代码块随容器结束或从未闭合，mdBook 与 Pandoc 读法不同的定义，围栏代码块前未闭合、Pandoc 跨过围栏配对的 `$`（警告）；章节中链接或嵌入的本地文件（图片、`../assets/…`、引用式链接定义）不存在、或链接离开书目录，引用式定义的地址写在标签的下一行（警告）。
 3. 环境规则（见 §3.1 表）。
 4. 交叉引用 `[@id]`（正文与环境标题中）指向本版本存在的编号环境。
-5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
+5. 多语言对齐：各版本章节文件与顺序相同；每章环境序列（种类、id、Lean 引用、证据状态、证明关联与来源字段）与媒体序列逐条相同；SUMMARY 结构（前言/编号/附录章节、嵌套、草稿条目）一致，使同一章在各语言中编号相同。
 6. Lean：每个被引用的 GID 都在锁文件中；形式结论引用的必须是 `theorem`；在锁定提交上重新读取冻结状态片，名称、种类、模块、`statement_id` 与锁文件一致（防止锁文件过期或被手改）；所钉提交可从 `site.toml` 的 trureturing 分支到达（本地 checkout 用 `git merge-base --is-ancestor`，否则用 GitHub compare API；无法判定时 GitHub Actions 中为错误，本地或 `--offline` 下为警告）；锁文件的 `branch` 与该分支相同，且该分支是分支名而不是 SHA 或 `refs/…`（错误）；未被引用的锁条目（警告；`--book` 时也计入其他书的引用）。
 7. 媒体：`tbook.viz/film/slides/figure.check(book)` 与 `check_ref(book, src)`。静态图：脚本不能运行、提交的 `figures/<name>.<lang>.svg` 与脚本现在画出的不一致或缺失（错误，`./tbook fig build`）；没有脚本的 `figures/*.svg`、没有任何章节引用的图（`check.check_unused_figures`）（警告）；`.figure` 块没有图注，或图注、图片说明（`![…](x.svg)`）只是编号（`figure.caption_problem`，错误）；`assets/` 下没有被任何语言的章节链接、文件名也不出现在本书幻灯片、视频、可视化源文件中的文件（`check.check_unused_assets`，警告）；各语言版本同一章的图片（`![…](…)`）张数不同（`check.check_image_parity`，警告；图片可以是各语言自己的文件，所以只比张数，`.figure` 块则逐条比对）；用图片语法引用、位于 `assets/`、写死颜色（有 `fill`/`stroke`/`stop-color`/`color` 的色值，却既没有 `ts-`/`tf-` 角色类也没有 `prefers-color-scheme`）的 SVG，以及被两种以上语言的章节共用、含 `<text>` 的 SVG（`check.check_drawn_images`，警告；位图不报）；图在手机上的最小标签：取提交的各语言 SVG 中最小的数值 `font-size`（上下标的 `72%` 随所在标签，不另计），乘以 `min(1, 358 / 宽度)`（`WRAP = True` 的分栏图取最宽一栏），低于 10 px（`figure.phone_problem`，默认警告，`[figures] phone_labels` 可升为错误；`./tbook fig build` 同样报出，`./tbook fig list` 列出该值）；两块 `.figure`/`.viz`/`.film`/`.slides` 在同一层只隔着空行或 HTML 注释相邻（`check.check_media_runs`，警告，每一对报在第二块，点名两块的种类、`src`、`preset` 与行号；完整实验室紧跟同一页面的卡时另给隔开的办法）。
 8. 主题：`theme/generated/*` 与 `tokens.json` 同步（`./tbook theme --check`）；幻灯片的打印背景图 `theme/slides/styles/backdrop.jpg` 与 `backdrop.css`、`tokens.css` 同步（`./tbook theme --check` 与 `slides-check` 核对指纹）。
@@ -298,7 +298,7 @@ manifest.json              机器可读清单（schema trureturing-books.site.v1
                            <deck>/<slug>-<deck>-<lang>.pdf
 ```
 
-`manifest.json` 字段：`generated_at`、`site{title,languages,base_url,repo}`、`template{name,version}`、`trureturing{repo,commit,branch}`、`books[{slug, version, code, title{lang}, editions[{lang,bcp47,primary,html}], landing, verified, open, declarations[], media{viz,films,slides}, files[{path,size,sha256,kind(pdf|epub|cover|slides-pdf),lang,variant}]}]`。设置 `SOURCE_DATE_EPOCH` 可使 `generated_at` 可复现。
+`manifest.json` 字段：`generated_at`、`site{title,languages,base_url,repo}`、`template{name,version}`、`trureturing{repo,commit,branch}`、`formalization_requests`（按 issue 汇总 DOI、定位、书籍/结果及去重计数）、`books[{slug, version, code, title{lang}, editions[{lang,bcp47,primary,html}], landing, verified, open, declarations[], media{viz,films,slides}, files[{path,size,sha256,kind(pdf|epub|cover|slides-pdf),lang,variant}]}]`。设置 `SOURCE_DATE_EPOCH` 可使 `generated_at` 可复现。
 
 站点品牌：`site.toml` 可选 `[site] logo = "TRURETURING//BOOKS"`；缺省时用英文站名生成 `FIRST//REST`。
 
@@ -397,12 +397,12 @@ def generate(out_dir) -> Path
 
 字体：网页用 Google Fonts（Chakra Petch、JetBrains Mono、Noto Sans SC，以及英文等非中日韩文字用的 Source Sans 3：令牌 `font.body-latin`。Noto Sans SC 把弯引号与撇号画成全角，中文需要这样，英文里却与词隔开，所以 mdBook、站点、视频页与可视化在语言不是中日韩时把 `--tr-font-body` 换成它；PDF 的英文正文本来用拉丁字体，EPUB 正文用阅读器的字体）；PDF 用系统字体加 `tools/fetch-fonts.sh` 拉取的 TTF（`.cache/fonts/`）；幻灯片与视频用 `@fontsource` 自托管。
 
-## 9. Academic decks
+## 9. 学术演示稿（Beamer）
 
-`tools/tbook/academic.py` implements the academic kind behind the existing `slides` component. A `deck.toml` descriptor selects this path; Slidev discovery on the Node side skips descriptors, while Python checks both kinds. Invalid descriptors are errors. Academic editions are a nonempty subset of `book.editions`, ordered independently; `slides.tex` owns the first selected language and `slides.<lang>.tex` the rest. The optional `theme_dir` and graphic resolve relative to the deck; an absolute custom-theme path is also supported for local integration. Existing managed roots `theme/`, `templates/`, `tools/`, `skills/`, `docs/` and `.github/` already cover all added template files; `books/` stays downstream owned.
+`tools/tbook/academic.py` 在现有 `slides` 组件中实现学术演示稿。演示目录中的 `deck.toml` 选择这条构建路径；Node 端发现 Slidev 演示时跳过带此配置的目录，Python 端检查两种格式，无效配置会报错。学术演示稿可以选择书中语言版本的非空子集，并独立指定顺序：`slides.tex` 属于第一个所选语言，其他语言使用 `slides.<lang>.tex`。可选的 `theme_dir` 与机构图片路径相对于演示目录解析；本地接入也支持自有主题的绝对路径。现有托管目录 `theme/`、`templates/`、`tools/`、`skills/`、`docs/` 与 `.github/` 已覆盖新增模板文件；`books/` 仍归下游所有。
 
-The literal TeX lexer returns commands with balanced mandatory/optional/overlay arguments and source lines, skips comments/verbatim, and rejects unchecked imports and computed result/media ids. `bookresult` resolves a book id through `model.load_edition()` and `lean.Lock`, sharing the formal/definition/open policy. Source ids feed `slides.cited_gids()` and therefore the existing pin, branch and frozen-state checks. Generated `tbook-lean.sty` carries book titles/numbers, semantic paper colours, resolved pinned links, `PinnedCommit` and a deduplicated ledger. It is presentation-neutral and works with deck-owned themes. Static checks do not claim to verify the speaker's prose or expand arbitrary TeX macros.
+TeX 词法分析器读取字面量命令，处理成对嵌套的必选、可选与逐步显示参数并保留源码行号，跳过注释与原样文本，拒绝未受检查的源码导入和动态计算的结果或媒体 id。`bookresult` 通过 `model.load_edition()` 与 `lean.Lock` 解析书中 id，沿用形式结论、定义和开放问题的验证规则。源码中的引用进入 `slides.cited_gids()`，继而接受现有的钉版、分支与冻结状态检查。生成的 `tbook-lean.sty` 包含书中标题和编号、纸面语义色、固定到所钉提交的链接、`PinnedCommit` 与去重账本；它不绑定具体版式，也可用于演示稿自有主题。静态检查不验证报告人撰写的陈述，也不展开任意 TeX 宏。
 
-Paper visualization snapshots are `viz/<id>/fig-<card>.<lang>.paper.png`; `slides snapshots` uses the existing server/still/card/font/browser interfaces and a paper palette before rendering. Unknown local visualizations/cards/snapshots fail checking. `BookFigure` compares the canonical SVG to the figure script, then uses `figure.materialize(...,"paper",ground=True)` and pinned Typst to produce a PDF asset. No new figure truth source exists.
+纸面可视化静态图位于 `viz/<id>/fig-<card>.<lang>.paper.png`；`slides snapshots` 复用现有服务器、停帧、实验卡、字体与浏览器接口，在绘制前应用纸面配色。未知可视化或实验卡、缺失静态图都会使检查失败。`BookFigure` 先比较规范 SVG 与绘图脚本的输出，再通过 `figure.materialize(...,"paper",ground=True)` 和固定版本的 Typst 生成 PDF 图件，继续以现有绘图脚本为唯一图源。
 
-Build staging is `build/stage/<slug>/beamer/<deck>/<lang>/`. Tectonic 0.16.9 compiles stable audience/notes wrappers with the versioned v33 bundle, a fixed `SOURCE_DATE_EPOCH` and deterministic mode; no shell escape is enabled. Outputs are `build/slides/<slug>/<deck>-<lang>.pdf` and `…-notes.pdf`. The existing per-book slides cache includes academic sources, book models, snapshots, figures, token data, code, engine/bundle/epoch and external theme/graphic content. The slides build manifest records `kind="academic"` and `notes_pdf` for these decks. Site publication copies both PDFs and PDF entry pages; site `manifest.json` adds `slides-notes-pdf` entries and release attachment discovery includes notes PDFs. Academic notes are built from the same source; main totals exclude appendix frames. Ledger tables paginate at twelve distinct cited results with matching parser counts. Descriptor title metadata includes optional institution/coauthors/date; navigation symbols are opt-in for either theme. Paper stills use 4× captures (3200 × 1800); the shared canvas runtime permits 4× for labelled print stills while retaining its 2× interactive cap.
+构建暂存目录为 `build/stage/<slug>/beamer/<deck>/<lang>/`。Tectonic 0.16.9 使用固定名称的听众版与备注版入口、固定的 v33 资源包、`SOURCE_DATE_EPOCH` 与确定性模式编译，不启用 shell escape。输出为 `build/slides/<slug>/<deck>-<lang>.pdf` 与 `…-notes.pdf`。现有的逐书幻灯片缓存涵盖学术稿源码、书模型、静态图、图件、令牌、代码、引擎、资源包、时间基准及外部主题和图片内容。构建清单为这些演示稿记录 `kind="academic"` 和 `notes_pdf`；站点复制两种 PDF 及各语言入口页，`manifest.json` 增加 `slides-notes-pdf` 条目，书籍 Release 也收集备注版 PDF。两种 PDF 来自同一份源码，正文总帧数不计附录。账本每帧最多列出十二条不同的引用结果，解析器按相同规则计数。配置还可声明机构、合作者和日期；两种主题都默认隐藏导航按钮，按需启用。纸面静态图按 4 倍像素比截取（3200 × 1800）；共享画布运行时允许这种带标签的印刷静态图使用 4 倍像素比，交互模式仍上限为 2 倍。

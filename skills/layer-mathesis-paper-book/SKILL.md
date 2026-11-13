@@ -29,7 +29,12 @@ record the exact gap; this conversion does not authorize changes to trureturing.
 
 For a manuscript-proved result without a matching frozen declaration, retain
 its theorem/lemma/proposition/corollary kind and use
-`status="written-proof" proof="<proof-id>"`, no `lean`. Add a nonempty proof
+`status="written-proof" proof="<proof-id>"`, no `lean`. Upstream ≥ 0.8.2 also
+requires a bare source `doi`, original theorem/section/page `source`, and a
+canonical `request` issue URL registered for this repository, book and result.
+Follow `docs/FORMALIZATION-REQUESTS.md`; reuse a matching registered request and
+never invent issue URLs. Missing registration remains an unmet publication gate.
+Add a nonempty proof
 block with that id in every edition, even when the source separates statement
 and argument across chapters. Attribute and review the written proof; the tool
 cannot prove it correct. The purple WRITTEN PROOF badge has no verification
