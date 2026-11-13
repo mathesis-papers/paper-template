@@ -5,6 +5,17 @@ description: Produce figures, visualizations and an academic Beamer deck when up
 
 # Media from the checked paper book
 
+Read `docs/layer-mathesis/LAYOUT.md` for the fixed repository layout.
+Zone 2 only: `books/<slug>/figures/`, `viz/`, `slides/` and `assets/`, plus
+corresponding content references/configuration. Built outputs are local working
+files only. Do not edit zone 1 records or zone 3 machinery. Refresh the generated
+zone 4 README with `paper.py front`.
+
+Never commit preparation logs, validation dumps, evidence archives, handoff
+notes, one-off scripts or built outputs anywhere. Keep run records in the
+workflow run or an external workspace, including during migration.
+
+
 Read `docs/layer-mathesis/PROJECT.md` and the current book result mapping. Work
 from the converted exact-version book. First use `skills/book-figure/SKILL.md`
 for static explanatory figures beside their textual references. Then use

@@ -1,6 +1,6 @@
 # Upstream release requirement
 
-Mathesis layer **0.4.0 requires trureturing-books-template ≥ 0.8.2**.
+Mathesis layer **0.5.0 requires trureturing-books-template ≥ 0.8.2**.
 Use ordinary upstream template releases; no pull-request heads are pinned.
 The combined template and first paper were upgraded with:
 

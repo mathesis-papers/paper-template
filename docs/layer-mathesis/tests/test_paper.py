@@ -30,12 +30,23 @@ class PaperTests(unittest.TestCase):
         for name in ("tools", "theme", "docs/layer-mathesis"):
             shutil.copytree((ROOT if name.startswith("docs/") else UPSTREAM) / name, self.root / name,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        for name in ("template.toml", "template-manifest.json"):
+            shutil.copyfile(UPSTREAM / name, self.root / name)
+        shutil.copytree(ROOT / "template.d", self.root / "template.d")
         self.work = json.loads((Path(SOURCE) / "paper.json").read_text())["work"]
         self.slug = self.work["repository_name"]
+        if self._testMethodName == "test_fill_removes_examples_and_persists_media_skeleton":
+            example = self.root / "books/example-monograph/en/README.md"
+            example.parent.mkdir(parents=True)
+            example.write_text("Upstream example fixture, preserved in external archive.\n")
         # Explicitly use the recorded title for both edition metadata in these tests.
-        self.run_cli("fill", "--input", SOURCE, "--slug", self.slug,
+        output = self.run_cli("fill", "--input", SOURCE, "--slug", self.slug,
                      "--title-zh", self.work["title"], "--title-en", self.work["title"],
                      "--repository", "mathesis-papers/" + self.slug)
+        for line in output.splitlines():
+            if line.startswith("Moved upstream examples outside the repository: "):
+                self.example_archive = Path(line.split(": ", 1)[1])
+                self.addCleanup(shutil.rmtree, self.example_archive)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -49,12 +60,25 @@ class PaperTests(unittest.TestCase):
     def test_fill_preserves_projection_and_reports_pending(self):
         manifest = json.loads((self.root / ".mathesis/generated.json").read_text())
         for name in [*manifest["generated_paths"], ".mathesis/generated.json"]:
-            self.assertEqual((self.root / name).read_bytes(), (Path(SOURCE) / name).read_bytes(), name)
+            actual = (self.root / name).read_bytes()
+            if name == "README.md":
+                actual = actual.split(b"\n<!-- Mathesis generated repository guide; refresh with paper.py front. -->\n")[0]
+            expected = (Path(SOURCE) / name).read_bytes()
+            if name == "README.md":
+                expected = expected.split(b"\n<!-- Mathesis generated repository guide; refresh with paper.py front. -->\n")[0]
+            self.assertEqual(actual, expected, name)
         self.assertIn("stage=skeleton", self.run_cli("check"))
         self.assertIn("pending claims", self.run_cli("check"))
         self.run_cli("fill", "--input", SOURCE, "--slug", self.slug,
                      "--title-zh", self.work["title"], "--title-en", self.work["title"],
                      "--repository", "mathesis-papers/" + self.slug, expected=1)
+
+    def test_fill_removes_examples_and_persists_media_skeleton(self):
+        self.assertEqual([p.name for p in (self.root / "books").iterdir()], [self.slug])
+        self.assertTrue((self.example_archive / "example-monograph/en/README.md").is_file())
+        for name in ("figures", "viz", "slides", "assets"):
+            self.assertTrue((self.root / "books" / self.slug / name / ".gitkeep").is_file())
+        self.run_cli("check", "--layout-only")
 
     def test_academic_pdf_is_the_only_default(self):
         import tomllib
@@ -83,6 +107,7 @@ class PaperTests(unittest.TestCase):
                "comparison_commit": json.loads((ROOT / "trureturing.lock.json").read_text())["commit"]}
         mapping["results"][claim] = row
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         for lang in ("zh", "en"):
             page = self.root / "books" / self.slug / lang / "README.md"
             page.write_text(page.read_text() +
@@ -93,18 +118,22 @@ class PaperTests(unittest.TestCase):
         self.run_cli("check")
         row["comparison_verdict"] = "almost"
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         self.assertIn("comparison_verdict", self.run_cli("check", expected=1))
         row["comparison_verdict"] = "variant"
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         self.assertIn("closest public declaration", self.run_cli("check", expected=1))
         row["comparison_verdict"] = "same"
         # A real public declaration inspected by the pilot; deliberately NOT a match to this fixture.
         row["compared_public_gid"] = "D5/S1/Recurrence/Algebraic/ChenChenParityPositivity.even_rows_positive"
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         self.assertIn("same requires", self.run_cli("check", expected=1))
         row["comparison_verdict"] = "special case"
         row["comparison_commit"] = "2a8e85703420116c8f07e1eebebd34fa221c8d55"
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         self.run_cli("check")
         page = self.root / "books" / self.slug / "en/README.md"
         page.write_text(page.read_text().replace("Fixture argument.", ""))
@@ -139,6 +168,7 @@ class PaperTests(unittest.TestCase):
                                                "compared_public_gid": None,
                                                "comparison_commit": json.loads((ROOT / "trureturing.lock.json").read_text())["commit"]}
         path.write_text(json.dumps(mapping))
+        self.refresh_review(mapping)
         for lang in ("zh", "en"):
             page = self.root / "books" / self.slug / lang / "README.md"
             page.write_text(page.read_text() + f'\n::: {{.remark #{claim} mathesis="{identity}"}}\nIntegration fixture.\n:::\n')
@@ -147,9 +177,14 @@ class PaperTests(unittest.TestCase):
         page.write_text(page.read_text().replace(f'mathesis="{identity}"', ''))
         self.assertIn("result ids differ", self.run_cli("check", expected=1))
 
+    def refresh_review(self, mapping):
+        rows = {key: dict(row, scope="Structural integration fixture.") for key, row in mapping["results"].items()}
+        (self.root / ".mathesis/review.json").write_text(json.dumps({"results": rows}))
+        self.run_cli("front")
+
     def test_incomplete_release_refused(self):
         self.run_cli("check", "--complete", expected=1)
-        output = self.root / "build/zenodo"
+        output = Path(self.tmp.name) / "zenodo"
         self.run_cli("zenodo", "--tag", "v" + str(self.work["current_version"]), "--output", str(output), expected=1)
         self.assertFalse(output.exists())
 
@@ -158,7 +193,7 @@ class PaperTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         paper, _, manifest = module.projection(self.root)
-        output = self.root / "build/zenodo"
+        output = Path(self.tmp.name) / "zenodo"
         # Packaging is tested independently of agent-written exposition/readiness.
         with mock.patch.object(module, "check", return_value=(paper, manifest)):
             module.zenodo(self.root, output, "v" + str(self.work["current_version"]))
@@ -166,7 +201,10 @@ class PaperTests(unittest.TestCase):
         self.assertEqual(len(files), len(manifest["generated_paths"]) + 1)
         for row in files:
             name = row["path"][len("files/"):]
-            self.assertEqual((output / row["path"]).read_bytes(), (Path(SOURCE) / name).read_bytes())
+            expected = (Path(SOURCE) / name).read_bytes()
+            if name == "README.md":
+                expected = expected.split(module.FRONT_MARKER)[0]
+            self.assertEqual((output / row["path"]).read_bytes(), expected)
             self.assertEqual(hashlib.sha256((output / row["path"]).read_bytes()).hexdigest(), row["sha256"])
         metadata = json.loads((output / "metadata.json").read_text())["metadata"]
         self.assertEqual(metadata["title"], self.work["title"])

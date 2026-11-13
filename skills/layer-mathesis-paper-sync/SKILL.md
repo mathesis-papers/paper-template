@@ -5,6 +5,20 @@ description: Reconcile Mathesis exact-version claim identities with a paper book
 
 # Claim and result synchronization
 
+Read `docs/layer-mathesis/LAYOUT.md` for the fixed repository layout.
+Zone 1 integration only: update `.mathesis/book.json` and own the sole
+`.mathesis/REVIEW.md` statement comparison. Record every mapped result, verdict,
+compared declaration (or none), full inspected commit and concise scope using
+the LAYOUT.md table. Delete superseded review copies only after their relevant
+comparisons are retained here. Never edit frozen publisher records or their
+hashes. Zone 2 identity/evidence attributes may be synchronized with the mapping;
+refresh the generated zone 4 README using `paper.py front`. Zone 3 is template-owned.
+
+Never commit preparation logs, validation dumps, evidence archives, handoff
+notes, one-off scripts or built outputs anywhere. Keep run records in the
+workflow run or an external workspace, including during migration.
+
+
 Read `docs/layer-mathesis/PIPELINE.md`. Treat `paper.json` and
 `formalization/nodes.json` as publisher-owned `sdk/catalog` output. Do not add
 book ids or custom fields to nodes. Use publisher-owned `.mathesis/book.json`
@@ -48,7 +62,8 @@ work/version/claim identity, target digest, statement, receipt and attribution
 against that projection before carrying a mapping forward. Similar text is not
 identity. Keep absent or changed claims pending until reconciled.
 
-Run `python3 docs/layer-mathesis/scripts/paper.py check` and `./tbook check`.
+Run `python3 docs/layer-mathesis/scripts/paper.py front`, then
+`python3 docs/layer-mathesis/scripts/paper.py check` and `./tbook check`.
 For release use `check --complete`; pending claims or a skeleton must stop release
 preparation. Report semantic mismatches explicitly: the mechanical check validates
 identity, hashes and mapping consistency, not mathematical equivalence.

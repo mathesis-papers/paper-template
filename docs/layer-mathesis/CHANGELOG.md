@@ -1,5 +1,12 @@
 # Mathesis layer changelog
 
+## [0.5.0] - 2026-11-13
+
+- Define and enforce the four-zone layout in LAYOUT.md, including one work-id book, generated record ownership, manifest-listed machinery, the sole statement review, debris/output bans and the 2 MiB limit.
+- Fill removes upstream examples, persists empty media directories and generates a paper repository guide while preserving the catalog README prefix and manifest.
+- Add dry-run/apply tidy with external archives and protected paper/content zones; the migration previews cleanup and refreshes the generated front. Paper repositories upgrade by template update, never git merge.
+- Scope each conversion skill to its write zone and keep preparation run records outside commits. Run layout regression tests in the layer consistency workflow.
+
 ## [0.4.0] - 2026-11-13
 
 - Require upstream trureturing-books-template ≥ 0.8.2 and retire all temporary PR-head pins.

@@ -15,9 +15,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Check paper, citation, frozen files and bilingual book mapping
+      - name: Test the layout and publisher adapter
         run: |
-          if [ ! -f paper.json ] && [ "$GITHUB_REPOSITORY" = mathesis-papers/paper-template ]; then
+          if [ -f paper.json ]; then
+            MATHESIS_TEST_PAPER="$PWD" python3 -m unittest discover -s docs/layer-mathesis/tests
+          else
+            python3 -m unittest discover -s docs/layer-mathesis/tests
+          fi
+      - name: Check four-zone layout, paper record and bilingual book mapping
+        run: |
+          python3 docs/layer-mathesis/scripts/paper.py check --layout-only
+          if [ ! -f paper.json ]; then
             ./tbook template manifest --layer mathesis --check
             echo 'Layer source: publisher has not selected a paper.'
             exit 0
