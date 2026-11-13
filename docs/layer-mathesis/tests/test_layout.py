@@ -48,6 +48,8 @@ class LayoutTests(unittest.TestCase):
         self.put(f'books/{self.slug}/book.toml', '[book]\n')
         for lang in ('zh', 'en'):
             self.put(f'books/{self.slug}/{lang}/README.md', '# Structural fixture\n')
+        for name in paper.layout_rules()['empty_media']:
+            self.put(f'books/{self.slug}/{name}/.gitkeep', '')
         generated = ['paper.json', 'CITATION.cff', 'paper.pdf', 'formalization/nodes.json', 'LICENSES/CC-BY-4.0.txt',
                      'manuscript/source.tex', 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md']
         self.json('.mathesis/generated.json', {'generated_paths': generated,
@@ -115,6 +117,15 @@ class LayoutTests(unittest.TestCase):
             self.assertIn('zone 2', self.issues())
             p.unlink()
             if name.startswith('films/'): p.parent.rmdir()
+
+    def test_every_skeleton_entry_is_required_with_its_expected_type(self):
+        for name in paper.layout_rules()['content']:
+            p = self.root / 'books' / self.slug / name
+            saved = p.with_name(name + '.saved')
+            p.rename(saved)
+            with self.subTest(name=name):
+                self.assertIn(str(p.relative_to(self.root)) + ': zone 2 requires the bilingual content skeleton', self.issues())
+            saved.rename(p)
 
     def test_every_debris_directory_and_pattern(self):
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)

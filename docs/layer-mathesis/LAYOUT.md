@@ -6,7 +6,7 @@ layer consistency workflow. A selected paper has exactly four zones:
 | Zone | Paths | Writer |
 |---|---|---|
 | 1 · Paper record | `paper.json`, `CITATION.cff`, `paper.pdf`, `manuscript/`, `formalization/nodes.json`, `LICENSES/`, `.mathesis/` | The Mathesis publisher imports frozen files. `.mathesis/generated.json` is the unchanged catalog manifest; `.mathesis/book.json` is the integration mapping. Paper-sync maintains the sole statement comparison record, either `.mathesis/REVIEW.md` or `.mathesis/review.json`. |
-| 2 · Content | Exactly `books/<slug>/`: `book.toml`, `zh/`, `en/`, `figures/`, `viz/`, `slides/`, `assets/` | Author or preparing agent. The slug is `paper.json`'s work id. A shorter slug requires a nonempty `short_slug_reason` in the book mapping. Empty media directories may be absent; fill persists them with `.gitkeep`. |
+| 2 · Content | Exactly `books/<slug>/`: `book.toml`, `zh/`, `en/`, `figures/`, `viz/`, `slides/`, `assets/` | Author or preparing agent. The slug is `paper.json`'s work id. A shorter slug requires a nonempty `short_slug_reason` in the book mapping. Persist empty media directories with `.gitkeep`, as fill does. |
 | 3 · Machinery | Upstream `template.toml` managed paths and installed layer managed paths | Template/layer maintainers, through `tbook template update`. Excluded namespaces are not permission to add local files: `docs/project/` and local skills are outside this layout. Managed files must be listed in the corresponding template manifest. |
 | 4 · Repository front | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE`, `PROJECT.md`, `site.toml`, `trureturing.lock.json`, `template.d/` | Publisher generates the README; maintainers configure the remaining front through the existing publisher/template interfaces. `template.d/` contains only installed layer configurations and manifests. |
 
@@ -95,7 +95,7 @@ The checker reads this JSON block; do not duplicate these lists in code.
   "content": ["book.toml", "zh", "en", "figures", "viz", "slides", "assets"],
   "empty_media": ["figures", "viz", "slides", "assets"],
   "forbidden_directories": ["docs/project", "validation", "evidence", "artifacts", "logs", "handoffs", "run-records", "__pycache__"],
-  "forbidden_filenames": ["*.log", "*.jsonl", "*.pyc", "*.tmp", "*.bak", "*.template-new", "*handoff*", "validation-*", "evidence-*", "run-record*", "one-off*", "prepare-*.py", "audit-*.py"],
+  "forbidden_filenames": ["*.log", "*.jsonl", "*.pyc", "*.tmp", "*.bak", "*.template-new", "*handoff*", "validation-*", "validation_*", "validation.*", "evidence-*", "evidence_*", "evidence.*", "run-record*", "run_record*", "one-off*", "one_off*", "prepare-*.py", "audit-*.py"],
   "built_suffixes": [".pdf", ".epub", ".pptx", ".mp4", ".mov", ".zip", ".tar", ".gz", ".tgz", ".aux", ".toc", ".synctex"],
   "local_only": ["build", "_site", ".cache", ".venv", "node_modules", "__pycache__", ".DS_Store"],
   "size_limit": 2097152

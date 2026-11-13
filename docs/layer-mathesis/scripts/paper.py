@@ -167,15 +167,17 @@ def layout_issues(root):
     if selected:
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             issues.append((".mathesis/book.json", "zone 2 has an invalid book slug"))
-        if slug != paper["work"]["work"] and not str(mapping.get("short_slug_reason", "")).strip():
+        reason = mapping.get("short_slug_reason")
+        if slug != paper["work"]["work"] and not (isinstance(reason, str) and reason.strip()):
             issues.append((".mathesis/book.json", "zone 2 slug must equal the work id or document short_slug_reason"))
     books = root / "books"
     found = sorted(p.name for p in books.iterdir()) if books.is_dir() else []
     if found != ([slug] if selected else []):
         issues.append(("books", f"zone 2 requires exactly {'one book, ' + str(slug) if selected else 'zero books in an unfilled template'}; found {found}"))
     if selected:
-        for name in ("book.toml", "zh", "en"):
-            if not (books / slug / name).exists():
+        for name in rules["content"]:
+            path = books / slug / name
+            if not (path.is_file() if name == "book.toml" else path.is_dir()):
                 issues.append((f"books/{slug}/{name}", "zone 2 requires the bilingual content skeleton"))
     allowed_roots = (managed_roots | set(rules["front"]) | {"books", ".mathesis", "formalization"} |
                      set(rules["record_files"]) | set(rules["record_directories"]))
