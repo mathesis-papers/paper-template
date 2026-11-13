@@ -1,6 +1,0 @@
-............
-----------------------------------------------------------------------
-Ran 12 tests in 0.073s
-
-OK
-created books/demo/slides/new-talk (academic; en, zh)

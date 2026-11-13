@@ -10,4 +10,4 @@ repo = "the-omega-institute/trureturing"
 branch = "dev"
 [books]
 order = []
-hide = ["example-*"]
+hide = []

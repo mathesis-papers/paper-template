@@ -1,2 +1,0 @@
-check: hidden by site.toml [books].hide, not checked: example-monograph, example-primer
-check: 0 book(s), 0 error(s), 0 warning(s)

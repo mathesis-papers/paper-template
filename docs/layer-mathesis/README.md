@@ -55,7 +55,7 @@ academic the primary and only enabled PDF. Enable screen/print only on a paper's
 explicit request. Media proceeds figures → visualizations → academic Beamer
 when upstream supplies it → Slidev only on request.
 
-Layer **0.4.0 requires upstream trureturing-books-template ≥ 0.8.2**, including
+Layer **0.5.0 requires upstream trureturing-books-template ≥ 0.8.2**, including
 independent layers, per-edition written-proof checks, academic Beamer rendering
 and the site post-build hook. No PR-head pins or local upstream-managed patches
 are required. These capabilities arrive through upstream template updates;
@@ -102,3 +102,8 @@ already supplies cwd and `TBOOK_SITE_OUT`; its production behavior is unchanged.
 The full consumer suite also needs the upstream film sandbox to bind its cached
 site configuration to its own root; otherwise the subprocess cannot start in an
 already removed fixture directory. See [UPSTREAM-PINS.md](UPSTREAM-PINS.md).
+
+Layer 0.5.0 enforces the [four-zone paper layout](LAYOUT.md). Fill removes
+examples, creates one bilingual skeleton and generates the repository front;
+check rejects debris, unknown paths, extra books and unowned record files.
+Tidy previews or archives legacy violations outside the repository.

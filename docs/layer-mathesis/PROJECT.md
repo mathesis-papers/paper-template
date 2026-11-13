@@ -2,7 +2,7 @@
 
 This page is imported through publisher-owned `PROJECT.md`, which upstream
 `CLAUDE.md` already imports. Apply upstream book rules and the authority split in
-[the layer guide](README.md) together.
+[the layer guide](README.md) and [the enforced layout](LAYOUT.md) together.
 
 Mathesis owns paper identity, version selection, authors, frozen bytes, claims,
 receipts and verification status. `sdk/catalog` owns the paper projection format.
@@ -21,7 +21,10 @@ a GitHub namespace. The book is not a new paper or a verification receipt.
 `skills/layer-mathesis-paper-media` define the conversion. Book integration state
 is publisher-owned `.mathesis/book.json`; it is separate from catalog nodes.
 An agent updates its result mapping with the book, never catalog verification.
-Run the layer check and `./tbook check` after each conversion or sync.
+Paper-sync owns the sole `.mathesis/REVIEW.md` statement comparison, with verdict,
+compared declaration, full inspected commit and scope per result. Run records
+belong in workflow artifacts or outside the repository; never commit them.
+Run `paper.py front`, the layer check and `./tbook check` after each conversion or sync.
 
 The default PDF is academic (`[outputs] pdf = ["academic"]`); enable screen/print
 only if the paper asks. Produce figures, visualizations, then academic Beamer

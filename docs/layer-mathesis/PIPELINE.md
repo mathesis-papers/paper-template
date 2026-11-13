@@ -28,11 +28,13 @@ python3 docs/layer-mathesis/scripts/paper.py check
 ./tbook check
 ```
 
-`fill` verifies the existing generated manifest, imports every generated path
+`fill` verifies the existing generated manifest, imports every frozen record path
 and the manifest byte-for-byte, fills `site.toml` and `books/<slug>/book.toml`
 from `skeleton/*.in`, and creates only title headings and SUMMARYs in `zh` and
 `en`. Authors, licence, date and version come from `paper.json`. Upstream example
-books are hidden by `hide = ["example-*"]`, kept for reference. The Chinese title
+books move to an external archive and are removed from the repository. The
+generated README preserves the hashed catalog prefix and appends the repository
+guide. See [the enforced layout](LAYOUT.md). The Chinese title
 must come from the publisher's selected metadata; if no translation is supplied,
 the publisher can explicitly reuse the recorded title pending translation.
 There are no fabricated paper or node files in the layer source template.
@@ -133,3 +135,14 @@ MATHESIS_TEST_UPSTREAM=/path/to/upstream-with-written-proof \
 MATHESIS_TEST_PAPER=/path/to/catalog-output/papers/PAPER-REPOSITORY \
   python3 -m unittest discover -s docs/layer-mathesis/tests
 ```
+
+## Layout and run records (0.5.0)
+
+[LAYOUT.md](LAYOUT.md) defines the four zones for every paper repository.
+Run `paper.py tidy --dry-run` then `paper.py tidy --apply` for a legacy tree;
+archive destinations must be outside the repository. Paper-sync first condenses
+the statement comparison into `.mathesis/REVIEW.md`. Tidy preserves paper-record
+bytes and the selected book. Run `paper.py front` when integration metadata or
+publication routes change. `paper.py check --layout-only` isolates the layout
+check from unresolved upstream evidence gates. Preparation logs, validation
+dumps, handoffs, one-off scripts and builds never enter commits.

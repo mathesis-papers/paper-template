@@ -5,6 +5,16 @@ description: Convert one frozen Mathesis paper and its exact-version public read
 
 # Paper to bilingual book
 
+Read `docs/layer-mathesis/LAYOUT.md` for the fixed repository layout.
+Zone 2 only: `books/<slug>/` text and book metadata. Ask paper-sync to update
+the integration mapping and review; do not edit zone 1 frozen records or zone 3
+machinery. Refresh the generated zone 4 README with `paper.py front`.
+
+Never commit preparation logs, validation dumps, evidence archives, handoff
+notes, one-off scripts or built outputs anywhere. Keep run records in the
+workflow run or an external workspace, including during migration.
+
+
 Read `docs/layer-mathesis/PROJECT.md`, `PIPELINE.md`, `skills/book-write/SKILL.md`
 and the imported paper identity before writing. Use the frozen manuscript/PDF
 and the public Mathesis explanations for that exact version. Mathesis exposition

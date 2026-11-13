@@ -1,15 +1,7 @@
 # Mathesis paper template
 
-This repository consumes `the-omega-institute/trureturing-books-template` and adds
-one independently managed Mathesis layer. Create each paper repository from this
-GitHub template after the publisher has selected an exact public paper version.
+One repository for one exact Mathesis paper version. This template has no selected paper and no example books.
 
-See [the layer guide](docs/layer-mathesis/README.md) and
-[the publisher pipeline](docs/layer-mathesis/PIPELINE.md). `template.toml`, tools,
-theme and output contracts stay upstream-owned. `template.d/mathesis.toml` and its
-manifest track only the Mathesis layer. `./tbook template update` receives both;
-weekly template sync opens a separate PR for each source.
+The upstream books template supplies the machinery; Mathesis layer 0.5.0 supplies the publisher adapter and the [enforced four-zone layout](docs/layer-mathesis/LAYOUT.md).
 
-The template contains no fabricated paper identity, nodes or manuscript. The
-publisher imports an existing `sdk/catalog` rendered paper tree byte-for-byte,
-then fills the bilingual book skeleton. The example books remain hidden.
+Use [the publisher pipeline](docs/layer-mathesis/PIPELINE.md) to import a public projection with `paper.py fill`. It creates the paper record, one bilingual content skeleton and a generated paper README. Upgrade with `tbook template update`; keep preparation run records outside the repository.

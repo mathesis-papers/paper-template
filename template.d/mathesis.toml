@@ -2,7 +2,7 @@
 [template]
 name = "mathesis"
 repo = "mathesis-papers/paper-template"
-version = "0.4.0"
+version = "0.5.0"
 tag_prefix = "mathesis-"
 [managed]
 paths = [
