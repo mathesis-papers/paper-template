@@ -17,6 +17,7 @@ def load(path):
 def emit(root, out):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from mathesis_requests import result_requests
+    from collection_history import emit_history
 
     mapping = load(root / ".mathesis/book.json")
     work = load(root / "paper.json")["work"]
@@ -112,6 +113,31 @@ def emit(root, out):
                  "repository_url": "https://github.com/" + repo, "site_url": base, "doi": work.get("doi"),
                  "reading": reading, "slides": [slides[k] for k in sorted(slides)], "visualizations": viz,
                  "videos": videos, "formalization_requests": sorted(requests, key=lambda r: int(r['url'].rsplit('/', 1)[1]))}
+    # Historical paper bytes remain inert downloads; they are never interpreted
+    # as this book's current statements, media, receipts or credited proofs.
+    emit_history(root, out, work["work"])
+    if (root / ".mathesis/collection-history.json").is_file():
+        import hashlib
+        import shutil
+        paper = load(root / "paper.json")
+        original = paper["files"]["source"].get("original_path", "source.archive")
+        if original not in ("source.archive", "manuscript/original-source.archive"):
+            raise ValueError("invalid original collected source path")
+        frozen = load(root / ".mathesis/generated.json")["sha256"]
+        for name, destination in (("paper.pdf", out / "paper.pdf"), (original, out / "source.archive")):
+            source = root / name
+            if (not source.is_file() or source.is_symlink() or not source.resolve().is_relative_to(root.resolve())
+                    or hashlib.sha256(source.read_bytes()).hexdigest() != frozen.get(name)):
+                raise ValueError("original collected paper download is absent")
+            shutil.copyfile(source, destination)
+        for lang in reading:
+            target = html.escape(f"../{slug}/{lang}/", quote=True)
+            page = out / lang / "index.html"
+            page.parent.mkdir(exist_ok=True)
+            redirect = '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + target + '"><a href="' + target + '">Read the paper</a>\n'
+            if page.exists() and page.read_text() != redirect:
+                raise ValueError("built content conflicts with an old reading address")
+            page.write_text(redirect)
     if not (out / slug / "index.html").is_file():
         raise ValueError("book landing page is missing")
     # Keep the nested landing and every reader/media URL intact.
