@@ -109,7 +109,8 @@ def tree_entries(root, rules):
                 if name in dirs:
                     dirs.remove(name)
                 continue
-            local = name in rules["local_only"]
+            film_output = re.fullmatch(r"books/[a-z0-9]+(?:-[a-z0-9]+)*/films/\d{3}-[a-z0-9]+(?:-[a-z0-9]+)*/out", rel)
+            local = name in rules["local_only"] or film_output is not None
             has_tracked = rel in tracked or any(n.startswith(rel + "/") for n in tracked)
             if local and not has_tracked:
                 # These are the only permitted local workspaces. In a git tree

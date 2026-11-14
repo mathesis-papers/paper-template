@@ -80,7 +80,9 @@ def emit(root, out):
             if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", film["id"]):
                 raise ValueError("invalid film id")
             for variant, path in sorted(film.get("videos", {}).items()):
-                if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", variant) or not path.endswith(".mp4"):
+                if variant == "cover":
+                    continue  # The published registry includes the cover among outputs.
+                if variant not in {"narrated", "narrated_720p", "music_only", "music_only_720p"} or not path.endswith(".mp4"):
                     raise ValueError("invalid film output")
                 mp4 = url(f"{slug}/films/{path}")
                 page = url(f"{slug}/films/")
