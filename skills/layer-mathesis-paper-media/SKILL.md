@@ -32,7 +32,10 @@ mathematical object, make each experiment card independently referencable from
 the book, and retain the shared runtime, evidence classes and stageFirstChecks.
 A numerical example illustrates a result; it does not certify it.
 
-Use the installed `book-slides` interface for academic Beamer slides. Then use
+Use the installed `book-slides` interface for academic Beamer slides. Formulas
+in speaker notes need TeX math mode just as they do in audience slides. Keep
+execution/build bookkeeping in external run reports; readers need the
+mathematics, precise evidence scope, sources and contribution links. Then use
 `skills/book-film/SKILL.md` for a narrated video from the same checked story,
 with aligned Chinese/English subtitles. Build through upstream commands and
 require the actual playable MP4. The post-build manifest lists only actual
