@@ -67,3 +67,9 @@ Run `python3 docs/layer-mathesis/scripts/paper.py front`, then
 For release use `check --complete`; pending claims or a skeleton must stop release
 preparation. Report semantic mismatches explicitly: the mechanical check validates
 identity, hashes and mapping consistency, not mathematical equivalence.
+
+For a registered uncovered result, retain its canonical shared request in the
+existing mapping row as `formalization_request` with plain `label` and `url`.
+This also exposes requests for unbadged remarks when the paper has no DOI; it
+does not waive written-proof evidence rules or change verification/credit.
+An exactly covered row cannot request a duplicate proof. See `REQUESTS.md`.
