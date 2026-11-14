@@ -146,3 +146,27 @@ bytes and the selected book. Run `paper.py front` when integration metadata or
 publication routes change. `paper.py check --layout-only` isolates the layout
 check from unresolved upstream evidence gates. Preparation logs, validation
 dumps, handoffs, one-off scripts and builds never enter commits.
+
+## Material handoff (0.6.0)
+
+The post-build adapter reads upstream `films/films.json` and the site manifest's
+`formalization_requests`. It advertises only built nonempty video files and
+requests used by the selected book. These extend `mathesis-materials.json`
+without changing its exact paper/version identity. Request links are work
+registrations, not proof receipts or live completion claims. Do not infer
+coverage from a closed issue. Main-site deployment and materials discovery must
+be enabled independently of paper Pages publication.
+
+Before a model run, use the catalog's `scripts/plan_content.py` against the local
+paper and built site. Its stable paper/source and story-dependent media keys
+identify missing work. It neither executes a model nor marks content as
+mathematically verified. The upstream skills remain the content producer's
+instructions; the mechanical publisher still does not write a story or render
+a film merely because it opened a preparation issue. The complete downstream
+ownership and validation plan lives in Mathesis `docs/PAPER_PIPELINE.md`.
+
+Required products are a checked bilingual story, an academic presentation and
+an actual narrated video. Interactive illustrations are selected for the
+mathematical content. Use `book-film` and the real film build/QA, retaining
+subtitles and source claim boundaries; a skipped render is pending, not done.
+Editable PowerPoint export is not currently implemented by the template.

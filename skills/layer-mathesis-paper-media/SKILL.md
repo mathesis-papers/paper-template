@@ -1,12 +1,12 @@
 ---
 name: layer-mathesis-paper-media
-description: Produce figures, visualizations and an academic Beamer deck when upstream provides it; make Slidev only on request, using upstream skills and build units.
+description: Produce figures, visualizations, narrated video and an academic Beamer deck; make Slidev only on request, using upstream skills and build units.
 ---
 
 # Media from the checked paper book
 
 Read `docs/layer-mathesis/LAYOUT.md` for the fixed repository layout.
-Zone 2 only: `books/<slug>/figures/`, `viz/`, `slides/` and `assets/`, plus
+Zone 2 only: `books/<slug>/figures/`, `viz/`, `films/`, `slides/` and `assets/`, plus
 corresponding content references/configuration. Built outputs are local working
 files only. Do not edit zone 1 records or zone 3 machinery. Refresh the generated
 zone 4 README with `paper.py front`.
@@ -24,10 +24,11 @@ mathematical object, make each experiment card independently referencable from
 the book, and retain the shared runtime, evidence classes and stageFirstChecks.
 A numerical example illustrates a result; it does not certify it.
 
-Next inspect the installed upstream skill/CLI for the academic Beamer deck.
-When available, produce it through that published interface. If unavailable,
-record it as pending upstream capability. Another branch is implementing it;
-do not copy that branch, invent flags or build a private deck runtime.
+Use the installed `book-slides` interface for academic Beamer slides. Then use
+`skills/book-film/SKILL.md` for a narrated video from the same checked story,
+with aligned Chinese/English subtitles. Build through upstream commands and
+require the actual playable MP4. The post-build manifest lists only actual
+built outputs; a skipped render or empty film registry is not completion.
 Only on explicit request, then use `skills/book-slides/SKILL.md` for the aligned
 Slidev deck and `./tbook build slides`. The default PDF is the academic variant
 (`outputs.pdf = ["academic"]`); screen/print require a paper-specific request.

@@ -112,11 +112,11 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(self.issues(), '')
 
     def test_content_entries_and_one_off_scripts(self):
-        for name in ('films/film.json', 'misc.txt', 'en/work.py'):
+        for name in ('unknown-media/asset.json', 'misc.txt', 'en/work.py'):
             p = self.put(f'books/{self.slug}/{name}')
             self.assertIn('zone 2', self.issues())
             p.unlink()
-            if name.startswith('films/'): p.parent.rmdir()
+            if name.startswith('unknown-media/'): p.parent.rmdir()
 
     def test_every_skeleton_entry_is_required_with_its_expected_type(self):
         for name in paper.layout_rules()['content']:

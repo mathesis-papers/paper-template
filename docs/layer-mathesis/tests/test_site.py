@@ -74,10 +74,46 @@ class SiteTests(unittest.TestCase):
         self.add("manifest.json", json.dumps(self.manifest).encode())
         with self.assertRaisesRegex(ValueError, "exactly one"):
             site.emit(self.root, self.out)
+
         self.manifest["books"].pop()
         self.book["editions"][0]["html"] = "../outside/"
         self.add("manifest.json", json.dumps(self.manifest).encode())
         with self.assertRaisesRegex(ValueError, "invalid published"):
+            site.emit(self.root, self.out)
+
+    def test_video_requires_built_registry_and_real_nonempty_mp4(self):
+        self.book["media"]["films"] = ["001-parity"]
+        registry = {"version": 2, "book": self.slug, "films": [{"id": "001-parity", "title": "Why parity matters", "built": True,
+                    "videos": {"wide": "001-parity/film.mp4"}, "poster": "001-parity/poster.jpg"}]}
+        self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
+        self.add(self.slug + "/films/index.html")
+        self.add("manifest.json", json.dumps(self.manifest).encode())
+        self.assertEqual(site.emit(self.root, self.out)["videos"], [])
+        self.add(self.slug + "/films/001-parity/film.mp4", b"")
+        self.assertEqual(site.emit(self.root, self.out)["videos"], [])
+        self.add(self.slug + "/films/001-parity/film.mp4", b"\x00\x00\x00\x18ftypmp42")
+        videos = site.emit(self.root, self.out)["videos"]
+        self.assertEqual(len(videos), 1)
+        self.assertEqual(videos[0]["title"], "Why parity matters")
+        self.assertIsNone(videos[0]["poster_url"])
+        registry["films"][0]["built"] = False
+        self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
+        self.assertEqual(site.emit(self.root, self.out)["videos"], [])
+
+    def test_requests_are_selected_book_uses_not_completion_receipts(self):
+        self.manifest["formalization_requests"] = [
+            {"request": "https://github.com/the-omega-institute/trureturing-requests/issues/2", "uses": [
+                {"book": self.slug, "id": "paper-thm-main", "source": "Theorem 1 (thm:main)"},
+                {"book": "other", "id": "elsewhere", "source": "Lemma 9"}]},
+            {"request": "https://github.com/the-omega-institute/trureturing-requests/issues/3", "uses": [
+                {"book": "other", "id": "other", "source": "Lemma 2"}]}]
+        self.add("manifest.json", json.dumps(self.manifest).encode())
+        requests = site.emit(self.root, self.out)["formalization_requests"]
+        self.assertEqual(requests, [{"label": "Theorem 1", "url": self.manifest["formalization_requests"][0]["request"]}])
+        self.assertNotIn("status", requests[0])
+        self.manifest["formalization_requests"][0]["request"] += "?x=1"
+        self.add("manifest.json", json.dumps(self.manifest).encode())
+        with self.assertRaisesRegex(ValueError, "invalid formalization request"):
             site.emit(self.root, self.out)
 
     def hook(self, external=False):
