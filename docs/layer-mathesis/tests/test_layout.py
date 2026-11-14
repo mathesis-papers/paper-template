@@ -262,6 +262,23 @@ class LayoutTests(unittest.TestCase):
         self.assertIn('build/rendered.pdf: all zones: built output', self.issues())
         self.assertIn('build: four zones: unknown root', self.issues())
 
+    def test_film_working_audio_is_local_but_cannot_be_tracked(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        self.put('.gitignore', '/books/*/films/*/out/\n')
+        name = f'books/{self.slug}/films/001-intro/out/narration.wav'
+        self.put(name, 'a' * (2 * 1024 * 1024 + 1))
+        self.assertEqual(self.issues(), '')
+        subprocess.run(['git', '-C', str(self.root), 'add', '-f', name], check=True)
+        self.assertIn(name + ': all zones: exceeds 2 MiB', self.issues())
+
+    def test_unignored_film_output_and_other_out_directories_are_not_hidden(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        self.put('.gitignore', '/books/*/assets/out/\n')
+        for name in (f'books/{self.slug}/films/001-intro/out/narration.wav',
+                     f'books/{self.slug}/assets/out/narration.wav'):
+            self.put(name, 'a' * (2 * 1024 * 1024 + 1))
+            self.assertIn(name + ': all zones: exceeds 2 MiB', self.issues())
+
     def test_tidy_dry_run_apply_idempotence_and_protected_zones(self):
         self.put('docs/project/validation/old.log')
         self.put('books/example-monograph/en/README.md')

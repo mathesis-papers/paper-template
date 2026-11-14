@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.7.1] - 2026-11-15
+
+- Treat the published film pipeline's ignored, untracked `books/<slug>/films/<id>/out/` as local build output. Keep rejecting tracked media, unignored output and unrelated content directories.
+
 ## [0.7.0] - 2026-11-15
 
 - Preserve publisher-owned collection version snapshots during an authored-book migration, with a separate immutable source inventory and unchanged public download paths.
