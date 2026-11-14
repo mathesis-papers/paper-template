@@ -1,7 +1,7 @@
 {
   "schema": "trureturing-books.template-manifest.v1",
   "template": "mathesis",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "files": {
     ".github/workflows/layer-mathesis-check.yml": {
       "sha256": "679d1e4b8ea8b2cb505e5aee25748c13b4a42a0837787032c9e17f227f2f38c4",
@@ -12,7 +12,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/CHANGELOG.md": {
-      "sha256": "6eeb140654fb66d842cc99fe8e902b0a1e547bc19899344da5b03a7d62995f56",
+      "sha256": "57772c88316415bad9e9cefa033d10ed9ec4d0fd3f6851c58cf4b7bc6db503aa",
       "mode": "100644"
     },
     "docs/layer-mathesis/LAYOUT.md": {
@@ -20,19 +20,23 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/PIPELINE.md": {
-      "sha256": "8292a55836e2d7ca84f529f2dff07e673edb6fcca9e2f8e237ae99aa64024461",
+      "sha256": "57b70dd5782d40ac6a043e1ee3d9e184a6442ea49086a06770f4cbd47532dc69",
       "mode": "100644"
     },
     "docs/layer-mathesis/PREPARATION_CHECKLIST.md": {
-      "sha256": "d7e3481198c1dbcfb438fbd7b5c6d1f68d5c05a39bdd0720232032a7dab6b82e",
+      "sha256": "7a4d36408f5c8414c3246ca6d4da43a4d6ba62e29030a9243b99747a94d61978",
       "mode": "100644"
     },
     "docs/layer-mathesis/PROJECT.md": {
-      "sha256": "68ac82b58fc0777fe9999821db0b509f830dfb6ccf714ef88161f9031299211c",
+      "sha256": "8f3312eaf040404194d3b02973e3468a8d29fa489dd06604fb450b45e0cb482e",
       "mode": "100644"
     },
     "docs/layer-mathesis/README.md": {
-      "sha256": "8b5531d997d4b38d30228b469f253edeab81030773591890c42a61ef1ba73e53",
+      "sha256": "55e3dc5a96f5b53c50c856e67a69e6ee33833f5a10097339c023638c760645d4",
+      "mode": "100644"
+    },
+    "docs/layer-mathesis/REQUESTS.md": {
+      "sha256": "9ef618116998da5e48e6e514b729ef3986fcec365e4e7f0dd947deef42c29649",
       "mode": "100644"
     },
     "docs/layer-mathesis/UPSTREAM-PINS.md": {
@@ -92,11 +96,11 @@
       "mode": "100644"
     },
     "skills/layer-mathesis-paper-book/SKILL.md": {
-      "sha256": "a28798a13bb781b8933b19627cd6e8526741f8ef6bc481b6323c83f92130a57c",
+      "sha256": "820688ca62f36ce17e60e424a40aafd323977c75f5889b86a0cadfac748e5400",
       "mode": "100644"
     },
     "skills/layer-mathesis-paper-media/SKILL.md": {
-      "sha256": "f71e20e1775d7d973f24afe1526d55700e0b0ea7a4d01cfef091e01a2f7654a8",
+      "sha256": "0192c51ce3167ea57909d292aaeaf5db613c4f0d57b1f97c80d09030a4746d04",
       "mode": "100644"
     },
     "skills/layer-mathesis-paper-sync/SKILL.md": {

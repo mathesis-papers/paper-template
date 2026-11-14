@@ -17,7 +17,11 @@ workflow run or an external workspace, including during migration.
 
 
 Read `docs/layer-mathesis/PROJECT.md` and the current book result mapping. Work
-from the converted exact-version book. First use `skills/book-figure/SKILL.md`
+from the converted exact-version book. The story is the same bilingual
+plain-language explanation, understandable with school mathematics. Derive
+slides and narration from it, introducing specialist ideas before their names;
+do not commission a separate story or summarize away essential qualifications.
+First use `skills/book-figure/SKILL.md`
 for static explanatory figures beside their textual references. Then use
 `skills/book-viz/SKILL.md` for interactive experiments: choose the stage for the
 mathematical object, make each experiment card independently referencable from
@@ -29,6 +33,10 @@ Use the installed `book-slides` interface for academic Beamer slides. Then use
 with aligned Chinese/English subtitles. Build through upstream commands and
 require the actual playable MP4. The post-build manifest lists only actual
 built outputs; a skipped render or empty film registry is not completion.
+Video remains a required planned content product. While it is unavailable,
+record it as pending and retain publication/display of the eligible public
+paper and its existing checked materials; do not invent a video link or
+reschedule already reviewed story/slides work.
 Only on explicit request, then use `skills/book-slides/SKILL.md` for the aligned
 Slidev deck and `./tbook build slides`. The default PDF is the academic variant
 (`outputs.pdf = ["academic"]`); screen/print require a paper-specific request.

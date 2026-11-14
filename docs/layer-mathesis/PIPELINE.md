@@ -60,13 +60,15 @@ Every catalog node must be mapped or explicitly pending; several expository
 results may refer to one node only if each states its own exact relationship.
 
 The agent job runner is an external handoff, currently stubbed: give the selected
-frozen manuscript, exact-version public Chinese/English Mathesis explanations,
-current pin and imported nodes to `layer-mathesis-paper-book`; synchronize through
+frozen manuscript, available exact-version public Chinese/English Mathesis
+explanations, current pin and imported nodes to `layer-mathesis-paper-book`; synchronize through
 `layer-mathesis-paper-sync`; then use `layer-mathesis-paper-media`. Do not supply
 private referee/audit findings to the explanation job. Public exposition is
 version-bound and is not verification evidence (Mathesis contract §21 and
-CLAUDE.md §1). If explanations are absent, preserve pending state and obtain
-that public input; do not fabricate an explanation sidecar. This package does
+CLAUDE.md §1). If explanations are absent, the content author writes the same
+bilingual story directly from the frozen manuscript in the authored editions;
+there is no sidecar prerequisite or duplicate explanation task. Keep absent
+outputs pending until authored and checked. The mechanical adapter itself does
 not run a book-writing job or generate paper text.
 
 The normal check permits an explicitly unfinished skeleton, reports its pending
@@ -165,8 +167,35 @@ instructions; the mechanical publisher still does not write a story or render
 a film merely because it opened a preparation issue. The complete downstream
 ownership and validation plan lives in Mathesis `docs/PAPER_PIPELINE.md`.
 
-Required products are a checked bilingual story, an academic presentation and
+The story is the plain-language explanation itself, for a curious high-school
+student with school algebra and no university mathematics. Reuse or improve the
+same exact-version text; do not schedule separate short-guide and full-story
+generations. Missing sidecars do not prevent authoring from the frozen paper.
+Mathesis maintains this academic-paper editorial policy in its own layer,
+independently of the upstream monograph style, while reusing upstream tools.
+[REQUESTS.md](REQUESTS.md) defines source registration and community handoff.
+Ordinary contributors develop in their own forks and send focused PRs directly
+to upstream trureturing `dev` under its current rules; permitted upstream
+branches are also possible. The optional Mathesis fork serves only a named
+collaboration, not a required staging merge or permanent sync/CI service. The
+single shared request queue, upstream freeze authority and existing independent
+Mathesis receipt/points authority remain separate. Paper-sync reviews exact
+version/statement correspondence using existing mapping and comparison records;
+unreviewed claims remain pending/unknown. No automatic semantic binding or
+GitHub-to-platform credit reconciliation is implemented by these links.
+
+Required products are that checked bilingual story, an academic presentation and
 an actual narrated video. Interactive illustrations are selected for the
 mathematical content. Use `book-film` and the real film build/QA, retaining
 subtitles and source claim boundaries; a skipped render is pending, not done.
 Editable PowerPoint export is not currently implemented by the template.
+These content-completion goals do not add a video gate to publication/display
+of an otherwise eligible public paper or its existing checked materials.
+
+The next downstream work is to activate the existing material-discovery
+interface and update released consumer pins, then read back exact-version
+materials. Follow with one manual exact-claim/frozen-declaration mapping and,
+only for an eligible author-confirmed target, the existing independent receipt
+route. These are future tasks; no deployment, receipt or points are produced by
+this layer documentation. Reuse reviewed content and generate only missing
+products. Do not build a second queue, renderer or admission/credit authority.
