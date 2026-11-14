@@ -200,10 +200,10 @@ def layout_issues(root):
         if len(parts) == 1 and name not in allowed_roots:
             issues.append((name, "four zones: unknown root entry"))
         if is_file and not path.is_symlink() and path.stat().st_size > rules["size_limit"] and not (
-                name == "paper.pdf" or name.startswith("manuscript/")):
+                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/")):
             issues.append((name, "all zones: exceeds 2 MiB; only paper.pdf and manuscript/ are exempt"))
         if is_file and Path(name).suffix.lower() in rules["built_suffixes"] and not (
-                name == "paper.pdf" or name.startswith("manuscript/")):
+                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/")):
             issues.append((name, "all zones: built output must stay outside the repository"))
         if not known_machine and not frozen:
             if any(name == d or name.startswith(d + "/") or d in parts for d in rules["forbidden_directories"]) or any(
@@ -264,10 +264,14 @@ def front_bytes(root):
     slug = mapping["book"]
     site = tomllib.loads((root / "site.toml").read_text())["site"]
     base = site["base_url"].rstrip("/") + "/"
+    media = []
+    for directory, label, pattern in (("slides", "Slides", "*/deck.toml"), ("films", "Videos", "*/film.json"), ("viz", "Visualizations", "*/index.html")):
+        source = root / "books" / slug / directory
+        if source.is_dir() and any(p.is_file() for p in source.glob(pattern)):
+            media.append(f"[{label}]({base}{slug}/{directory}/) ([sources](books/{slug}/{directory}/))")
     guide = ["", "## Reading and materials", "", f"[Paper site]({base}) · [Frozen PDF](paper.pdf) · [Citation](CITATION.cff)", "",
              f"[中文阅读]({base}{slug}/zh/) · [Read in English]({base}{slug}/en/)", "",
-             f"[Slides]({base}{slug}/slides/) ([sources](books/{slug}/slides/)) · "
-             f"[Visualizations]({base}{slug}/viz/) ([sources](books/{slug}/viz/))", "",
+             " · ".join(media) or "Media sources have not been prepared yet.", "",
              "These are publication routes; available built materials are inventoried in "
              f"[mathesis-materials.json]({base}mathesis-materials.json).", "",
              "## Book and formalization", "",
@@ -284,7 +288,7 @@ def front_bytes(root):
               + (f"[Statement comparisons]({review})." if mapping["results"] else "Comparisons begin with content preparation."), "",
               "## Repository map", "", "| Zone | Location |", "|---|---|",
               "| Paper record | `paper.json`, `CITATION.cff`, `paper.pdf`, `manuscript/`, `formalization/nodes.json`, `LICENSES/`, `.mathesis/` |",
-              f"| Content | `books/{slug}/`: Chinese/English text, figures, visualizations, slides, assets |",
+              f"| Content | `books/{slug}/`: Chinese/English text, figures, visualizations, videos, slides, assets |",
               "| Machinery | Upstream and layer managed paths; update with `tbook template update` |",
               "| Repository front | This README, changelog, contribution guide, licence, project/site/pin configuration, `template.d/` |", "",
               "See [the enforced layout](docs/layer-mathesis/LAYOUT.md). Preparation run records and built outputs stay outside the committed tree.", ""]

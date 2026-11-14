@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.6.0] - 2026-11-14
+
+- Discover actual built videos and selected-book shared formalization requests through the existing upstream manifests.
+- Permit film sources and frozen source.archive; preserve four-zone ownership and migrate existing film directories/fronts.
+- Specify story → presentation/video production and local missing-work inspection without model calls or invented proof status.
+
 ## [0.5.0] - 2026-11-13
 
 - Define and enforce the four-zone layout in LAYOUT.md, including one work-id book, generated record ownership, manifest-listed machinery, the sole statement review, debris/output bans and the 2 MiB limit.

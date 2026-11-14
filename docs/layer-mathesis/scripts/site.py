@@ -38,7 +38,8 @@ def emit(root, out):
         target = out / path
         if not target.resolve().is_relative_to(out.resolve()):
             raise ValueError("published material escapes site")
-        return base + path if (target / "index.html" if path.endswith("/") else target).is_file() else None
+        target = target / "index.html" if path.endswith("/") else target
+        return base + path if target.is_file() and target.stat().st_size else None
 
     book = books[0]
     reading = {}
@@ -63,9 +64,44 @@ def emit(root, out):
             raise ValueError("invalid visualization id")
         if value := url(f"{slug}/viz/{identity}/"):
             viz.append({"id": identity, "url": value})
+    videos = []
+    registry = out / slug / "films/films.json"
+    if registry.is_file():
+        films = load(registry)
+        if films.get("book") != slug:
+            raise ValueError("film registry differs from selected book")
+        for film in films["films"]:
+            if not film.get("built") or film["id"] not in book["media"].get("films", []):
+                continue
+            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", film["id"]):
+                raise ValueError("invalid film id")
+            for variant, path in sorted(film.get("videos", {}).items()):
+                if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", variant) or not path.endswith(".mp4"):
+                    raise ValueError("invalid film output")
+                mp4 = url(f"{slug}/films/{path}")
+                page = url(f"{slug}/films/")
+                if mp4 and page:
+                    poster = url(f"{slug}/films/{film['poster']}") if film.get("poster") else None
+                    videos.append({"id": film["id"] + "-" + variant, "title": film.get("title") or film["id"],
+                                   "url": page + "#" + film["id"], "mp4_url": mp4, "poster_url": poster})
+    requests = []
+    seen = set()
+    for request in manifest.get("formalization_requests", []):
+        uses = [use for use in request["uses"] if use["book"] == slug]
+        if not uses:
+            continue
+        address = request["request"]
+        if not re.fullmatch(r"https://github.com/the-omega-institute/trureturing-requests/issues/[1-9][0-9]{0,19}", address):
+            raise ValueError("invalid formalization request URL")
+        if address in seen:
+            raise ValueError("duplicate formalization request")
+        seen.add(address)
+        labels = sorted({re.sub(r"\s*\((?:thm|lem|cor|prop):[^)]+\)", "", use["source"]) for use in uses})
+        requests.append({"url": address, "label": "; ".join(labels)})
     materials = {"schema": "mathesis.materials.v1", "work": work["work"], "version": work["current_version"],
                  "repository_url": "https://github.com/" + repo, "site_url": base, "doi": work.get("doi"),
-                 "reading": reading, "slides": [slides[k] for k in sorted(slides)], "visualizations": viz}
+                 "reading": reading, "slides": [slides[k] for k in sorted(slides)], "visualizations": viz,
+                 "videos": videos, "formalization_requests": sorted(requests, key=lambda r: int(r['url'].rsplit('/', 1)[1]))}
     if not (out / slug / "index.html").is_file():
         raise ValueError("book landing page is missing")
     # Keep the nested landing and every reader/media URL intact.
