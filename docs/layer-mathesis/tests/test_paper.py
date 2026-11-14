@@ -217,4 +217,7 @@ class PaperTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256((output / row["path"]).read_bytes()).hexdigest(), row["sha256"])
         metadata = json.loads((output / "metadata.json").read_text())["metadata"]
         self.assertEqual(metadata["title"], self.work["title"])
-        self.assertEqual(metadata["doi"], self.work["doi"])
+        if self.work.get("doi"):
+            self.assertEqual(metadata["doi"], self.work["doi"])
+        else:
+            self.assertNotIn("doi", metadata)

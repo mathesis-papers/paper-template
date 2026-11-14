@@ -21,14 +21,21 @@ from the converted exact-version book. The story is the same bilingual
 plain-language explanation, understandable with school mathematics. Derive
 slides and narration from it, introducing specialist ideas before their names;
 do not commission a separate story or summarize away essential qualifications.
-First use `skills/book-figure/SKILL.md`
-for static explanatory figures beside their textual references. Then use
-`skills/book-viz/SKILL.md` for interactive experiments: choose the stage for the
+Use `skills/book-figure/SKILL.md` when a static figure clarifies the argument,
+beside its textual reference. Judge whether interaction teaches something more:
+a changing parameter, constructed example or mathematical object should reveal
+a mechanism that prose or a static figure explains less clearly. If the story
+already teaches it well, omit interaction and record why; omission is not an
+incomplete product. For useful interactive experiments, use
+`skills/book-viz/SKILL.md`: choose the stage for the
 mathematical object, make each experiment card independently referencable from
 the book, and retain the shared runtime, evidence classes and stageFirstChecks.
 A numerical example illustrates a result; it does not certify it.
 
-Use the installed `book-slides` interface for academic Beamer slides. Then use
+Use the installed `book-slides` interface for academic Beamer slides. Formulas
+in speaker notes need TeX math mode just as they do in audience slides. Keep
+execution/build bookkeeping in external run reports; readers need the
+mathematics, precise evidence scope, sources and contribution links. Then use
 `skills/book-film/SKILL.md` for a narrated video from the same checked story,
 with aligned Chinese/English subtitles. Build through upstream commands and
 require the actual playable MP4. The post-build manifest lists only actual

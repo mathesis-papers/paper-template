@@ -116,10 +116,30 @@ class SiteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid formalization request"):
             site.emit(self.root, self.out)
 
+    def test_unbadged_paper_requests_survive_without_a_doi_and_do_not_duplicate(self):
+        paper = json.loads((self.root / "paper.json").read_text())
+        paper["work"]["doi"] = None
+        (self.root / "paper.json").write_text(json.dumps(paper))
+        path = self.root / ".mathesis/book.json"
+        mapping = json.loads(path.read_text())
+        row = next(iter(mapping["results"].values()))
+        row["comparison_verdict"] = "variant"
+        row["formalization_request"] = {"label": "Theorem 1", "url": "https://github.com/the-omega-institute/trureturing-requests/issues/24"}
+        path.write_text(json.dumps(mapping))
+        result = site.emit(self.root, self.out)
+        self.assertIsNone(result["doi"])
+        self.assertEqual(result["formalization_requests"], [row["formalization_request"]])
+        self.assertEqual(set(result["formalization_requests"][0]), {"label", "url"})
+        self.manifest["formalization_requests"] = [{"request": row["formalization_request"]["url"],
+            "uses": [{"book": self.slug, "id": "existing-result", "source": "Theorem 1"}]}]
+        self.add("manifest.json", json.dumps(self.manifest).encode())
+        self.assertEqual(len(site.emit(self.root, self.out)["formalization_requests"]), 1)
+
     def hook(self, external=False):
         script = self.root / site.SCRIPT_PATH
         script.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SCRIPT, script)
+        shutil.copyfile(SCRIPT.with_name("mathesis_requests.py"), script.with_name("mathesis_requests.py"))
         command = [sys.executable, str(SCRIPT)] if external else [sys.executable, *COMMAND[1:]]
         # A stale TBOOK_ROOT must not override the hook cwd.
         env = dict(os.environ, TBOOK_SITE_OUT=str(self.out), TBOOK_ROOT=str(ROOT), PYTHONDONTWRITEBYTECODE="1")

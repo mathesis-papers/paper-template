@@ -55,8 +55,9 @@ and does not prevent publication/display of the eligible public paper or its
 existing checked materials.
 
 The default PDF is academic (`[outputs] pdf = ["academic"]`); enable screen/print
-only if the paper asks. Produce figures, visualizations, then academic Beamer
-when upstream provides it; Slidev is on request. Source-proved unmatched results
+only if the paper asks. Make figures or interaction only when they clarify the
+mathematics; a story with no useful interaction needs none. Produce academic
+Beamer when upstream provides it; Slidev is on request. Source-proved unmatched results
 use written-proof, not conjecture. Read the required upstream capability and
 comparison-record contract in the layer guide and pipeline before conversion.
 

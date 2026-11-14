@@ -54,6 +54,13 @@ citation. Every other formal result requires written-proof and an empty `gids`
 list; genuinely open items stay open. The checker validates syntax, consistency
 and proof presence, not the truth of the verdict or the declaration's membership
 at the recorded comparison commit; review against frozen state is required.
+An uncovered result may additionally carry `formalization_request` with exactly
+`label` (plain English source/result name) and `url` (canonical shared issue).
+This exposes the same registered request in the materials manifest, including
+for unbadged remarks from a paper without a DOI. It grants no written-proof
+badge, verified coverage, receipt or points. A `same` row cannot request another
+proof; use the broader uncovered row for a partial source claim. If the written
+proof environment also has a request, the two URLs must agree.
 Each mapped environment carries `mathesis="collected:<work>:<version>:<claim>"`.
 This file is book integration metadata, never a replacement for nodes or receipts.
 Every catalog node must be mapped or explicitly pending; several expository

@@ -24,7 +24,12 @@ paper record and inspected source, not a guessed URL or author affiliation:
 
 For a paper without a DOI, link the immutable public source version and explain
 that no DOI is assigned. This does not waive the upstream written-proof DOI
-requirement. Retain original question/literature credit and distinguish the
+requirement. For an unbadged, attributed remark, add the registered request to
+its `.mathesis/book.json` result row as
+`"formalization_request": {"label": "Theorem 1 — readable result name", "url": "https://github.com/the-omega-institute/trureturing-requests/issues/24"}`
+using the real result name and issue URL. This is a work link, not proof evidence;
+it is exported beside requests from written-proof environments without needing
+a DOI or a second queue. Never invent an issue to populate the field. Retain original question/literature credit and distinguish the
 paper's authors from the person registering or formalizing it. "Through
 Mathesis" identifies the submission channel, not ownership of the mathematics.
 

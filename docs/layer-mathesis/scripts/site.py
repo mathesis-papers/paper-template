@@ -15,6 +15,9 @@ def load(path):
 
 
 def emit(root, out):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from mathesis_requests import result_requests
+
     mapping = load(root / ".mathesis/book.json")
     work = load(root / "paper.json")["work"]
     manifest = load(out / "manifest.json")
@@ -98,6 +101,13 @@ def emit(root, out):
         seen.add(address)
         labels = sorted({re.sub(r"\s*\((?:thm|lem|cor|prop):[^)]+\)", "", use["source"]) for use in uses})
         requests.append({"url": address, "label": "; ".join(labels)})
+    # Unbadged, attributed remarks (including papers without a DOI) can still
+    # link their reviewed formalization gaps. This adds no theorem badge/status.
+    by_url = {row["url"]: row for row in requests}
+    for link in result_requests(mapping):
+        if link["url"] not in by_url:
+            requests.append(link)
+            by_url[link["url"]] = link
     materials = {"schema": "mathesis.materials.v1", "work": work["work"], "version": work["current_version"],
                  "repository_url": "https://github.com/" + repo, "site_url": base, "doi": work.get("doi"),
                  "reading": reading, "slides": [slides[k] for k in sorted(slides)], "visualizations": viz,

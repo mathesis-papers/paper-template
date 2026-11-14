@@ -18,6 +18,9 @@ import sys
 import tempfile
 import tomllib
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mathesis_requests import result_requests
+
 ROOT = Path(__file__).resolve().parents[3]
 REQUIRED = {"paper.json", "CITATION.cff", "formalization/nodes.json", "paper.pdf", "LICENSES/CC-BY-4.0.txt"}
 FRONT_MARKER = b"\n<!-- Mathesis generated repository guide; refresh with paper.py front. -->\n"
@@ -559,6 +562,7 @@ def check(root, complete=False):
     require(len(pending) == len(set(pending)) and not set(mapped) & set(pending) and set(mapped) | set(pending) == ids,
             "claim coverage differs: every node must be mapped or explicitly pending")
     require(all(v["claim"] in ids for v in mapping["results"].values()), "unknown mapped claim")
+    result_requests(mapping)
     os.environ["TBOOK_ROOT"] = str(root)
     sys.path.insert(0, str(root / "tools"))
     from tbook import config, model
@@ -588,6 +592,9 @@ def check(root, complete=False):
         require(set(result_envs) == set(mapping["results"]), f"{lang} result ids differ from claim mapping")
         for result_id, env in result_envs.items():
             row = mapping["results"][result_id]
+            if row.get("formalization_request") and env.attrs.get("request"):
+                require(row["formalization_request"]["url"] == env.attrs["request"],
+                        f"{lang} #{result_id}: book mapping and written-proof request differ")
             require(env.attrs.get("mathesis") == row["claim"] and env.lean == row["gids"],
                     f"{lang} #{result_id}: claim/GIDs differ from book mapping")
             require(len(env.lean) == len(set(env.lean)), f"{lang} #{result_id}: duplicate GID")

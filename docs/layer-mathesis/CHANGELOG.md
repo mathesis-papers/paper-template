@@ -1,5 +1,11 @@
 # Mathesis layer changelog
 
+## [0.6.2] - 2026-11-15
+
+- Export registered shared requests from reviewed result mappings, including unbadged remarks without a DOI, while preserving proof-evidence and credit boundaries.
+- Require canonical URLs, readable labels and agreement with written-proof request attributes; deduplicate repeated uses of one request.
+- Make interactive visualization conditional on a concrete explanatory benefit; stories and static figures can be complete without interaction.
+
 ## [0.6.1] - 2026-11-14
 
 - Define one bilingual story/plain-language explanation for a high-school reader, reused by slides and video, with Mathesis academic-paper editorial ownership.
