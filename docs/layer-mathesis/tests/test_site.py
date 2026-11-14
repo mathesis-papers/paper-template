@@ -123,7 +123,8 @@ class SiteTests(unittest.TestCase):
     def test_video_requires_built_registry_and_real_nonempty_mp4(self):
         self.book["media"]["films"] = ["001-parity"]
         registry = {"version": 2, "book": self.slug, "films": [{"id": "001-parity", "title": "Why parity matters", "built": True,
-                    "videos": {"wide": "001-parity/film.mp4"}, "poster": "001-parity/poster.jpg"}]}
+                    "videos": {"narrated_720p": "001-parity/film.mp4", "cover": "001-parity/film_cover.jpg"},
+                    "poster": "001-parity/poster.jpg"}]}
         self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
         self.add(self.slug + "/films/index.html")
         self.add("manifest.json", json.dumps(self.manifest).encode())
@@ -134,7 +135,16 @@ class SiteTests(unittest.TestCase):
         videos = site.emit(self.root, self.out)["videos"]
         self.assertEqual(len(videos), 1)
         self.assertEqual(videos[0]["title"], "Why parity matters")
+        self.assertEqual(videos[0]["id"], "001-parity-narrated_720p")
         self.assertIsNone(videos[0]["poster_url"])
+        for variant in ("narrated", "music_only", "music_only_720p"):
+            registry["films"][0]["videos"] = {variant: "001-parity/film.mp4"}
+            self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
+            self.assertEqual(len(site.emit(self.root, self.out)["videos"]), 1)
+        registry["films"][0]["videos"] = {"unsupported": "001-parity/film.mp4"}
+        self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
+        with self.assertRaisesRegex(ValueError, "invalid film output"):
+            site.emit(self.root, self.out)
         registry["films"][0]["built"] = False
         self.add(self.slug + "/films/films.json", json.dumps(registry).encode())
         self.assertEqual(site.emit(self.root, self.out)["videos"], [])
