@@ -606,7 +606,7 @@ def check(root, complete=False):
         for result_id, env in result_envs.items():
             row = mapping["results"][result_id]
             if row.get("formalization_request") and env.attrs.get("request"):
-                require(row["formalization_request"]["url"] == env.attrs["request"],
+                require(row["formalization_request"]["url"] == env.attrs.get("request"),
                         f"{lang} #{result_id}: book mapping and written-proof request differ")
             require(env.attrs.get("mathesis") == row["claim"] and env.lean == row["gids"],
                     f"{lang} #{result_id}: claim/GIDs differ from book mapping")
