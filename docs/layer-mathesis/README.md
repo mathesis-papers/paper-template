@@ -3,7 +3,9 @@
 A paper repository consumes two independently maintained templates. The books
 template supplies `tbook`, managed tools, themes, build units, cache, publication
 workflows and output skills. The Mathesis layer supplies the catalog-to-book
-adapter, checks and paper-specific agent instructions. It does not fork the
+adapter, checks and independently maintained academic-paper editorial instructions.
+Its story is the bilingual plain-language explanation for a high-school reader;
+slides and video reuse that same content. It does not fork the
 books template. The maintainer of upstream remains loning.
 
 `template.toml` and `template-manifest.json` belong to upstream.
@@ -107,3 +109,11 @@ Layer 0.5.0 enforces the [four-zone paper layout](LAYOUT.md). Fill removes
 examples, creates one bilingual skeleton and generates the repository front;
 check rejects debris, unknown paths, extra books and unowned record files.
 Tidy previews or archives legacy violations outside the repository.
+
+Layer 0.6.1 documents ordinary contributor-fork PRs directly to upstream `dev`,
+an optional Mathesis fork only for a named collaboration, and Mathesis request
+provenance in [REQUESTS.md](REQUESTS.md). It uses one accessible bilingual story
+for reading and media, authored from the frozen manuscript when no sidecar is
+available. Missing video remains pending without blocking the eligible public
+paper's display. The pipeline records later discovery/pin activation and one
+manual exact-coverage/eligible-receipt pilot; these are not implemented automation.

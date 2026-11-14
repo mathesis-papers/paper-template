@@ -1,5 +1,13 @@
 # Mathesis layer changelog
 
+## [0.6.1] - 2026-11-14
+
+- Define one bilingual story/plain-language explanation for a high-school reader, reused by slides and video, with Mathesis academic-paper editorial ownership.
+- Document shared-request claiming and ordinary contributor-fork PRs directly to upstream dev; retain the Mathesis fork only for a named collaboration, without an extra integration gate or permanent sync service.
+- Preserve original-source/Mathesis provenance, historical registration identities, exact/partial/unknown coverage and existing platform credit rules.
+- Align the preparation checklist with the single-story and actual-video requirements.
+- Permit direct story authoring from the frozen manuscript when sidecars are absent; missing video remains pending without blocking eligible paper display. Record future discovery/pin activation and a manual mapping/eligible-receipt pilot without claiming automation.
+
 ## [0.6.0] - 2026-11-14
 
 - Discover actual built videos and selected-book shared formalization requests through the existing upstream manifests.
