@@ -190,6 +190,7 @@ class SiteTests(unittest.TestCase):
         shutil.copyfile(SCRIPT, script)
         shutil.copyfile(SCRIPT.with_name("mathesis_requests.py"), script.with_name("mathesis_requests.py"))
         shutil.copyfile(SCRIPT.with_name("collection_history.py"), script.with_name("collection_history.py"))
+        shutil.copyfile(SCRIPT.with_name("media_pages.py"), script.with_name("media_pages.py"))
         command = [sys.executable, str(SCRIPT)] if external else [sys.executable, *COMMAND[1:]]
         # A stale TBOOK_ROOT must not override the hook cwd.
         env = dict(os.environ, TBOOK_SITE_OUT=str(self.out), TBOOK_ROOT=str(ROOT), PYTHONDONTWRITEBYTECODE="1")

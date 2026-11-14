@@ -18,6 +18,7 @@ def emit(root, out):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from mathesis_requests import result_requests
     from collection_history import emit_history
+    from media_pages import adapt_media_pages
 
     mapping = load(root / ".mathesis/book.json")
     work = load(root / "paper.json")["work"]
@@ -90,6 +91,7 @@ def emit(root, out):
                     poster = url(f"{slug}/films/{film['poster']}") if film.get("poster") else None
                     videos.append({"id": film["id"] + "-" + variant, "title": film.get("title") or film["id"],
                                    "url": page + "#" + film["id"], "mp4_url": mp4, "poster_url": poster})
+    adapt_media_pages(out, slug, work)
     requests = []
     seen = set()
     for request in manifest.get("formalization_requests", []):

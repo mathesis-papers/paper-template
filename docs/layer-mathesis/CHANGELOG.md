@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.7.3] - 2026-11-15
+
+- Present paper films with a readable bilingual heading, narration information and author credit. Keep proof sources expandable and preserve playback, downloads and language controls, while removing build instructions and internal book codes from the reader page. Adapt only Mathesis output; the upstream renderer and media contract remain unchanged.
+
 ## [0.7.2] - 2026-11-15
 
 - Read written-proof request attributes through the upstream parsed-attribute interface. Accept matching mapped request links and keep rejecting links that disagree with the written proof.
