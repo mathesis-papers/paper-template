@@ -87,6 +87,12 @@ there is no sidecar prerequisite or duplicate explanation task. Keep absent
 outputs pending until authored and checked. The mechanical adapter itself does
 not run a book-writing job or generate paper text.
 
+The Mathesis post-build hook
+adapts the existing film index for paper readers: bilingual heading, original
+player and downloads, language controls, author credit and expandable exact Lean
+source links. It removes template build instructions and internal book codes;
+the upstream media registry, film bytes, renderer and theme remain authoritative.
+
 The normal check permits an explicitly unfinished skeleton, reports its pending
 claim count, and checks all existing mappings. When conversion and all checks
 are complete, the agent removes skeleton comments, maps every claim and sets
