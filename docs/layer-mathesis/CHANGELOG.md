@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.7.2] - 2026-11-15
+
+- Read written-proof request attributes through the upstream parsed-attribute interface. Accept matching mapped request links and keep rejecting links that disagree with the written proof.
+
 ## [0.7.1] - 2026-11-15
 
 - Treat the published film pipeline's ignored, untracked `books/<slug>/films/<id>/out/` as local build output. Keep rejecting tracked media, unignored output and unrelated content directories.

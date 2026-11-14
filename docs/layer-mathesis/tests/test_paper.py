@@ -125,6 +125,18 @@ class PaperTests(unittest.TestCase):
                 'request="https://github.com/the-omega-institute/trureturing-requests/issues/1"}\n'
                 f'Integration fixture, no mathematical claim.\n:::\n\n::: {{.proof #pf-{claim}}}\nFixture argument.\n:::\n')
         self.run_cli("check")
+        row["formalization_request"] = {
+            "label": "Integration fixture",
+            "url": "https://github.com/the-omega-institute/trureturing-requests/issues/1"}
+        path.write_text(json.dumps(mapping))
+        self.run_cli("front")
+        self.run_cli("check")
+        row["formalization_request"]["url"] = "https://github.com/the-omega-institute/trureturing-requests/issues/2"
+        path.write_text(json.dumps(mapping))
+        self.run_cli("front")
+        self.assertIn("written-proof request differ", self.run_cli("check", expected=1))
+        del row["formalization_request"]
+        self.run_cli("front")
         row["comparison_verdict"] = "almost"
         path.write_text(json.dumps(mapping))
         self.refresh_review(mapping)
