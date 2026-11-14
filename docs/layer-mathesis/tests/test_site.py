@@ -31,6 +31,12 @@ class SiteTests(unittest.TestCase):
             shutil.copyfile(source / name, path)
         self.work = json.loads((self.root / "paper.json").read_text())["work"]
         self.slug = json.loads((self.root / ".mathesis/book.json").read_text())["book"]
+        # Each test supplies its own request inventory; the selected real paper
+        # may already have unrelated registered requests in its mapping.
+        mapping = json.loads((self.root / ".mathesis/book.json").read_text())
+        for row in mapping.get("results", {}).values():
+            row.pop("formalization_request", None)
+        (self.root / ".mathesis/book.json").write_text(json.dumps(mapping))
         self.out = self.root / "_site"
         self.book = {"slug": self.slug, "editions": [{"lang": "en", "html": self.slug + "/en/"}, {"lang": "zh", "html": None}],
                      "files": [], "media": {"viz": ["step-triangle"]}}
@@ -79,6 +85,39 @@ class SiteTests(unittest.TestCase):
         self.book["editions"][0]["html"] = "../outside/"
         self.add("manifest.json", json.dumps(self.manifest).encode())
         with self.assertRaisesRegex(ValueError, "invalid published"):
+            site.emit(self.root, self.out)
+
+    def test_collection_migration_keeps_downloads_and_old_reading_addresses(self):
+        import hashlib
+        name = 'versions/v1/paper.pdf'
+        path = self.root / name
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'original version-one PDF')
+        (self.root / '.mathesis/collection-history.json').write_text(json.dumps({
+            'schema': 'mathesis.collection-history.v1', 'work': self.work['work'],
+            'source_commit': 'a' * 40, 'sha256': {name: hashlib.sha256(path.read_bytes()).hexdigest()}}))
+        paper = json.loads((self.root / 'paper.json').read_text())
+        paper['files'] = {'source': {'original_path': 'manuscript/original-source.archive'}}
+        (self.root / 'paper.json').write_text(json.dumps(paper))
+        frozen = {}
+        for name, data in [('paper.pdf', b'original current PDF'), ('manuscript/original-source.archive', b'original source archive')]:
+            p = self.root / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(data)
+            frozen[name] = hashlib.sha256(data).hexdigest()
+        (self.root / '.mathesis/generated.json').write_text(json.dumps({'sha256': frozen}))
+        self.add(self.slug + '/en/index.html')
+        for _ in range(2):
+            result = site.emit(self.root, self.out)
+            self.assertEqual((self.out / 'versions/v1/paper.pdf').read_bytes(), b'original version-one PDF')
+            self.assertEqual((self.out / 'paper.pdf').read_bytes(), b'original current PDF')
+            self.assertEqual((self.out / 'source.archive').read_bytes(), b'original source archive')
+            self.assertIn('../' + self.slug + '/en/', (self.out / 'en/index.html').read_text())
+            self.assertNotIn('receipt', result)
+
+        paper['files']['source']['original_path'] = '../private'
+        (self.root / 'paper.json').write_text(json.dumps(paper))
+        with self.assertRaisesRegex(ValueError, 'invalid original collected source'):
             site.emit(self.root, self.out)
 
     def test_video_requires_built_registry_and_real_nonempty_mp4(self):
@@ -140,6 +179,7 @@ class SiteTests(unittest.TestCase):
         script.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SCRIPT, script)
         shutil.copyfile(SCRIPT.with_name("mathesis_requests.py"), script.with_name("mathesis_requests.py"))
+        shutil.copyfile(SCRIPT.with_name("collection_history.py"), script.with_name("collection_history.py"))
         command = [sys.executable, str(SCRIPT)] if external else [sys.executable, *COMMAND[1:]]
         # A stale TBOOK_ROOT must not override the hook cwd.
         env = dict(os.environ, TBOOK_SITE_OUT=str(self.out), TBOOK_ROOT=str(ROOT), PYTHONDONTWRITEBYTECODE="1")

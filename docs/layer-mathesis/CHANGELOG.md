@@ -1,5 +1,10 @@
 # Mathesis layer changelog
 
+## [0.7.0] - 2026-11-15
+
+- Preserve publisher-owned collection version snapshots during an authored-book migration, with a separate immutable source inventory and unchanged public download paths.
+- Retain original root PDF/source downloads and old language reading addresses; historical snapshots grant no current coverage, receipts or credit.
+
 ## [0.6.2] - 2026-11-15
 
 - Export registered shared requests from reviewed result mappings, including unbadged remarks without a DOI, while preserving proof-evidence and credit boundaries.

@@ -90,6 +90,17 @@ class LayoutTests(unittest.TestCase):
                 self.assertIn(name + ': four zones: unknown root entry', self.issues())
                 p.unlink() if p.is_file() else p.rmdir()
 
+    def test_immutable_collection_history_is_a_paper_record_not_built_output(self):
+        name = 'versions/v1/paper.pdf'
+        self.put(name, 'original historical PDF')
+        self.assertIn('collection-history', self.issues())
+        self.json('.mathesis/collection-history.json', {'schema': 'mathesis.collection-history.v1',
+                  'work': self.slug, 'source_commit': 'a' * 40,
+                  'sha256': {name: paper.digest(self.root / name)}})
+        self.assertEqual(self.issues(), '')
+        self.put(name, 'silently changed historical PDF')
+        self.assertIn('bytes differ', self.issues())
+
     def test_examples_extra_books_and_missing_book(self):
         for name in ('example-monograph', 'another-paper'):
             p = self.put(f'books/{name}/book.toml')

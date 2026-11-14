@@ -5,7 +5,7 @@ layer consistency workflow. A selected paper has exactly four zones:
 
 | Zone | Paths | Writer |
 |---|---|---|
-| 1 · Paper record | `paper.json`, `CITATION.cff`, `paper.pdf`, `source.archive`, `manuscript/`, `formalization/nodes.json`, `LICENSES/`, `.mathesis/` | The Mathesis publisher imports frozen files. `.mathesis/generated.json` is the unchanged catalog manifest; `.mathesis/book.json` is the integration mapping. Paper-sync maintains the sole statement comparison record, either `.mathesis/REVIEW.md` or `.mathesis/review.json`. |
+| 1 · Paper record | `paper.json`, `CITATION.cff`, `paper.pdf`, `source.archive`, `manuscript/`, `formalization/nodes.json`, `LICENSES/`, `.mathesis/`, optional `versions/` | The Mathesis publisher imports frozen files. `.mathesis/generated.json` is the unchanged catalog manifest; `.mathesis/book.json` is the integration mapping. Paper-sync maintains the sole statement comparison record, either `.mathesis/REVIEW.md` or `.mathesis/review.json`. A migrated collection retains immutable version snapshots with the separate collection-history inventory described below. |
 | 2 · Content | Exactly `books/<slug>/`: `book.toml`, `zh/`, `en/`, `figures/`, `viz/`, `films/`, `slides/`, `assets/` | Author or preparing agent. The slug is `paper.json`'s work id. A shorter slug requires a nonempty `short_slug_reason` in the book mapping. Persist empty media directories with `.gitkeep`, as fill does. |
 | 3 · Machinery | Upstream `template.toml` managed paths and installed layer managed paths | Template/layer maintainers, through `tbook template update`. Excluded namespaces are not permission to add local files: `docs/project/` and local skills are outside this layout. Managed files must be listed in the corresponding template manifest. |
 | 4 · Repository front | `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE`, `PROJECT.md`, `site.toml`, `trureturing.lock.json`, `template.d/` | Publisher generates the README; maintainers configure the remaining front through the existing publisher/template interfaces. `template.d/` contains only installed layer configurations and manifests. |
@@ -23,7 +23,18 @@ links to this contract; `fill` replaces it with the selected paper's front.
 Every frozen record file must be listed in `.mathesis/generated.json` and match
 its SHA-256. The manifest cannot claim content, machinery or arbitrary paths.
 Only the manifest itself, book mapping and one comparison record are additional
-record files. Never rehash frozen files to bless local edits.
+record files, plus the publisher's optional `.mathesis/collection-history.json`
+when migrating an existing collection. Never rehash frozen files to bless local edits.
+
+The collection-history record has schema `mathesis.collection-history.v1`, the
+same `work`, the full original `source_commit` and a `sha256` map for every
+retained `versions/vN/` file. These are the collection publisher's existing
+snapshots, preserved byte for byte. They may include original PDF and source
+archives; they cannot contain symlinks or unlisted additions. The layer checks
+their inventory separately from the current paper projection and copies them
+unchanged to the same public version URLs. The original root PDF/source links
+and language reading addresses are retained too. Historical files never
+establish current claim coverage, new receipts or leaderboard credit.
 
 The catalog currently hashes its minimal `README.md` too. Preserve those bytes
 as the README prefix, then append the deterministic layer repository guide.
@@ -89,7 +100,8 @@ The checker reads this JSON block; do not duplicate these lists in code.
 {
   "record_files": ["paper.json", "CITATION.cff", "paper.pdf", "source.archive", "formalization/nodes.json"],
   "record_directories": ["manuscript", "LICENSES"],
-  "record_metadata": [".mathesis/generated.json", ".mathesis/book.json", ".mathesis/REVIEW.md", ".mathesis/review.json"],
+  "history_directories": ["versions"],
+  "record_metadata": [".mathesis/generated.json", ".mathesis/book.json", ".mathesis/REVIEW.md", ".mathesis/review.json", ".mathesis/collection-history.json"],
   "catalog_front": ["README.md", "CHANGELOG.md", "CONTRIBUTING.md"],
   "front": ["README.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "PROJECT.md", "site.toml", "trureturing.lock.json", "template.d"],
   "content": ["book.toml", "zh", "en", "figures", "viz", "films", "slides", "assets"],

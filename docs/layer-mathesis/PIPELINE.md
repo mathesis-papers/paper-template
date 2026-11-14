@@ -1,5 +1,14 @@
 # Publisher and conversion pipeline
 
+An existing collection may be migrated to authored reading with the catalog's
+local `promote_content.py` preparation command. Mathesis layer 0.7.0 retains
+its publisher-owned `versions/vN/` snapshots using
+`.mathesis/collection-history.json`. The source commit and every original byte
+are preserved, along with root PDF/source URLs and old language reading links.
+The catalog's `book_works` control must change with publication; do not let a
+scheduled collection refresh replace the authored tree. Historical downloads
+are separate from the current paper mapping and establish no proof coverage.
+
 The publisher selects one exact public CC-BY-4.0 collected-paper version and
 renders it with the existing `sdk/catalog` snapshot/fetch/render process. The
 adapter consumes that rendered `papers/<repository-name>/` directory offline.

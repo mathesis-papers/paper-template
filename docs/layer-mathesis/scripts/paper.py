@@ -20,6 +20,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mathesis_requests import result_requests
+from collection_history import history_files
 
 ROOT = Path(__file__).resolve().parents[3]
 REQUIRED = {"paper.json", "CITATION.cff", "formalization/nodes.json", "paper.pdf", "LICENSES/CC-BY-4.0.txt"}
@@ -183,11 +184,18 @@ def layout_issues(root):
             if not (path.is_file() if name == "book.toml" else path.is_dir()):
                 issues.append((f"books/{slug}/{name}", "zone 2 requires the bilingual content skeleton"))
     allowed_roots = (managed_roots | set(rules["front"]) | {"books", ".mathesis", "formalization"} |
-                     set(rules["record_files"]) | set(rules["record_directories"]))
+                     set(rules["record_files"]) | set(rules["record_directories"]) |
+                     (set(rules["history_directories"]) if selected else set()))
     # record_files may contain a nested path, not a root entry.
     allowed_roots = {n.split("/")[0] for n in allowed_roots}
     manifest = read_json(root / ".mathesis/generated.json") if selected else {}
     hashes = manifest.get("sha256", {})
+    history = {}
+    if selected:
+        try:
+            history = history_files(root, paper["work"]["work"])
+        except (ValueError, KeyError, TypeError, OSError) as exc:
+            issues.append((".mathesis/collection-history.json", str(exc)))
     if selected:
         names = manifest["generated_paths"]
         if len(names) != len(set(names)) or set(names) != set(hashes):
@@ -200,15 +208,16 @@ def layout_issues(root):
         is_file = path.is_file() or path.is_symlink()
         known_machine = name in entries
         frozen = record_path(name, rules) and name in hashes
+        historical = name in history
         if len(parts) == 1 and name not in allowed_roots:
             issues.append((name, "four zones: unknown root entry"))
         if is_file and not path.is_symlink() and path.stat().st_size > rules["size_limit"] and not (
-                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/")):
+                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/") or historical):
             issues.append((name, "all zones: exceeds 2 MiB; only paper.pdf and manuscript/ are exempt"))
         if is_file and Path(name).suffix.lower() in rules["built_suffixes"] and not (
-                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/")):
+                name in ("paper.pdf", "source.archive") or name.startswith("manuscript/") or historical):
             issues.append((name, "all zones: built output must stay outside the repository"))
-        if not known_machine and not frozen:
+        if not known_machine and not frozen and not historical:
             if any(name == d or name.startswith(d + "/") or d in parts for d in rules["forbidden_directories"]) or any(
                     fnmatch.fnmatchcase(path.name.lower(), p) for p in rules["forbidden_filenames"]):
                 issues.append((name, "all zones: preparation debris/run records belong outside the repository"))
@@ -219,6 +228,9 @@ def layout_issues(root):
                 issues.append((name, "zone 2 permits only the documented book content entries"))
             elif is_file and path.suffix == ".py" and len(parts) > 2 and parts[2] != "figures":
                 issues.append((name, "zone 2 permits Python source only as a reusable figure generator"))
+        elif parts[0] == "versions":
+            if is_file and not historical:
+                issues.append((name, "zone 1 version snapshot is absent from collection-history"))
         elif parts[0] == ".mathesis":
             if name != ".mathesis" and name not in rules["record_metadata"]:
                 issues.append((name, "zone 1 permits only the manifest, book mapping and sole statement review"))
