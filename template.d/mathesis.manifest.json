@@ -56,7 +56,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/scripts/paper.py": {
-      "sha256": "811fc1a616ddba61a5b7626e9a3e019c5fd2aa64f257c6f8bf22a55c1a780aee",
+      "sha256": "c114ff2285fe7c249b571ad5726e2e2789b2d1568498fc48dc1c610f5fdb875c",
       "mode": "100644"
     },
     "docs/layer-mathesis/scripts/site.py": {
@@ -84,7 +84,7 @@
       "mode": "100644"
     },
     "docs/layer-mathesis/tests/test_paper.py": {
-      "sha256": "70e233049a5fd729f9fcc2525de2cdaca87cd926a59480245d4e2c52691d8a86",
+      "sha256": "b3fb2f4824552f493db5edec9e5a9bf97d10e11b770743d1a6806bff821ae37f",
       "mode": "100644"
     },
     "docs/layer-mathesis/tests/test_site.py": {

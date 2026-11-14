@@ -80,6 +80,15 @@ class PaperTests(unittest.TestCase):
             self.assertTrue((self.root / "books" / self.slug / name / ".gitkeep").is_file())
         self.run_cli("check", "--layout-only")
 
+    def test_empty_media_registry_keeps_front_stable_without_promising_outputs(self):
+        before = (self.root / "README.md").read_bytes()
+        path = self.root / "books" / self.slug / "viz/visualizations.json"
+        path.write_text(json.dumps({"version": 1, "visualizations": []}))
+        self.run_cli("check")
+        self.assertEqual((self.root / "README.md").read_bytes(), before)
+        self.assertNotIn(b"[Videos](", before)
+        self.assertNotIn(b"[Visualizations](", before)
+
     def test_academic_pdf_is_the_only_default(self):
         import tomllib
         cfg = tomllib.loads((self.root / "books" / self.slug / "book.toml").read_text())

@@ -265,9 +265,9 @@ def front_bytes(root):
     site = tomllib.loads((root / "site.toml").read_text())["site"]
     base = site["base_url"].rstrip("/") + "/"
     media = []
-    for directory, label in (("slides", "Slides"), ("films", "Videos"), ("viz", "Visualizations")):
+    for directory, label, pattern in (("slides", "Slides", "*/deck.toml"), ("films", "Videos", "*/film.json"), ("viz", "Visualizations", "*/index.html")):
         source = root / "books" / slug / directory
-        if source.is_dir() and any(p.is_file() and p.name != ".gitkeep" for p in source.rglob("*")):
+        if source.is_dir() and any(p.is_file() for p in source.glob(pattern)):
             media.append(f"[{label}]({base}{slug}/{directory}/) ([sources](books/{slug}/{directory}/))")
     guide = ["", "## Reading and materials", "", f"[Paper site]({base}) · [Frozen PDF](paper.pdf) · [Citation](CITATION.cff)", "",
              f"[中文阅读]({base}{slug}/zh/) · [Read in English]({base}{slug}/en/)", "",
