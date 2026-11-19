@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.7.4] - 2026-11-19
+
+- Keep the real paper work ID separate from the repository name in integration fixtures. DOI-named repositories now exercise the same content-slug and request-registration checks as other papers.
+
 ## [0.7.3] - 2026-11-15
 
 - Present paper films with a readable bilingual heading, narration information and author credit. Keep proof sources expandable and preserve playback, downloads and language controls, while removing build instructions and internal book codes from the reader page. Adapt only Mathesis output; the upstream renderer and media contract remain unchanged.

@@ -34,7 +34,8 @@ class PaperTests(unittest.TestCase):
             shutil.copyfile(UPSTREAM / name, self.root / name)
         shutil.copytree(ROOT / "template.d", self.root / "template.d")
         self.work = json.loads((Path(SOURCE) / "paper.json").read_text())["work"]
-        self.slug = self.work["repository_name"]
+        self.slug = self.work["work"]
+        self.repository = "mathesis-papers/" + self.work["repository_name"]
         if self._testMethodName == "test_fill_removes_examples_and_persists_media_skeleton":
             example = self.root / "books/example-monograph/en/README.md"
             example.parent.mkdir(parents=True)
@@ -42,7 +43,7 @@ class PaperTests(unittest.TestCase):
         # Explicitly use the recorded title for both edition metadata in these tests.
         output = self.run_cli("fill", "--input", SOURCE, "--slug", self.slug,
                      "--title-zh", self.work["title"], "--title-en", self.work["title"],
-                     "--repository", "mathesis-papers/" + self.slug)
+                     "--repository", self.repository)
         for line in output.splitlines():
             if line.startswith("Moved upstream examples outside the repository: "):
                 self.example_archive = Path(line.split(": ", 1)[1])
@@ -71,7 +72,7 @@ class PaperTests(unittest.TestCase):
         self.assertIn("pending claims", self.run_cli("check"))
         self.run_cli("fill", "--input", SOURCE, "--slug", self.slug,
                      "--title-zh", self.work["title"], "--title-en", self.work["title"],
-                     "--repository", "mathesis-papers/" + self.slug, expected=1)
+                     "--repository", self.repository, expected=1)
 
     def test_fill_removes_examples_and_persists_media_skeleton(self):
         self.assertEqual([p.name for p in (self.root / "books").iterdir()], [self.slug])
