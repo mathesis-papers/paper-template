@@ -66,8 +66,9 @@ results require a bare DOI, original source location and a registered
 formalization-request issue as well as their nonempty proof in every edition.
 See [the release requirement and migration notes](UPSTREAM-PINS.md).
 
-[The manuscript skeleton](MANUSCRIPT.md) fixes the LaTeX layout of submitted short
-notes. [The pipeline](PIPELINE.md) documents the mechanical publisher step and its
+[The LaTeX manuscript template](MANUSCRIPT.md) supplies shared typography for
+papers and short notes; our own short notes use it as their default reference.
+[The pipeline](PIPELINE.md) documents the mechanical publisher step and its
 agent handoff. [Project rules](PROJECT.md) are imported from root `PROJECT.md`.
 
 Layer 0.3.0 opts selected papers into the optional upstream `site.post_build`
