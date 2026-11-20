@@ -1,0 +1,78 @@
+% Mathesis manuscript skeleton for a short research note.
+% Fixed choices: 11pt article, one column, 1in margins, Latin Modern, amsthm
+% with one shared counter, day-month-year date, a "Scope and coverage" section
+% with a "Verification coverage" paragraph, hand-written bibliography with
+% locators, and the CC BY 4.0 line at the end. Replace the upper-case
+% placeholders; keep the section order.
+\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,amssymb,amsthm,booktabs,array}
+\usepackage[margin=1in]{geometry}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\usepackage{xurl}
+\hypersetup{pdftitle={TITLE},pdfauthor={FIRST AUTHOR; SECOND AUTHOR},pdfsubject={SUBJECT; CC BY 4.0}}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+% The title states the result and the question it answers.
+\title{TITLE}
+\author{FIRST AUTHOR\\\small AFFILIATION, COUNTRY
+\and SECOND AUTHOR\\\small AFFILIATION, COUNTRY}
+\date{DAY MONTH YEAR}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+% One paragraph: the source and the conclusion; the exact scope of the result;
+% which statements are Lean-verified.
+ABSTRACT
+\end{abstract}
+
+\section{The question}
+% State the posed statement as its source states it, with a locator
+% (paper, section, statement number, page), and the definitions it uses.
+
+\section{Main result}
+% The theorem and its complete proof. Exact computed examples go in
+% booktabs tables.
+
+\begin{theorem}\label{thm:main}
+STATEMENT
+\end{theorem}
+
+\begin{proof}
+PROOF
+\end{proof}
+
+\section{Scope and coverage}
+% One row per statement of the source: what this note does with it
+% (proved, refuted, not addressed).
+\begin{center}\small
+\begin{tabular}{@{}p{.42\linewidth}p{.52\linewidth}@{}}
+\toprule
+Source statement & Status in this note\\
+\midrule
+SOURCE STATEMENT WITH LOCATOR & PROVED / REFUTED / NOT ADDRESSED\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Verification coverage.}
+% Say exactly which conclusions a Lean declaration covers (declaration name and
+% a link to the .lean file at a pinned commit), which have a written proof only,
+% and which are exact finite computations.
+COVERAGE
+
+\begin{thebibliography}{9}
+% Every entry carries a DOI or arXiv identifier and the cited locator.
+\bibitem{source} A.~AUTHOR, \emph{TITLE}, JOURNAL (YEAR), DOI OR ARXIV ID, THEOREM X, P.~Y.
+\end{thebibliography}
+
+\smallskip
+\noindent\small Copyright \copyright\ YEAR FIRST AUTHOR and SECOND AUTHOR.
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+\end{document}
