@@ -1,10 +1,9 @@
-% Mathesis manuscript skeleton for a short research note.
-% Fixed choices: 11pt article, one column, 1in margins, Latin Modern, amsthm
-% with one shared counter, day-month-year date, a "Scope and coverage" section
-% with a "Verification coverage" paragraph, hand-written bibliography with
-% locators, and the CC BY 4.0 line at the end. Replace the upper-case
-% placeholders; keep the section order.
-\documentclass[11pt]{article}
+% Mathesis LaTeX template for research papers and short notes.
+% Shared typography: A4, 11pt, one column, 1in margins, Latin Modern,
+% and a common counter for mathematical environments.
+% Replace the upper-case placeholders and adapt the sections to the argument.
+% There is no required page count, section count or coverage table.
+\documentclass[11pt,a4paper]{article}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern,amsmath,amssymb,amsthm,booktabs,array}
 \usepackage[margin=1in]{geometry}
@@ -16,6 +15,12 @@
 \newtheorem{lemma}[theorem]{Lemma}
 \newtheorem{proposition}[theorem]{Proposition}
 \newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem{example}[theorem]{Example}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
 
 % The title states the result and the question it answers.
 \title{TITLE}
@@ -27,18 +32,19 @@
 \maketitle
 
 \begin{abstract}
-% One paragraph: the source and the conclusion; the exact scope of the result;
-% which statements are Lean-verified.
+% State the question, principal result, exact scope and proof idea.
+% Mention formal verification here only when it is part of the contribution.
 ABSTRACT
 \end{abstract}
 
-\section{The question}
-% State the posed statement as its source states it, with a locator
-% (paper, section, statement number, page), and the definitions it uses.
+\section{Introduction}
+% Explain the question, answer, significance and relation to previous work.
+% Cite a posed problem or borrowed result at its exact source location,
+% for example \cite[Theorem~1.2]{source}. Introduce notation as it is needed.
 
 \section{Main result}
-% The theorem and its complete proof. Exact computed examples go in
-% booktabs tables.
+% State the theorem early and give its complete proof. Add lemmas, examples,
+% further sections and appendices where the mathematical argument needs them.
 
 \begin{theorem}\label{thm:main}
 STATEMENT
@@ -48,31 +54,27 @@ STATEMENT
 PROOF
 \end{proof}
 
-\section{Scope and coverage}
-% One row per statement of the source: what this note does with it
-% (proved, refuted, not addressed).
-\begin{center}\small
-\begin{tabular}{@{}p{.42\linewidth}p{.52\linewidth}@{}}
-\toprule
-Source statement & Status in this note\\
-\midrule
-SOURCE STATEMENT WITH LOCATOR & PROVED / REFUTED / NOT ADDRESSED\\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{Verification coverage.}
-% Say exactly which conclusions a Lean declaration covers (declaration name and
-% a link to the .lean file at a pinned commit), which have a written proof only,
-% and which are exact finite computations.
-COVERAGE
+% Optional supporting material:
+% - Give the scope of Lean verification or finite computations where relevant,
+%   with a pinned .lean link or the exact finite domain and method.
+% - Use a comparison/coverage table only when it helps explain several results.
+% - Add acknowledgements, consequences or open questions when they add content.
+% - Use \appendix for lengthy supporting proofs that the main text references.
 
 \begin{thebibliography}{9}
-% Every entry carries a DOI or arXiv identifier and the cited locator.
-\bibitem{source} A.~AUTHOR, \emph{TITLE}, JOURNAL (YEAR), DOI OR ARXIV ID, THEOREM X, P.~Y.
+% Give checked bibliographic details. Use an actual DOI/arXiv identifier when
+% available, or an ISBN/stable URL with an entry number or version as needed.
+% OEIS entries, MathOverflow questions and problem collections may use URLs.
+\bibitem{source} SOURCE AUTHOR, \emph{SOURCE TITLE}, PUBLICATION DETAILS (YEAR).
+\url{https://example.org/source}.
 \end{thebibliography}
+% Alternatively replace the thebibliography environment above with BibTeX:
+% \bibliographystyle{amsplain}
+% \bibliography{references}
 
 \smallskip
+% Our short notes use CC BY 4.0. For other manuscripts, use the authors'
+% actual approved licence and update the PDF metadata above accordingly.
 \noindent\small Copyright \copyright\ YEAR FIRST AUTHOR and SECOND AUTHOR.
 Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
 \end{document}
