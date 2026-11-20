@@ -66,7 +66,8 @@ results require a bare DOI, original source location and a registered
 formalization-request issue as well as their nonempty proof in every edition.
 See [the release requirement and migration notes](UPSTREAM-PINS.md).
 
-[The pipeline](PIPELINE.md) documents the mechanical publisher step and its
+[The manuscript skeleton](MANUSCRIPT.md) fixes the LaTeX layout of submitted short
+notes. [The pipeline](PIPELINE.md) documents the mechanical publisher step and its
 agent handoff. [Project rules](PROJECT.md) are imported from root `PROJECT.md`.
 
 Layer 0.3.0 opts selected papers into the optional upstream `site.post_build`

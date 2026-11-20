@@ -1,5 +1,9 @@
 # Mathesis layer changelog
 
+## [0.7.5] - 2026-11-20
+
+- Add the LaTeX manuscript skeleton for short notes (`manuscript/note.tex`) and its description (`MANUSCRIPT.md`): fixed layout, order of parts, the scope table and the verification-coverage paragraph.
+
 ## [0.7.4] - 2026-11-19
 
 - Keep the real paper work ID separate from the repository name in integration fixtures. DOI-named repositories now exercise the same content-slug and request-registration checks as other papers.
